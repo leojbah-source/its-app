@@ -1,0 +1,13 @@
+{
+  "name": "kca-its-services",
+  "version": "1.0.0",
+  "description": "KCA Indian Talent Scan - core business logic services (ranking, membership, awards, scheduler)",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest --runInBand"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
