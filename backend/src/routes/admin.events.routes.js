@@ -9,94 +9,254 @@ const router = express.Router();
 router.use(authenticate);
 
 const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
-const editRoles = ['SuperAdmin', 'Admin', 'Coordinator'];
+const editRoles  = ['SuperAdmin', 'Admin', 'Coordinator'];
 
-// ---- CRUD /api/admin/events ----
-router.get('/events', requireRole(...staffRoles), async (req, res, next) => {
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+async function attachCriteriaAndAgeGroups(client, rows) {
+  if (!rows.length) return rows;
+  const eventIds = rows.map((r) => r.id);
+
+  const { rows: criteriaRows } = await client.query(
+    `SELECT event_id, criterion_name AS label, max_score, sequence_order
+     FROM event_criteria WHERE event_id = ANY($1)
+     ORDER BY event_id, sequence_order`,
+    [eventIds],
+  );
+
+  const { rows: agRows } = await client.query(
+    `SELECT eag.event_id, ag.code
+     FROM event_age_groups eag
+     JOIN age_groups ag ON ag.id = eag.age_group_id
+     WHERE eag.event_id = ANY($1)
+     ORDER BY eag.event_id, ag.sort_order`,
+    [eventIds],
+  );
+
+  const criteriaMap = {};
+  for (const c of criteriaRows) {
+    if (!criteriaMap[c.event_id]) criteriaMap[c.event_id] = [];
+    criteriaMap[c.event_id].push({ label: c.label, max_score: Number(c.max_score) });
+  }
+
+  const ageGroupMap = {};
+  for (const ag of agRows) {
+    if (!ageGroupMap[ag.event_id]) ageGroupMap[ag.event_id] = [];
+    ageGroupMap[ag.event_id].push(ag.code);
+  }
+
+  rows.forEach((row) => {
+    row.criteria   = criteriaMap[row.id]   || [];
+    row.age_groups = ageGroupMap[row.id]   || [];
+  });
+
+  return rows;
+}
+
+async function saveCriteria(client, eventId, criteria) {
+  await client.query(`DELETE FROM event_criteria WHERE event_id = $1`, [eventId]);
+  for (const [i, c] of (criteria || []).entries()) {
+    if (c.label?.trim()) {
+      await client.query(
+        `INSERT INTO event_criteria (event_id, criterion_name, max_score, sequence_order)
+         VALUES ($1, $2, $3, $4)`,
+        [eventId, c.label.trim(), Number(c.max_score) || 0, i + 1],
+      );
+    }
+  }
+}
+
+async function saveAgeGroups(client, eventId, yearId, agCodes) {
+  await client.query(`DELETE FROM event_age_groups WHERE event_id = $1`, [eventId]);
+  if (!agCodes?.length) return;
+  const { rows: agRows } = await client.query(
+    `SELECT id FROM age_groups WHERE year_id = $1 AND code = ANY($2)`,
+    [yearId, agCodes],
+  );
+  for (const ag of agRows) {
+    await client.query(
+      `INSERT INTO event_age_groups (event_id, age_group_id) VALUES ($1, $2)`,
+      [eventId, ag.id],
+    );
+  }
+}
+
+// ── GET /api/admin/categories ────────────────────────────────────────────────
+router.get('/categories', requireRole(...staffRoles), async (req, res, next) => {
   try {
-    const { year_id } = req.query;
+    const { rows: config } = await pool.query(
+      `SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`,
+    );
+    if (!config[0]) return res.json([]);
     const { rows } = await pool.query(
-      `SELECT * FROM events WHERE ($1::int IS NULL OR year_id = $1) ORDER BY id`,
-      [year_id || null]
+      `SELECT id, code, name, sort_order FROM categories
+       WHERE year_id = $1 ORDER BY sort_order, id`,
+      [config[0].id],
     );
     res.json(rows);
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
-router.get('/events/:id', requireRole(...staffRoles), async (req, res, next) => {
+// ── GET /api/admin/events ────────────────────────────────────────────────────
+router.get('/events', requireRole(...staffRoles), async (req, res, next) => {
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(`SELECT * FROM events WHERE id = $1`, [req.params.id]);
-    if (!rows[0]) return res.status(404).json({ error: 'Event not found' });
-    res.json(rows[0]);
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.post('/events', requireRole(...editRoles), async (req, res, next) => {
-  try {
-    const { year_id, name, category, age_group, type, max_participants, is_team_event } = req.body;
-    if (!year_id || !name || !category || !age_group) {
-      return res.status(400).json({ error: 'year_id, name, category and age_group are required' });
-    }
-    const { rows } = await pool.query(
-      `INSERT INTO events (year_id, name, category, age_group, type, max_participants, is_team_event, status, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'active', NOW()) RETURNING *`,
-      [year_id, name, category, age_group, type || 'individual', max_participants || null, Boolean(is_team_event)]
+    const { rows: config } = await client.query(
+      `SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`,
     );
-    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'CREATE_EVENT', entity: 'events', entityId: rows[0].id });
+    const year_id = config[0]?.id || null;
+
+    const { rows } = await client.query(
+      `SELECT e.*, c.name AS category_name, c.code AS category_code
+       FROM events e
+       LEFT JOIN categories c ON c.id = e.category_id
+       WHERE ($1::int IS NULL OR e.year_id = $1)
+       ORDER BY c.sort_order, e.sort_order, e.id`,
+      [year_id],
+    );
+
+    await attachCriteriaAndAgeGroups(client, rows);
+    res.json(rows);
+  } catch (err) { next(err); }
+  finally { client.release(); }
+});
+
+// ── GET /api/admin/events/:id ────────────────────────────────────────────────
+router.get('/events/:id', requireRole(...staffRoles), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(
+      `SELECT e.*, c.name AS category_name, c.code AS category_code
+       FROM events e
+       LEFT JOIN categories c ON c.id = e.category_id
+       WHERE e.id = $1`,
+      [req.params.id],
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Event not found' });
+    await attachCriteriaAndAgeGroups(client, rows);
+    res.json(rows[0]);
+  } catch (err) { next(err); }
+  finally { client.release(); }
+});
+
+// ── POST /api/admin/events ───────────────────────────────────────────────────
+router.post('/events', requireRole(...editRoles), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const {
+      event_code, event_name, category_id,
+      event_kind     = 'individual',
+      is_stage_event = false,
+      time_slot_mode = false,
+      criteria       = [],
+      age_groups     = [],
+    } = req.body;
+
+    if (!event_code || !event_name || !category_id) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'event_code, event_name, category_id are required' });
+    }
+
+    const { rows: cfg } = await client.query(
+      `SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`,
+    );
+    if (!cfg[0]) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'No active year config' }); }
+    const year_id = cfg[0].id;
+
+    const { rows } = await client.query(
+      `INSERT INTO events
+         (year_id, category_id, event_code, event_name, event_kind,
+          is_stage_event, time_slot_mode, sort_order, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,0,NOW(),NOW()) RETURNING *`,
+      [year_id, category_id, event_code, event_name, event_kind, is_stage_event, time_slot_mode],
+    );
+    const eventId = rows[0].id;
+
+    await saveCriteria(client, eventId, criteria);
+    await saveAgeGroups(client, eventId, year_id, age_groups);
+
+    await client.query('COMMIT');
+
+    rows[0].criteria   = criteria.filter((c) => c.label?.trim()).map((c) => ({ label: c.label, max_score: Number(c.max_score) || 0 }));
+    rows[0].age_groups = age_groups;
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'CREATE_EVENT', entity: 'events', entityId: eventId });
     res.status(201).json(rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
     next(err);
-  }
+  } finally { client.release(); }
 });
 
+// ── PUT /api/admin/events/:id ────────────────────────────────────────────────
 router.put('/events/:id', requireRole(...editRoles), async (req, res, next) => {
+  const client = await pool.connect();
   try {
-    const { name, category, age_group, type, max_participants, is_team_event, status } = req.body;
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+
+    const {
+      event_code, event_name, category_id, event_kind,
+      is_stage_event, time_slot_mode,
+      criteria, age_groups,
+    } = req.body;
+
+    const { rows } = await client.query(
       `UPDATE events SET
-         name = COALESCE($1, name), category = COALESCE($2, category),
-         age_group = COALESCE($3, age_group), type = COALESCE($4, type),
-         max_participants = COALESCE($5, max_participants),
-         is_team_event = COALESCE($6, is_team_event), status = COALESCE($7, status)
-       WHERE id = $8 RETURNING *`,
-      [name, category, age_group, type, max_participants, is_team_event, status, req.params.id]
+         event_code     = COALESCE($1, event_code),
+         event_name     = COALESCE($2, event_name),
+         category_id    = COALESCE($3, category_id),
+         event_kind     = COALESCE($4, event_kind),
+         is_stage_event = COALESCE($5, is_stage_event),
+         time_slot_mode = COALESCE($6, time_slot_mode),
+         updated_at     = NOW()
+       WHERE id = $7 RETURNING *`,
+      [event_code, event_name, category_id, event_kind, is_stage_event, time_slot_mode, req.params.id],
     );
-    if (!rows[0]) return res.status(404).json({ error: 'Event not found' });
-    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'UPDATE_EVENT', entity: 'events', entityId: req.params.id, details: req.body });
+    if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Event not found' }); }
+
+    if (Array.isArray(criteria))   await saveCriteria(client, req.params.id, criteria);
+    if (Array.isArray(age_groups)) await saveAgeGroups(client, req.params.id, rows[0].year_id, age_groups);
+
+    await client.query('COMMIT');
+
+    rows[0].criteria   = Array.isArray(criteria)   ? criteria.filter((c) => c.label?.trim())   : [];
+    rows[0].age_groups = Array.isArray(age_groups) ? age_groups : [];
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'UPDATE_EVENT', entity: 'events', entityId: req.params.id, details: req.body });
     res.json(rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
     next(err);
-  }
+  } finally { client.release(); }
 });
 
+// ── DELETE /api/admin/events/:id ─────────────────────────────────────────────
 router.delete('/events/:id', requireRole('SuperAdmin', 'Admin'), async (req, res, next) => {
   try {
     const { rowCount } = await pool.query(`DELETE FROM events WHERE id = $1`, [req.params.id]);
     if (!rowCount) return res.status(404).json({ error: 'Event not found' });
-    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'DELETE_EVENT', entity: 'events', entityId: req.params.id });
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'DELETE_EVENT', entity: 'events', entityId: req.params.id });
     res.status(204).end();
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
-// POST /api/admin/events/:id/cancel  -- cancel event; notify affected participants
+// ── POST /api/admin/events/:id/cancel ────────────────────────────────────────
 router.post('/events/:id/cancel', requireRole('SuperAdmin', 'Admin', 'Chairman'), async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { rows: evRows } = await client.query(
-      `UPDATE events SET status = 'cancelled' WHERE id = $1 RETURNING *`,
-      [req.params.id]
+      `UPDATE events SET is_cancelled = TRUE, cancelled_at = NOW(),
+        cancel_reason = $2, cancelled_by = $3
+       WHERE id = $1 RETURNING *`,
+      [req.params.id, req.body.reason || null, req.user.id],
     );
-    if (!evRows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Event not found' });
-    }
+    if (!evRows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Event not found' }); }
 
     const { rows: affected } = await client.query(
       `SELECT r.id AS registration_id, c.name AS child_name, u.email, c.parent_user_id
@@ -104,127 +264,26 @@ router.post('/events/:id/cancel', requireRole('SuperAdmin', 'Admin', 'Chairman')
        JOIN children c ON c.id = r.child_id
        LEFT JOIN users u ON u.id = c.parent_user_id
        WHERE r.event_id = $1 AND r.status != 'cancelled'`,
-      [req.params.id]
+      [req.params.id],
     );
-
     await client.query(
-      `UPDATE registrations SET status = 'cancelled_event' WHERE event_id = $1`,
-      [req.params.id]
+      `UPDATE registrations SET status = 'cancelled_event' WHERE event_id = $1`, [req.params.id],
     );
     await client.query('COMMIT');
 
     for (const reg of affected) {
-      // Best-effort notification; failures are logged but don't fail the cancellation
-      await sendWhatsApp(reg.phone, `${evRows[0].name} has been cancelled. You may use the swap window to pick a replacement event.`).catch(() => null);
+      await sendWhatsApp(reg.phone,
+        `${evRows[0].event_name} has been cancelled. You may use the swap window to pick a replacement event.`,
+      ).catch(() => null);
     }
-
-    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'CANCEL_EVENT', entity: 'events', entityId: req.params.id, details: { affectedCount: affected.length } });
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'CANCEL_EVENT', entity: 'events', entityId: req.params.id,
+      details: { affectedCount: affected.length } });
     res.json({ event: evRows[0], affectedRegistrations: affected.length });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => null);
     next(err);
-  } finally {
-    client.release();
-  }
-});
-
-// GET /api/admin/events/:id/split-analysis
-// Returns whether enrolment exceeds the configured per-event/time-slot capacity,
-// so the Admin can decide whether to split into multiple time slots.
-router.get('/events/:id/split-analysis', requireRole(...staffRoles), async (req, res, next) => {
-  try {
-    const { rows: countRows } = await pool.query(
-      `SELECT COUNT(*) AS total FROM registrations WHERE event_id = $1 AND status != 'cancelled'`,
-      [req.params.id]
-    );
-    const { rows: capRows } = await pool.query(`SELECT max_participants FROM events WHERE id = $1`, [req.params.id]);
-    if (!capRows[0]) return res.status(404).json({ error: 'Event not found' });
-
-    const total = Number(countRows[0].total);
-    const cap = capRows[0].max_participants;
-    const needsSplit = cap != null && total > cap;
-    const suggestedSlots = needsSplit ? Math.ceil(total / cap) : 1;
-
-    res.json({ eventId: req.params.id, totalRegistrations: total, capacityPerSlot: cap, needsSplit, suggestedSlots });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// POST /api/admin/events/:id/confirm-split
-router.post('/events/:id/confirm-split', requireRole('SuperAdmin', 'Admin', 'Coordinator'), async (req, res, next) => {
-  try {
-    const { slot_count, capacity_per_slot } = req.body;
-    if (!slot_count || !capacity_per_slot) {
-      return res.status(400).json({ error: 'slot_count and capacity_per_slot are required' });
-    }
-    const created = [];
-    for (let i = 1; i <= slot_count; i++) {
-      const { rows } = await pool.query(
-        `INSERT INTO time_slots (event_id, slot_label, capacity) VALUES ($1, $2, $3) RETURNING *`,
-        [req.params.id, `Slot ${i}`, capacity_per_slot]
-      );
-      created.push(rows[0]);
-    }
-    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'CONFIRM_SPLIT', entity: 'events', entityId: req.params.id, details: { slot_count, capacity_per_slot } });
-    res.status(201).json(created);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ---- CRUD /api/admin/events/:id/time-slots ----
-router.get('/events/:id/time-slots', requireRole(...staffRoles), async (req, res, next) => {
-  try {
-    const { rows } = await pool.query(`SELECT * FROM time_slots WHERE event_id = $1 ORDER BY start_time`, [req.params.id]);
-    res.json(rows);
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.post('/events/:id/time-slots', requireRole(...editRoles), async (req, res, next) => {
-  try {
-    const { slot_label, start_time, end_time, capacity } = req.body;
-    const { rows } = await pool.query(
-      `INSERT INTO time_slots (event_id, slot_label, start_time, end_time, capacity)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [req.params.id, slot_label, start_time || null, end_time || null, capacity || null]
-    );
-    res.status(201).json(rows[0]);
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.put('/events/:id/time-slots/:slot_id', requireRole(...editRoles), async (req, res, next) => {
-  try {
-    const { slot_label, start_time, end_time, capacity } = req.body;
-    const { rows } = await pool.query(
-      `UPDATE time_slots SET
-         slot_label = COALESCE($1, slot_label), start_time = COALESCE($2, start_time),
-         end_time = COALESCE($3, end_time), capacity = COALESCE($4, capacity)
-       WHERE id = $5 AND event_id = $6 RETURNING *`,
-      [slot_label, start_time, end_time, capacity, req.params.slot_id, req.params.id]
-    );
-    if (!rows[0]) return res.status(404).json({ error: 'Time slot not found' });
-    res.json(rows[0]);
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.delete('/events/:id/time-slots/:slot_id', requireRole(...editRoles), async (req, res, next) => {
-  try {
-    const { rowCount } = await pool.query(
-      `DELETE FROM time_slots WHERE id = $1 AND event_id = $2`,
-      [req.params.slot_id, req.params.id]
-    );
-    if (!rowCount) return res.status(404).json({ error: 'Time slot not found' });
-    res.status(204).end();
-  } catch (err) {
-    next(err);
-  }
+  } finally { client.release(); }
 });
 
 module.exports = router;

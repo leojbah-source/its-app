@@ -20,11 +20,20 @@ const judgeRoutes = require('./routes/judge.routes');
 const registerRoutes = require('./routes/register.routes');
 const publicRoutes = require('./routes/public.routes');
 const pwaRoutes = require('./routes/pwa.routes');
+const path = require('path');
 
 const app = express();
 
-app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'https://talentscan.kcabah.com'
+  ],
+  credentials: true
+}));
+
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'kca-its-backend' }));

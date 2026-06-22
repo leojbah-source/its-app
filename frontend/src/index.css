@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  /* KCA Navy — primary brand */
+  --color-navy-50: #eff4f8;
+  --color-navy-100: #dce7f0;
+  --color-navy-200: #b9cfe1;
+  --color-navy-300: #8fb0cb;
+  --color-navy-400: #5d87a8;
+  --color-navy-500: #2f6690;
+  --color-navy-600: #1f4e79;
+  --color-navy-700: #173d5f;
+  --color-navy-800: #102c45;
+  --color-navy-900: #0a1d2e;
+
+  /* KCA Gold — accent brand */
+  --color-gold-50: #fdf3ea;
+  --color-gold-100: #fae3cc;
+  --color-gold-200: #f3c190;
+  --color-gold-300: #eba158;
+  --color-gold-400: #dc7e2c;
+  --color-gold-500: #c55a11;
+  --color-gold-600: #a8480c;
+  --color-gold-700: #86390a;
+  --color-gold-800: #642a07;
+  --color-gold-900: #421c05;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Slim, consistent scrollbars for the dense admin tables */
+.scroll-thin::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background-color: var(--color-navy-200);
+  border-radius: 8px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fade-in 0.15s ease-out;
+}

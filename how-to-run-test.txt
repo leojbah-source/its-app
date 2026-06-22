@@ -1,0 +1,4 @@
+cd \its-app\frontend
+npm run dev
+cd \its-app\backend
+node src/index.js

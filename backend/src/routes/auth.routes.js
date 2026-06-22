@@ -22,7 +22,7 @@ router.post('/login', async (req, res, next) => {
     if (!email || !password) return res.status(400).json({ error: 'email and password are required' });
 
     const { rows } = await pool.query(
-      `SELECT id, email, password_hash, name, role FROM users WHERE email = $1`,
+      `SELECT id, email, password_hash, full_name, role FROM users WHERE email = $1`,
       [email.toLowerCase()]
     );
     const user = rows[0];
@@ -33,7 +33,7 @@ router.post('/login', async (req, res, next) => {
 
     const token = signToken({ id: user.id, role: user.role, type: 'staff', email: user.email });
     await logAudit({ actorId: user.id, actorRole: user.role, action: 'LOGIN', entity: 'users', entityId: user.id });
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    res.json({ token, user: { id: user.id, name: user.full_name, email: user.email, role: user.role } });
   } catch (err) {
     next(err);
   }
