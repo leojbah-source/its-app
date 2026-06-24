@@ -258,22 +258,29 @@ router.post('/events/:id/cancel', requireRole('SuperAdmin', 'Admin', 'Chairman')
     );
     if (!evRows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Event not found' }); }
 
+    // Fetch affected registrations before updating status
     const { rows: affected } = await client.query(
-      `SELECT r.id AS registration_id, c.name AS child_name, u.email, c.parent_user_id
+      `SELECT r.id AS registration_id, p.full_name AS participant_name,
+              p.guardian_phone
        FROM registrations r
-       JOIN children c ON c.id = r.child_id
-       LEFT JOIN users u ON u.id = c.parent_user_id
-       WHERE r.event_id = $1 AND r.status != 'cancelled'`,
+       JOIN participants p ON p.id = r.participant_id
+       WHERE r.event_id = $1 AND r.status = 'registered'`,
       [req.params.id],
     );
+
+    // Use 'withdrawn' — cancelled_event is not a valid registration_status enum value.
+    // Swap eligibility is identified by checking event.is_cancelled = TRUE on the source event.
     await client.query(
-      `UPDATE registrations SET status = 'cancelled_event' WHERE event_id = $1`, [req.params.id],
+      `UPDATE registrations SET status = 'withdrawn', updated_at = NOW()
+       WHERE event_id = $1 AND status = 'registered'`,
+      [req.params.id],
     );
     await client.query('COMMIT');
 
     for (const reg of affected) {
-      await sendWhatsApp(reg.phone,
-        `${evRows[0].event_name} has been cancelled. You may use the swap window to pick a replacement event.`,
+      await sendWhatsApp(
+        reg.guardian_phone,
+        `${evRows[0].event_name} has been cancelled. Please contact the admin to request a swap into another event.`,
       ).catch(() => null);
     }
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,

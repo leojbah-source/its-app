@@ -5,6 +5,7 @@ import ProtectedRoute from './components/auth/ProtectedRoute';
 import Login from './pages/Login';
 import YearConfig from './pages/YearConfig';
 import Events from './pages/Events';
+import Registrations from './pages/Registrations';
 
 export default function App() {
   return (
@@ -26,6 +27,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <Events />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/registrations"
+              element={
+                <ProtectedRoute>
+                  <Registrations />
                 </ProtectedRoute>
               }
             />

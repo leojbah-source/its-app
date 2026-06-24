@@ -52,6 +52,15 @@ async function request(path, { method = 'GET', token, body, isFormData = false }
   return data;
 }
 
+/** Build a query string, dropping null/undefined/empty values. */
+function qs(params = {}) {
+  const cleaned = Object.fromEntries(
+    Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''),
+  );
+  const s = new URLSearchParams(cleaned).toString();
+  return s ? `?${s}` : '';
+}
+
 export const authApi = {
   login: (email, password) =>
     request('/api/auth/login', { method: 'POST', body: { email, password } }),
@@ -79,13 +88,7 @@ export const categoriesApi = {
 };
 
 export const eventsApi = {
-  list: (token, params = {}) => {
-    const cleaned = Object.fromEntries(
-      Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''),
-    );
-    const qs = new URLSearchParams(cleaned).toString();
-    return request(`/api/admin/events${qs ? `?${qs}` : ''}`, { token });
-  },
+  list: (token, params = {}) => request(`/api/admin/events${qs(params)}`, { token }),
   get: (token, id) => request(`/api/admin/events/${id}`, { token }),
   create: (token, payload) => request('/api/admin/events', { method: 'POST', token, body: payload }),
   update: (token, id, payload) =>
@@ -94,6 +97,50 @@ export const eventsApi = {
     request(`/api/admin/events/${id}/cancel`, { method: 'POST', token, body: { reason } }),
   updateSlots: (token, id, slots) =>
     request(`/api/admin/events/${id}/slots`, { method: 'PUT', token, body: { slots } }),
+};
+
+// ── Registrations (admin) ────────────────────────────────────────────────────
+export const registrationsApi = {
+  /** List registrations; optional filters: event_id, status, age_group_id, search */
+  list: (token, params = {}) =>
+    request(`/api/admin/registrations${qs(params)}`, { token }),
+
+  /** Per-event registration count summary */
+  summary: (token) =>
+    request('/api/admin/registrations/summary', { token }),
+
+  /** Get single registration by id */
+  get: (token, id) =>
+    request(`/api/admin/registrations/${id}`, { token }),
+
+  /** Update status / teacher fields */
+  update: (token, id, payload) =>
+    request(`/api/admin/registrations/${id}`, { method: 'PUT', token, body: payload }),
+
+  /** Hard-delete (SuperAdmin / Admin only) */
+  delete: (token, id) =>
+    request(`/api/admin/registrations/${id}`, { method: 'DELETE', token }),
+
+  /** CSV download URL (open in browser tab) */
+  exportUrl: () => `${API_BASE}/api/admin/registrations/export`,
+};
+
+// ── Participants (admin) ─────────────────────────────────────────────────────
+export const participantsApi = {
+  /** List participants; optional filters: search, school_id, age_group_id */
+  list: (token, params = {}) =>
+    request(`/api/admin/participants${qs(params)}`, { token }),
+};
+
+// ── Teams (admin) ────────────────────────────────────────────────────────────
+export const teamsApi = {
+  list: (token) => request('/api/admin/teams', { token }),
+  members: (token, teamId) => request(`/api/admin/teams/${teamId}/members`, { token }),
+};
+
+// ── Schools lookup ───────────────────────────────────────────────────────────
+export const schoolsApi = {
+  list: (token) => request('/api/admin/schools', { token }),
 };
 
 export { ApiError };

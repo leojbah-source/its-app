@@ -50,7 +50,7 @@ app.use('/api/admin', adminJudgingRoutes);
 app.use('/api/admin', adminResultsRoutes);
 
 // --- Admin: feature areas with their own dedicated prefix ---
-app.use('/api/admin/registrations', adminRegistrationsRoutes);
+app.use('/api/admin', adminRegistrationsRoutes);
 app.use('/api/admin/judges', adminJudgesRoutes);
 app.use('/api/admin/chest', adminChestRoutes);
 app.use('/api/admin/tiebreaker', adminTiebreakerRoutes);

@@ -13,7 +13,7 @@ import {
 const NAV_ITEMS = [
   { to: '/admin/config/year', label: 'Year Setup', icon: Settings, active: true },
   { to: '/admin/events', label: 'Events', icon: ListChecks, active: true },
-  { label: 'Registrations', icon: Users, active: false },
+  { to: '/admin/registrations', label: 'Registrations', icon: Users, active: true },
   { label: 'Judges', icon: Gavel, active: false },
   { label: 'Schedule', icon: CalendarClock, active: false },
   { label: 'Awards', icon: Trophy, active: false, badge: 'Chairman' },
