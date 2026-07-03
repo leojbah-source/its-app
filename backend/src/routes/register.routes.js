@@ -20,6 +20,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const pool = require('../db');
 const { verifyMembership } = require('../services/membership');
+const { sendWhatsApp } = require('../utils/notify');
 const { logAudit } = require('../utils/audit');
 const { authenticate } = require('../middleware/auth');
 
@@ -35,6 +36,16 @@ async function getActiveYear(clientOrPool) {
      FROM year_config WHERE is_active = TRUE LIMIT 1`,
   );
   return rows[0] || null;
+}
+
+/** BHD uses 3 decimal places. */
+const round3 = (x) => Math.round(Number(x) * 1000) / 1000;
+
+/** Fee for one event: member rate when KCA membership is verified active. */
+function eventFee(ev, memberActive) {
+  const std = Number(ev.fee_amount || 0);
+  if (!memberActive) return round3(std);
+  return round3(ev.member_fee_amount != null ? Number(ev.member_fee_amount) : std);
 }
 
 /** Looks up the age_group_id for a given DOB (ISO string) within a year. */
@@ -53,7 +64,8 @@ async function resolveAgeGroup(dob, yearId) {
 router.get('/config', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, max_individual_events, reg_deadline, team_reg_deadline, teacher_name_deadline
+      `SELECT id, max_individual_events, reg_deadline, team_reg_deadline, teacher_name_deadline,
+              benefit_pay_number, kca_iban
        FROM year_config WHERE is_active = TRUE LIMIT 1`,
     );
     if (!rows[0]) return res.status(404).json({ error: 'No active year configured' });
@@ -99,7 +111,7 @@ router.get('/events', async (req, res, next) => {
     if (age_group_id) args.push(age_group_id);
 
     const { rows } = await pool.query(
-      `SELECT DISTINCT e.id, e.event_name, e.event_code, e.event_kind,
+      `SELECT DISTINCT e.id, e.event_name, e.event_code, e.event_kind, e.fee_amount, e.member_fee_amount,
               c.name AS category_name
        FROM events e
        JOIN event_age_groups eag ON eag.event_id = e.id
@@ -296,11 +308,34 @@ router.post('/participant/:id/scan', authenticate, async (req, res, next) => {
 });
 
 // ── POST /api/register/membership/verify ─────────────────────────────────────
+// Verifies a KCA member number via mem.kcabah.com (§4.3). If participant_id is
+// given, the result is stored on the participant and logged for the Admin:
+//   active        → membership_status 'active' (member discount applies)
+//   invalid       → 'none'
+//   API unreachable → 'pending' (Admin verifies manually / via CSV fallback)
 router.post('/membership/verify', async (req, res, next) => {
   try {
-    const { cpr_number, member_id } = req.body;
-    const result = await verifyMembership({ cprNumber: cpr_number, memberId: member_id });
-    res.json(result);
+    const { member_no, member_id, participant_id, cpr_number } = req.body;
+    const memberNo = member_no || member_id;
+    if (!memberNo) return res.status(400).json({ error: 'member_no is required' });
+
+    const result = await verifyMembership(memberNo, null);
+    const status = result.active ? 'active'
+      : result.error === 'API_UNAVAILABLE' ? 'pending'
+      : 'none';
+
+    if (participant_id) {
+      await pool.query(
+        `UPDATE participants SET membership_status = $1, updated_at = NOW() WHERE id = $2`,
+        [status, participant_id],
+      );
+      await pool.query(
+        `INSERT INTO membership_verifications (participant_id, cpr_number, member_status, raw_response)
+         VALUES ($1, $2, $3, $4)`,
+        [participant_id, cpr_number || memberNo, status, JSON.stringify(result)],
+      );
+    }
+    res.json({ ...result, membership_status: status });
   } catch (err) { next(err); }
 });
 
@@ -348,11 +383,16 @@ router.post('/participant/:id/events', authenticate, async (req, res, next) => {
       });
     }
 
+    // Member rate applies only on verified-active KCA membership (§4.3)
+    const memberActive = p.membership_status === 'active';
+
     const created = [];
+    let grossTotal = 0;
+    let netTotal = 0;
     for (const eventId of event_ids) {
       // Validate event is eligible for this participant's age group and not cancelled
       const { rows: evRows } = await client.query(
-        `SELECT e.id, e.category_id, e.event_kind
+        `SELECT e.id, e.category_id, e.event_kind, e.fee_amount, e.member_fee_amount
          FROM events e
          JOIN event_age_groups eag ON eag.event_id = e.id
          WHERE e.id = $1
@@ -376,20 +416,32 @@ router.post('/participant/:id/events', authenticate, async (req, res, next) => {
       );
       if (existing[0]) continue;
 
+      const netFee = eventFee(evRows[0], memberActive);
+      grossTotal = round3(grossTotal + Number(evRows[0].fee_amount || 0));
+      netTotal = round3(netTotal + netFee);
+
       const { rows } = await client.query(
         `INSERT INTO registrations
            (year_id, participant_id, event_id, age_group_id, category_id,
-            status, registered_by, registered_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,'registered',$6,NOW(),NOW())
+            fee_amount, status, registered_by, registered_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,'registered',$7,NOW(),NOW())
          RETURNING *`,
         [p.year_id, req.params.id, eventId, p.age_group_id,
-         evRows[0].category_id, req.user.id],
+         evRows[0].category_id, netFee, req.user.id],
       );
       created.push(rows[0]);
     }
 
     await client.query('COMMIT');
-    res.status(201).json(created);
+    res.status(201).json({
+      created,
+      fees: {
+        gross: grossTotal,
+        member_rate_applied: memberActive,
+        discount: round3(grossTotal - netTotal),
+        total_due: netTotal,
+      },
+    });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => null);
     next(err);
@@ -402,7 +454,13 @@ router.put('/participant/:id/events', authenticate, async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { add_event_ids = [], remove_event_ids = [] } = req.body;
+    const { add_event_ids = [], remove_event_ids = [], removal_reason } = req.body;
+
+    // Removals require a mandatory reason (§5.3)
+    if (remove_event_ids.length > 0 && !removal_reason?.trim()) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'removal_reason is required when removing events' });
+    }
 
     const { rows: pRows } = await client.query(
       `SELECT p.*, yc.max_individual_events, yc.reg_deadline
@@ -419,7 +477,9 @@ router.put('/participant/:id/events', authenticate, async (req, res, next) => {
       return res.status(403).json({ error: 'Registration deadline has passed' });
     }
 
+    const memberActive = p.membership_status === 'active';
     const added = [];
+    let additionalDue = 0;
 
     // Add events
     if (add_event_ids.length > 0) {
@@ -436,7 +496,7 @@ router.put('/participant/:id/events', authenticate, async (req, res, next) => {
 
       for (const eventId of add_event_ids) {
         const { rows: evRows } = await client.query(
-          `SELECT e.id, e.category_id FROM events e
+          `SELECT e.id, e.category_id, e.fee_amount, e.member_fee_amount FROM events e
            JOIN event_age_groups eag ON eag.event_id = e.id
            WHERE e.id = $1 AND eag.age_group_id = $2 AND e.is_cancelled = FALSE`,
           [eventId, p.age_group_id],
@@ -450,33 +510,58 @@ router.put('/participant/:id/events', authenticate, async (req, res, next) => {
         );
         if (existing[0]) continue;
 
+        const netFee = eventFee(evRows[0], memberActive);
+        additionalDue = round3(additionalDue + netFee);
+
         const { rows } = await client.query(
           `INSERT INTO registrations
              (year_id, participant_id, event_id, age_group_id, category_id,
-              status, registered_by, registered_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,'registered',$6,NOW(),NOW())
+              fee_amount, status, registered_by, registered_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,'registered',$7,NOW(),NOW())
            RETURNING *`,
           [p.year_id, req.params.id, eventId, p.age_group_id,
-           evRows[0].category_id, req.user.id],
+           evRows[0].category_id, netFee, req.user.id],
         );
         added.push(rows[0]);
       }
     }
 
-    // Withdraw events
+    // Withdraw events — each withdrawal creates a pending refund request that
+    // the Admin confirms (amount/method) for the Refunds Report (§4.10, §5.3).
     const withdrawn = [];
+    let refundDue = 0;
     for (const eventId of remove_event_ids) {
       const { rows } = await client.query(
-        `UPDATE registrations SET status = 'withdrawn', updated_at = NOW()
-         WHERE participant_id = $1 AND event_id = $2 AND status = 'registered'
-         RETURNING *`,
+        `UPDATE registrations r SET status = 'withdrawn', updated_at = NOW()
+         FROM events e
+         WHERE r.participant_id = $1 AND r.event_id = $2 AND r.status = 'registered'
+           AND e.id = r.event_id
+         RETURNING r.*, e.event_code, e.event_name`,
         [req.params.id, eventId],
       );
+      for (const reg of rows) {
+        refundDue = round3(refundDue + Number(reg.fee_amount || 0));
+        await client.query(
+          `INSERT INTO refunds
+             (year_id, participant_id, registration_id, events_withdrawn, reason,
+              original_amount, refund_amount, status, requested_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8)`,
+          [p.year_id, req.params.id, reg.id,
+           `${reg.event_code} — ${reg.event_name}`, removal_reason.trim(),
+           reg.fee_amount || 0, reg.fee_amount || 0, req.user.id],
+        );
+      }
       withdrawn.push(...rows);
     }
 
     await client.query('COMMIT');
-    res.json({ added, withdrawn });
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'UPDATE_REGISTRATIONS', entity: 'participants', entityId: req.params.id,
+      details: { added: added.map(r => r.event_id), withdrawn: withdrawn.map(r => r.event_id),
+                 removal_reason: removal_reason || null, additional_due: additionalDue, refund_due: refundDue } });
+
+    res.json({ added, withdrawn, fees: { additional_due: additionalDue, refund_due: refundDue } });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => null);
     next(err);
@@ -513,6 +598,96 @@ router.put('/participant/:id/teacher', authenticate, async (req, res, next) => {
     );
     if (!rows[0]) return res.status(404).json({ error: 'Registration not found' });
     res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/register/participant/:id/fees ───────────────────────────────────
+// Live fee summary (§5.2): per-event fees, discount, payments, balance due.
+router.get('/participant/:id/fees', authenticate, async (req, res, next) => {
+  try {
+    const { rows: items } = await pool.query(
+      `SELECT r.id AS registration_id, r.event_id, r.fee_amount, r.status,
+              e.event_code, e.event_name
+       FROM registrations r
+       JOIN events e ON e.id = r.event_id
+       WHERE r.participant_id = $1 AND r.status NOT IN ('withdrawn','swapped')
+       ORDER BY e.event_code`,
+      [req.params.id],
+    );
+    const { rows: pays } = await pool.query(
+      `SELECT id, amount, method, status, reference, created_at, confirmed_at
+       FROM payments WHERE participant_id = $1 ORDER BY created_at`,
+      [req.params.id],
+    );
+    const { rows: refs } = await pool.query(
+      `SELECT id, refund_amount, status, reason, created_at
+       FROM refunds WHERE participant_id = $1 ORDER BY created_at`,
+      [req.params.id],
+    );
+
+    const feesTotal = round3(items.reduce((s, r) => s + Number(r.fee_amount || 0), 0));
+    const paidConfirmed = round3(pays.filter(x => x.status === 'confirmed')
+      .reduce((s, x) => s + Number(x.amount), 0));
+    const paidPending = round3(pays.filter(x => x.status === 'pending')
+      .reduce((s, x) => s + Number(x.amount), 0));
+
+    res.json({
+      items,
+      payments: pays,
+      refunds: refs,
+      summary: {
+        fees_total: feesTotal,
+        paid_confirmed: paidConfirmed,
+        paid_pending: paidPending,
+        balance_due: round3(feesTotal - paidConfirmed),
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/register/participant/:id/payment ───────────────────────────────
+// Parent submits a payment (§5.4): cash (provisional, confirmed at KCA office),
+// benefitpay or bank_transfer (with proof screenshot + reference).
+router.post('/participant/:id/payment', authenticate, async (req, res, next) => {
+  try {
+    const { amount, method, reference, proof_url, notes } = req.body;
+    if (!amount || Number(amount) <= 0)
+      return res.status(400).json({ error: 'A positive amount is required' });
+    if (!['cash', 'benefitpay', 'bank_transfer'].includes(method))
+      return res.status(400).json({ error: "method must be 'cash', 'benefitpay' or 'bank_transfer'" });
+    if (method !== 'cash' && !proof_url)
+      return res.status(400).json({ error: 'proof_url (payment screenshot) is required for BenefitPay / bank transfer' });
+
+    const { rows: pRows } = await pool.query(
+      `SELECT id, year_id, full_name, guardian_phone FROM participants WHERE id = $1`,
+      [req.params.id],
+    );
+    const p = pRows[0];
+    if (!p) return res.status(404).json({ error: 'Participant not found' });
+
+    const { rows } = await pool.query(
+      `INSERT INTO payments
+         (year_id, parent_user_id, participant_id, amount, method, status,
+          reference, proof_url, notes)
+       VALUES ($1,$2,$3,$4,$5,'pending',$6,$7,$8)
+       RETURNING *`,
+      [p.year_id, req.user.id, p.id, amount, method,
+       reference || null, proof_url || null, notes || null],
+    );
+
+    // Confirmation WhatsApp on submission (§5.4) — fire and forget
+    if (p.guardian_phone) {
+      sendWhatsApp(p.guardian_phone,
+        `KCA ITS: Your payment of BHD ${Number(amount).toFixed(3)} for ${p.full_name} ` +
+        `(${method.replace('_', ' ')}) has been received and is pending confirmation.`,
+      ).catch(() => null);
+    }
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'SUBMIT_PAYMENT', entity: 'payments', entityId: rows[0].id,
+      details: { participant_id: p.id, amount, method } });
+
+    res.status(201).json(rows[0]);
   } catch (err) { next(err); }
 });
 

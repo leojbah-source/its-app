@@ -15,6 +15,7 @@ const adminChestRoutes = require('./routes/admin.chest.routes');
 const adminTiebreakerRoutes = require('./routes/admin.tiebreaker.routes');
 const adminAwardsRoutes = require('./routes/admin.awards.routes');
 const adminFinanceRoutes = require('./routes/admin.finance.routes');
+const adminPaymentsRoutes = require('./routes/admin.payments.routes');
 const adminReportsRoutes = require('./routes/admin.reports.routes');
 const judgeRoutes = require('./routes/judge.routes');
 const registerRoutes = require('./routes/register.routes');
@@ -51,6 +52,7 @@ app.use('/api/admin', adminResultsRoutes);
 
 // --- Admin: feature areas with their own dedicated prefix ---
 app.use('/api/admin', adminRegistrationsRoutes);
+app.use('/api/admin', adminPaymentsRoutes);
 app.use('/api/admin/judges', adminJudgesRoutes);
 app.use('/api/admin/chest', adminChestRoutes);
 app.use('/api/admin/tiebreaker', adminTiebreakerRoutes);

@@ -235,6 +235,7 @@ export default function ParticipantDetail() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [removalReason, setRemovalReason] = useState('');
 
   // ── Load ────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -300,18 +301,30 @@ export default function ParticipantDetail() {
     [...selectedIds].some((eid) => !savedIds.has(eid)) ||
     [...savedIds].some((eid) => !selectedIds.has(eid));
 
+  const pendingRemovals = [...savedIds].filter((eid) => !selectedIds.has(eid)).length;
+
   // ── Save event selection ────────────────────────────────────────────────
   async function handleSaveEvents() {
     if (!isDirty || saving) return;
     const add_event_ids    = [...selectedIds].filter((eid) => !savedIds.has(eid));
     const remove_event_ids = [...savedIds].filter((eid) => !selectedIds.has(eid));
 
+    // Removals require a reason — it goes on the formal refund record.
+    if (remove_event_ids.length > 0 && !removalReason.trim()) {
+      setSaveError('Please enter a reason for removing events — this is recorded with your refund request.');
+      return;
+    }
+
     setSaving(true);
     setSaveError('');
     setSaveSuccess(false);
     try {
-      await portalApi.eventsUpdate(token, id, { add_event_ids, remove_event_ids });
+      await portalApi.eventsUpdate(token, id, {
+        add_event_ids, remove_event_ids,
+        removal_reason: remove_event_ids.length > 0 ? removalReason.trim() : undefined,
+      });
       setSavedIds(new Set(selectedIds));
+      setRemovalReason('');
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
       load(); // refresh to get fresh registration IDs for teacher names
@@ -447,6 +460,20 @@ export default function ParticipantDetail() {
           {/* Save button — shown when there are unsaved changes */}
           {isDirty && !regDeadlinePassed && (
             <div className="mt-4 space-y-2">
+              {pendingRemovals > 0 && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Reason for removing {pendingRemovals} event{pendingRemovals > 1 ? 's' : ''} (required — recorded with your refund request)
+                  </label>
+                  <textarea
+                    value={removalReason}
+                    onChange={(e) => setRemovalReason(e.target.value)}
+                    rows={2}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-navy-500 focus:outline-none"
+                    placeholder="e.g. schedule clash, child unavailable…"
+                  />
+                </div>
+              )}
               {saveError && <Alert variant="danger">{saveError}</Alert>}
               <button
                 onClick={handleSaveEvents}

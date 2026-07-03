@@ -49,6 +49,15 @@ Upload route must return `${req.protocol}://${req.get('host')}/uploads/filename`
 
 ---
 
+## DB Source of Truth
+The database = `db/schema.sql` + every file in `db/migrations/` applied in
+numeric order. When adding tables/columns, write a NEW idempotent migration
+file (CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS) — do not edit
+schema.sql retroactively.
+
+Applied so far: `001_fees_payments_finance.sql` (fees, payments, refunds,
+finance_income/expenses/expense_heads).
+
 ## Established DB Schema (key tables)
 
 ### year_config
@@ -76,6 +85,24 @@ event_kind (enum: individual|team), is_stage_event (bool), time_slot_mode (bool)
 is_cancelled (bool), cancelled_at, cancel_reason, cancelled_by,
 sort_order (integer, default 0), allotted_time_seconds, grace_period_seconds, yellow_alert_seconds,
 max_participants_per_team, min_participants_per_team, created_at, updated_at`
+
+### Fees (migration 001) — Rule 22
+`events.fee_amount` = standard rate; `events.member_fee_amount` = KCA member
+rate (NULL = same). Member rate applies when `participants.membership_status
+= 'active'`. `registrations.fee_amount` snapshots the charged fee. BHD = 3
+decimal places, NUMERIC(10,3).
+
+### payments (migration 001)
+`id, year_id, parent_user_id, participant_id, amount, discount_applied,
+method (enum: cash|benefitpay|bank_transfer), status (enum: pending|confirmed|rejected),
+reference, proof_url, notes, confirmed_by, confirmed_at, created_at, updated_at`
+
+### refunds (migration 001)
+`id, year_id, participant_id, registration_id, events_withdrawn, reason,
+original_amount, refund_amount, method, status (pending|confirmed|rejected),
+refunded_at, requested_by, logged_by, created_at`
+Withdrawing an event via PUT /api/register/participant/:id/events requires
+`removal_reason` and auto-creates a pending refund row.
 
 ### event_criteria
 `id, event_id (FK→events), criterion_name (text), max_score (numeric), sequence_order (integer)`
@@ -140,11 +167,10 @@ Always filter by `year_id` when querying categories or age_groups.
 
 ---
 
-## Other Tables (not yet implemented)
-`registrations, participants, judges, judge_assignments, scores, schedule,
-schools, teams, team_members, chest_assignments, event_time_slots,
-event_swap_requests, notices, tiebreaker_marks, tiebreaker_unlocks,
-timer_assignments, event_results, membership_verifications`
+## Other Tables (in schema, routes exist, UI mostly pending)
+`judges, judge_assignments, scores, schedule, chest_assignments,
+event_time_slots, event_swap_requests, notices, tiebreaker_marks,
+tiebreaker_unlocks, timer_assignments, event_results, membership_verifications`
 
 Views: `v_group_championship, v_judge_scoring_board, v_judges_public, v_school_award_totals`
 
@@ -154,10 +180,17 @@ Views: `v_group_championship, v_judge_scoring_board, v_judges_public, v_school_a
 - [x] Auth (login, JWT, roles: SuperAdmin, Admin, Coordinator, Chairman, Viewer)
 - [x] Year Setup (year_config CRUD, age groups, branding logos, grade/rank config)
 - [x] Events (CRUD, criteria, age groups, categories)
+- [x] Registrations (parent portal + admin dashboard)
+- [x] Fees & payments backend (fee calc w/ member rate, parent payment submission,
+      admin confirm/reject, refunds w/ mandatory reason, refunds report CSV)
+- [x] Finance ledger backend (income/expenses/expense-heads + migration 001)
+- [x] Membership verify route fixed (correct verifyMembership signature; sets
+      participants.membership_status: active|pending|none)
 
 ## What's Next
-- [ ] Registrations
-- [ ] Judges
-- [ ] Schedule
-- [ ] Awards
-- [ ] Finance
+- [ ] Parent portal payment UI (fee summary + submit payment screens; API client ready:
+      portalApi.fees / portalApi.paymentSubmit)
+- [ ] Admin UI: Payments & Refunds, Judges, Schedule, Awards, Finance, Chest numbers
+- [ ] Judge mobile scoring UI (backend routes exist)
+- [ ] PWA (Step 6)
+- [ ] Set per-event fees in Events admin page (fee_amount / member_fee_amount)

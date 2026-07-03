@@ -68,11 +68,22 @@ export const portalApi = {
       method: 'POST', token, body: { event_ids },
     }),
 
-  /** Add / remove events after initial registration. */
-  eventsUpdate: (token, participantId, { add_event_ids = [], remove_event_ids = [] }) =>
+  /** Add / remove events after initial registration. removal_reason is
+   *  required when remove_event_ids is non-empty (goes on the refund record). */
+  eventsUpdate: (token, participantId, { add_event_ids = [], remove_event_ids = [], removal_reason }) =>
     req(`/api/register/participant/${participantId}/events`, {
       method: 'PUT', token,
-      body: { add_event_ids, remove_event_ids },
+      body: { add_event_ids, remove_event_ids, removal_reason },
+    }),
+
+  /** Fee summary: per-event fees, payments, refunds, balance due. */
+  fees: (token, participantId) =>
+    req(`/api/register/participant/${participantId}/fees`, { token }),
+
+  /** Submit a payment: { amount, method: 'cash'|'benefitpay'|'bank_transfer', reference, proof_url, notes } */
+  paymentSubmit: (token, participantId, data) =>
+    req(`/api/register/participant/${participantId}/payment`, {
+      method: 'POST', token, body: data,
     }),
 
   /** Save a teacher name for a specific event registration. */
