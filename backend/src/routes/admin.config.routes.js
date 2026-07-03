@@ -141,16 +141,33 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
        website_domain, team_size_min, team_size_max,
        config.id]
     );
-    // Upsert age groups
+    // Upsert age groups by (year_id, code). A blanket DELETE would violate
+    // the participants/registrations FK once anyone has registered — update
+    // in place, and only delete removed codes that nothing references.
     if (Array.isArray(req.body.age_groups) && req.body.age_groups.length) {
-      await pool.query(`DELETE FROM age_groups WHERE year_id = $1`, [config.id]);
+      const keepCodes = [];
       for (const [i, ag] of req.body.age_groups.entries()) {
+        if (!ag.code) continue;
+        keepCodes.push(ag.code);
         await pool.query(
           `INSERT INTO age_groups (year_id, code, label, dob_from, dob_to, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [config.id, ag.code, ag.label || null, n(ag.dob_from), n(ag.dob_to), i + 1]
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (year_id, code) DO UPDATE SET
+             label = EXCLUDED.label,
+             dob_from = EXCLUDED.dob_from,
+             dob_to = EXCLUDED.dob_to,
+             sort_order = EXCLUDED.sort_order`,
+          [config.id, ag.code, ag.label || ag.code, n(ag.dob_from), n(ag.dob_to), i + 1]
         );
       }
+      await pool.query(
+        `DELETE FROM age_groups ag
+         WHERE ag.year_id = $1 AND NOT (ag.code = ANY($2))
+           AND NOT EXISTS (SELECT 1 FROM participants p WHERE p.age_group_id = ag.id)
+           AND NOT EXISTS (SELECT 1 FROM registrations r WHERE r.age_group_id = ag.id)
+           AND NOT EXISTS (SELECT 1 FROM event_age_groups e WHERE e.age_group_id = ag.id)`,
+        [config.id, keepCodes]
+      );
     }
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'UPDATE_CONFIG', entity: 'year_config', entityId: config.id, details: req.body });
     res.json(rows[0]);

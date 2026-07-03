@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Plus, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Download, Plus, RefreshCw, Upload } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -84,6 +84,42 @@ export default function Events() {
     }
   };
 
+  const fileInputRef = useRef(null);
+
+  const handleExport = async () => {
+    try {
+      const blob = await eventsApi.exportCsv(token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'its-events.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      showToast(err.message || 'Export failed.', 'error');
+    }
+  };
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const result = await eventsApi.importCsv(token, text);
+      showToast(`Import complete: ${result.created} created, ${result.updated} updated.`, 'success');
+      loadEvents();
+    } catch (err) {
+      const lines = err.data?.errors;
+      showToast(
+        Array.isArray(lines) && lines.length
+          ? `Import rejected: ${lines.slice(0, 3).join(' · ')}${lines.length > 3 ? ` · and ${lines.length - 3} more` : ''}`
+          : (err.message || 'Import failed.'),
+        'error',
+      );
+    }
+  };
+
   const handleCancelEvent = async (reason) => {
     setCancelling(true);
     try {
@@ -114,6 +150,19 @@ export default function Events() {
           <Button variant="outline" icon={RefreshCw} onClick={loadEvents}>
             Refresh
           </Button>
+          <Button variant="outline" icon={Download} onClick={handleExport}>
+            Export CSV
+          </Button>
+          <Button variant="outline" icon={Upload} onClick={() => fileInputRef.current?.click()}>
+            Import CSV
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={handleImportFile}
+          />
           <Button variant="gold" icon={Plus} onClick={openCreate}>
             Add event
           </Button>

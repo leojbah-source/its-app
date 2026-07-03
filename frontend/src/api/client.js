@@ -89,6 +89,30 @@ export const categoriesApi = {
 
 export const eventsApi = {
   list: (token, params = {}) => request(`/api/admin/events${qs(params)}`, { token }),
+
+  /** Download all events as an Excel-compatible CSV. */
+  exportCsv: async (token) => {
+    const res = await fetch(`${API_BASE}/api/admin/events/export`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new ApiError('Export failed', res.status, null);
+    return res.blob();
+  },
+
+  /** Upload an edited CSV back; upserts by event_code. */
+  importCsv: async (token, csvText) => {
+    const res = await fetch(`${API_BASE}/api/admin/events/import`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'text/csv' },
+      body: csvText,
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const err = new ApiError(data?.error || 'Import failed', res.status, data);
+      throw err;
+    }
+    return data;
+  },
   get: (token, id) => request(`/api/admin/events/${id}`, { token }),
   create: (token, payload) => request('/api/admin/events', { method: 'POST', token, body: payload }),
   update: (token, id, payload) =>

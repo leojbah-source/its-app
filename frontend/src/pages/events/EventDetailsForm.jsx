@@ -118,6 +118,65 @@ export default function EventDetailsForm({ event, onChange, errors, categories =
         {errors?.age_groups && <p className="mt-1.5 text-xs font-medium text-red-600">{errors.age_groups}</p>}
       </div>
 
+      {/* ── Performance timing (Addendum 1) ── */}
+      <div>
+        <span className="text-sm font-medium text-navy-800">Performance timing</span>
+        <div className="mt-2 grid gap-4 sm:grid-cols-3">
+          <Input
+            label="Allotted time (seconds)"
+            type="number"
+            min={0}
+            value={event.allotted_time_seconds ?? ''}
+            onChange={(e) => onChange({ ...event, allotted_time_seconds: e.target.value })}
+            hint={event.allotted_time_seconds ? `= ${Math.floor(event.allotted_time_seconds / 60)}m ${event.allotted_time_seconds % 60}s` : 'e.g. 600 = 10 minutes'}
+          />
+          <Input
+            label="Grace period (seconds)"
+            type="number"
+            min={0}
+            value={event.grace_period_seconds ?? ''}
+            onChange={(e) => onChange({ ...event, grace_period_seconds: e.target.value })}
+            hint="Extra time before a DQ flag. Default 30"
+          />
+          <Input
+            label="Yellow alert (seconds before end)"
+            type="number"
+            min={0}
+            value={event.yellow_alert_seconds ?? ''}
+            onChange={(e) => onChange({ ...event, yellow_alert_seconds: e.target.value })}
+            hint="Warning light cue. Default 60"
+          />
+        </div>
+
+        {event.age_groups.length > 0 && (
+          <div className="mt-3">
+            <span className="text-xs font-medium text-slate-600">
+              Duration override per age group (seconds) — leave blank to use the allotted time above
+            </span>
+            <div className="mt-2 grid gap-3 sm:grid-cols-5">
+              {event.age_groups.map((code) => (
+                <Input
+                  key={code}
+                  label={code}
+                  type="number"
+                  min={0}
+                  value={event.age_group_durations?.[code] ?? ''}
+                  onChange={(e) =>
+                    onChange({
+                      ...event,
+                      age_group_durations: {
+                        ...event.age_group_durations,
+                        [code]: e.target.value,
+                      },
+                    })
+                  }
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="flex items-center gap-3">
         <input
           id="is_stage_event"

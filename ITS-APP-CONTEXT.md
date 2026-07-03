@@ -61,6 +61,24 @@ Applied so far:
 - `003_gender_teamsize_domain.sql` (events.gender_split; year_config
   team_size_min/max, website_domain, event_start/end_date, its_logo_url,
   grade_c_pct, tiebreaker_scale_max; teams.fee_amount)
+- `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
+  per-age-group duration override; event-level value is the default)
+
+## Events module notes (July 2026 fixes)
+- Year Setup publish no longer DELETEs age_groups (FK violation once
+  participants exist) — upserts by (year_id, code); removed codes deleted
+  only when unreferenced.
+- Time slots now persist: saveSlots() upserts event_time_slots by
+  (event_id, slot_label) and GETs attach `slots` (aliased label/capacity to
+  match the frontend). Slots referenced by registrations are never deleted.
+- Event timing (allotted/grace/yellow seconds) editable in the event editor,
+  plus per-age-group duration overrides (event_age_groups.allotted_time_seconds).
+  Timer module must read: override ?? events.allotted_time_seconds.
+- Events CSV round-trip: GET /api/admin/events/export (UTF-8 BOM CSV) and
+  POST /api/admin/events/import (text/csv, upsert by event_code, all-or-
+  nothing validation: criteria must sum to 100, known category/age codes).
+  Multi-value cells use pipes: age_groups "G1|G2", criteria "Name:25|Name:75",
+  age_group_durations "G1:420".
 
 ## §4.1 Year Setup audit (July 2026) — resolved
 All §4.1 variables are now in year_config, editable in Year Setup UI
