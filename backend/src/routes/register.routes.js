@@ -48,6 +48,70 @@ async function resolveAgeGroup(dob, yearId) {
   return rows[0]?.id || null;
 }
 
+// ── GET /api/register/config ─────────────────────────────────────────────────
+// Returns active year config for the registration portal (no auth).
+router.get('/config', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, max_individual_events, reg_deadline, team_reg_deadline, teacher_name_deadline
+       FROM year_config WHERE is_active = TRUE LIMIT 1`,
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'No active year configured' });
+    res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/register/schools ─────────────────────────────────────────────────
+// Public list of schools (schools table has no year_id — it is a global lookup).
+router.get('/schools', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name FROM schools WHERE is_active = TRUE ORDER BY name`,
+    );
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/register/age-groups ─────────────────────────────────────────────
+// Public age group list for the active year.
+router.get('/age-groups', async (req, res, next) => {
+  try {
+    const cfg = await getActiveYear();
+    if (!cfg) return res.json([]);
+    const { rows } = await pool.query(
+      `SELECT id, code, label, dob_from, dob_to
+       FROM age_groups WHERE year_id = $1 ORDER BY sort_order, code`,
+      [cfg.id],
+    );
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/register/events ─────────────────────────────────────────────────
+// Public events list. Optional ?age_group_id= to filter to a participant's group.
+router.get('/events', async (req, res, next) => {
+  try {
+    const cfg = await getActiveYear();
+    if (!cfg) return res.json([]);
+    const { age_group_id } = req.query;
+    const args = [cfg.id];
+    const ageFilter = age_group_id ? 'AND eag.age_group_id = $2' : '';
+    if (age_group_id) args.push(age_group_id);
+
+    const { rows } = await pool.query(
+      `SELECT DISTINCT e.id, e.event_name, e.event_code, e.event_kind,
+              c.name AS category_name
+       FROM events e
+       JOIN event_age_groups eag ON eag.event_id = e.id
+       LEFT JOIN categories c ON c.id = e.category_id
+       WHERE e.year_id = $1 ${ageFilter} AND e.is_cancelled = FALSE
+       ORDER BY e.event_code`,
+      args,
+    );
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/register/account ───────────────────────────────────────────────
 // Creates a parent user account. Role is 'Viewer' until admin elevates it.
 router.post('/account', async (req, res, next) => {
@@ -86,16 +150,92 @@ router.post('/participant', authenticate, async (req, res, next) => {
 
     const age_group_id = await resolveAgeGroup(dob, cfg.id);
 
+    // If this CPR is already registered in the current year, return the existing record
+    const { rows: existing } = await pool.query(
+      `SELECT p.*, s.name AS school_name, ag.code AS age_group_code, ag.label AS age_group_label
+       FROM participants p
+       LEFT JOIN schools s ON s.id = p.school_id
+       LEFT JOIN age_groups ag ON ag.id = p.age_group_id
+       WHERE p.cpr_number = $1 AND p.year_id = $2`,
+      [cpr_number, cfg.id],
+    );
+    if (existing[0]) return res.status(200).json({ ...existing[0], already_existed: true });
+
     const { rows } = await pool.query(
       `INSERT INTO participants
          (year_id, cpr_number, full_name, dob, gender, school_id, age_group_id,
-          guardian_name, guardian_phone, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())
+          guardian_name, guardian_phone, pwa_username, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW())
        RETURNING *`,
       [cfg.id, cpr_number, full_name, dob, gender || null, school_id || null,
-       age_group_id, guardian_name || null, guardian_phone || null],
+       age_group_id, guardian_name || null, guardian_phone || null,
+       req.user.id.toString()],
     );
     res.status(201).json(rows[0]);
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/register/participant/lookup ─────────────────────────────────────
+// Lookup by CPR in the active year. MUST be defined before /:id.
+// Returns { found: true, participant: {...} } or { found: false }.
+router.get('/participant/lookup', authenticate, async (req, res, next) => {
+  try {
+    const { cpr_number } = req.query;
+    if (!cpr_number) return res.status(400).json({ error: 'cpr_number is required' });
+
+    const cfg = await getActiveYear();
+    if (!cfg) return res.status(400).json({ error: 'No active year' });
+
+    const { rows } = await pool.query(
+      `SELECT p.*, s.name AS school_name,
+              ag.code AS age_group_code, ag.label AS age_group_label
+       FROM participants p
+       LEFT JOIN schools s ON s.id = p.school_id
+       LEFT JOIN age_groups ag ON ag.id = p.age_group_id
+       WHERE p.cpr_number = $1 AND p.year_id = $2 LIMIT 1`,
+      [cpr_number.trim(), cfg.id],
+    );
+    if (!rows[0]) return res.json({ found: false });
+
+    const { rows: regs } = await pool.query(
+      `SELECT r.id, r.event_id, r.status, r.dance_teacher, r.music_teacher,
+              e.event_name, e.event_code, e.event_kind, c.name AS category_name
+       FROM registrations r
+       JOIN events e ON e.id = r.event_id
+       LEFT JOIN categories c ON c.id = e.category_id
+       WHERE r.participant_id = $1 ORDER BY r.registered_at`,
+      [rows[0].id],
+    );
+    res.json({ found: true, participant: { ...rows[0], registrations: regs } });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/register/my-participants ─────────────────────────────────────────
+// Participants created by this user (via pwa_username) OR registered by them.
+router.get('/my-participants', authenticate, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT p.id, p.cpr_number, p.full_name, p.dob, p.gender,
+              p.school_id, p.age_group_id, p.guardian_name, p.guardian_phone,
+              p.membership_status, p.created_at,
+              s.name AS school_name,
+              ag.code AS age_group_code, ag.label AS age_group_label,
+              (SELECT COUNT(*) FROM registrations r2
+               WHERE r2.participant_id = p.id
+                 AND r2.status NOT IN ('withdrawn', 'swapped')
+              )::int AS active_event_count
+       FROM participants p
+       LEFT JOIN schools s ON s.id = p.school_id
+       LEFT JOIN age_groups ag ON ag.id = p.age_group_id
+       WHERE p.pwa_username = $1
+          OR EXISTS (
+            SELECT 1 FROM registrations r
+            WHERE r.participant_id = p.id AND r.registered_by = $2
+          )
+       ORDER BY p.full_name`,
+      [req.user.id.toString(), req.user.id],
+    );
+    res.json(rows);
   } catch (err) { next(err); }
 });
 
