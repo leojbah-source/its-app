@@ -12,6 +12,8 @@ import { yearConfigApi, ApiError } from '../api/client';
 import { defaultYearConfig, mergeYearConfig } from './year-config/defaults';
 import { validateYearConfig } from './year-config/validate';
 import AgeGroupsCard from './year-config/AgeGroupsCard';
+import LimitsCard from './year-config/LimitsCard';
+import PaymentDeadlinesCard from './year-config/PaymentDeadlinesCard';
 import GradingCard from './year-config/GradingCard';
 import DivergenceCard from './year-config/DivergenceCard';
 import BrandingCard from './year-config/BrandingCard';
@@ -200,6 +202,8 @@ export default function YearConfig() {
               errors={errors}
               onChange={(age_groups) => setConfig({ ...config, age_groups })}
             />
+            <LimitsCard config={config} errors={errors} onChange={setConfig} />
+            <PaymentDeadlinesCard config={config} errors={errors} onChange={setConfig} />
             <GradingCard config={config} errors={errors} onChange={setConfig} />
             <DivergenceCard config={config} errors={errors} onChange={setConfig} />
             <BrandingCard config={config} onChange={setConfig} onUpload={handleUpload} uploadingField={uploadingField} />

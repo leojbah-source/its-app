@@ -155,7 +155,7 @@ export default function ParticipantDetail() {
       setConfig(cfg);
       setParticipant(part);
 
-      const evs = await portalApi.events(part.age_group_id);
+      const evs = await portalApi.events(part.age_group_id, part.gender);
       setEvents(evs);
 
       const activeRegs = (part.registrations || []).filter(

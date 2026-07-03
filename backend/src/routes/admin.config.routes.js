@@ -85,6 +85,9 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
     const result_template_url     = n(req.body.assets?.result_template?.url ?? req.body.result_template_url);
     const photo_crop_width        = n(req.body.photo_crop_width);
     const photo_crop_height       = n(req.body.photo_crop_height);
+    const website_domain          = n(req.body.website_domain);
+    const team_size_min           = n(req.body.team_size_min);
+    const team_size_max           = n(req.body.team_size_max);
 
     const { rows } = await pool.query(
       `UPDATE year_config SET
@@ -121,8 +124,11 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
          result_template_url      = COALESCE($31, result_template_url),
          photo_crop_width         = COALESCE($32, photo_crop_width),
          photo_crop_height        = COALESCE($33, photo_crop_height),
+         website_domain           = COALESCE($34, website_domain),
+         team_size_min            = COALESCE($35, team_size_min),
+         team_size_max            = COALESCE($36, team_size_max),
          updated_at               = NOW()
-       WHERE id = $34 RETURNING *`,
+       WHERE id = $37 RETURNING *`,
       [event_year_label, event_start_date, event_end_date,
        kca_logo_url, its_logo_url, sponsor_logo_url, sponsor_name, kca_iban, benefit_pay_number,
        max_individual_events, category_cap, kca_special_min_points,
@@ -132,6 +138,7 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
        divergence_threshold_pct, tiebreaker_scale_max,
        reg_deadline, team_reg_deadline, teacher_name_deadline,
        result_template_url, photo_crop_width, photo_crop_height,
+       website_domain, team_size_min, team_size_max,
        config.id]
     );
     // Upsert age groups

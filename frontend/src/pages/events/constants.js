@@ -9,6 +9,13 @@ export const EVENT_CATEGORIES = [
 
 export const AGE_GROUP_CODES = ['G1', 'G2', 'G3', 'G4', 'G5'];
 
+export const GENDER_SPLITS = [
+  { value: 'common', label: 'Common (all)' },
+  { value: 'boys',   label: 'Boys only' },
+  { value: 'girls',  label: 'Girls only' },
+  { value: 'none',   label: 'None / n-a' },
+];
+
 export function emptyCriterion(seed = 1) {
   return { id: `c${seed}-${Date.now()}`, label: '', max_score: 0 };
 }
@@ -25,6 +32,9 @@ export function blankEvent() {
     category_id: null,
     event_kind: 'individual',
     is_stage_event: false,
+    gender_split: 'common',
+    fee_amount: '',
+    member_fee_amount: '',
     age_groups: [],
     time_slot_mode: false,
     sort_order: null,

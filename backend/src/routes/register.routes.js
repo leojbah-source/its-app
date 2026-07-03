@@ -51,6 +51,13 @@ function eventFee(ev, memberActive) {
   return round3(ev.member_fee_amount != null ? Number(ev.member_fee_amount) : std);
 }
 
+/** Gender eligibility (§4.1 event gender split): 'boys' = M, 'girls' = F. */
+function genderEligible(genderSplit, participantGender) {
+  if (genderSplit === 'boys')  return participantGender === 'M';
+  if (genderSplit === 'girls') return participantGender === 'F';
+  return true; // 'common' / 'none' / unset
+}
+
 /** Looks up the age_group_id for a given DOB (ISO string) within a year. */
 async function resolveAgeGroup(dob, yearId) {
   const { rows } = await pool.query(
@@ -128,14 +135,14 @@ router.get('/events', async (req, res, next) => {
   try {
     const cfg = await getActiveYear();
     if (!cfg) return res.json([]);
-    const { age_group_id } = req.query;
+    const { age_group_id, gender } = req.query;
     const args = [cfg.id];
     const ageFilter = age_group_id ? 'AND eag.age_group_id = $2' : '';
     if (age_group_id) args.push(age_group_id);
 
     const { rows } = await pool.query(
       `SELECT DISTINCT e.id, e.event_name, e.event_code, e.event_kind, e.fee_amount, e.member_fee_amount,
-              c.name AS category_name
+              e.gender_split, c.name AS category_name
        FROM events e
        JOIN event_age_groups eag ON eag.event_id = e.id
        LEFT JOIN categories c ON c.id = e.category_id
@@ -143,7 +150,9 @@ router.get('/events', async (req, res, next) => {
        ORDER BY e.event_code`,
       args,
     );
-    res.json(rows);
+    // Optional gender filter (§4.1 gender split)
+    const filtered = gender ? rows.filter((e) => genderEligible(e.gender_split, gender)) : rows;
+    res.json(filtered);
   } catch (err) { next(err); }
 });
 
@@ -415,7 +424,7 @@ router.post('/participant/:id/events', authenticate, async (req, res, next) => {
     for (const eventId of event_ids) {
       // Validate event is eligible for this participant's age group and not cancelled
       const { rows: evRows } = await client.query(
-        `SELECT e.id, e.category_id, e.event_kind, e.fee_amount, e.member_fee_amount
+        `SELECT e.id, e.category_id, e.event_kind, e.fee_amount, e.member_fee_amount, e.gender_split
          FROM events e
          JOIN event_age_groups eag ON eag.event_id = e.id
          WHERE e.id = $1
@@ -428,6 +437,12 @@ router.post('/participant/:id/events', authenticate, async (req, res, next) => {
         await client.query('ROLLBACK');
         return res.status(400).json({
           error: `Event ${eventId} is not available for this participant's age group`,
+        });
+      }
+      if (!genderEligible(evRows[0].gender_split, p.gender)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `Event ${eventId} is restricted to ${evRows[0].gender_split} only`,
         });
       }
 
@@ -519,12 +534,13 @@ router.put('/participant/:id/events', authenticate, async (req, res, next) => {
 
       for (const eventId of add_event_ids) {
         const { rows: evRows } = await client.query(
-          `SELECT e.id, e.category_id, e.fee_amount, e.member_fee_amount FROM events e
+          `SELECT e.id, e.category_id, e.fee_amount, e.member_fee_amount, e.gender_split FROM events e
            JOIN event_age_groups eag ON eag.event_id = e.id
            WHERE e.id = $1 AND eag.age_group_id = $2 AND e.is_cancelled = FALSE`,
           [eventId, p.age_group_id],
         );
         if (!evRows[0]) continue; // silently skip ineligible — caller should validate first
+        if (!genderEligible(evRows[0].gender_split, p.gender)) continue;
 
         const { rows: existing } = await client.query(
           `SELECT id FROM registrations
@@ -738,8 +754,11 @@ router.post('/team', authenticate, async (req, res, next) => {
 
     // Validate the event exists and is a team event
     const { rows: evRows } = await client.query(
-      `SELECT id, category_id, event_kind FROM events
-       WHERE id = $1 AND event_kind = 'team' AND is_cancelled = FALSE`,
+      `SELECT e.id, e.category_id, e.event_kind, e.fee_amount, e.member_fee_amount,
+              e.min_participants_per_team, e.max_participants_per_team,
+              yc.team_size_min, yc.team_size_max
+       FROM events e JOIN year_config yc ON yc.id = e.year_id
+       WHERE e.id = $1 AND e.event_kind = 'team' AND e.is_cancelled = FALSE`,
       [event_id],
     );
     if (!evRows[0]) {
@@ -748,33 +767,60 @@ router.post('/team', authenticate, async (req, res, next) => {
     }
     const category_id = evRows[0].category_id;
 
+    // Team size limits (§4.1 / §5.5): per-event override, else year defaults.
+    // Min applies at final submission; team leader may register alone first
+    // and add members later, so we only enforce the MAX here.
+    const sizeMax = evRows[0].max_participants_per_team ?? evRows[0].team_size_max ?? 10;
+    if (participant_ids.length > sizeMax) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `A team may have at most ${sizeMax} members` });
+    }
+
+    // Per-team fee (§4.1): member rate only if ALL members have verified
+    // active KCA membership.
+    const { rows: memRows } = await client.query(
+      `SELECT COUNT(*)::int AS n,
+              COUNT(*) FILTER (WHERE membership_status = 'active')::int AS active_n
+       FROM participants WHERE id = ANY($1)`,
+      [participant_ids],
+    );
+    const allMembers = memRows[0].n > 0 && memRows[0].n === memRows[0].active_n;
+    const teamFee = eventFee(evRows[0], allMembers);
+
     const { rows: teamRows } = await client.query(
-      `INSERT INTO teams (year_id, event_id, team_name, school_id, age_group_id, created_at)
-       VALUES ($1,$2,$3,$4,$5,NOW()) RETURNING *`,
-      [cfg.id, event_id, team_name, school_id || null, age_group_id || null],
+      `INSERT INTO teams (year_id, event_id, team_name, school_id, age_group_id, fee_amount, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,NOW()) RETURNING *`,
+      [cfg.id, event_id, team_name, school_id || null, age_group_id || null, teamFee],
     );
     const team = teamRows[0];
 
+    // Members are tracked in team_members; the registrations table takes ONE
+    // team-level row (schema CHECK: participant XOR team, never both).
     for (const participantId of participant_ids) {
-      // Get participant's age_group_id for the registration row
-      const { rows: pRows } = await client.query(
-        `SELECT age_group_id FROM participants WHERE id = $1`,
-        [participantId],
-      );
-      const memberAgeGroupId = pRows[0]?.age_group_id || age_group_id;
-
       await client.query(
         `INSERT INTO team_members (team_id, participant_id) VALUES ($1,$2)`,
         [team.id, participantId],
       );
-      await client.query(
-        `INSERT INTO registrations
-           (year_id, participant_id, team_id, event_id, age_group_id, category_id,
-            status, registered_by, registered_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,'registered',$7,NOW(),NOW())`,
-        [cfg.id, participantId, team.id, event_id, memberAgeGroupId, category_id, req.user.id],
-      );
     }
+
+    // Registration age group: explicit parameter, else the leader's group.
+    const { rows: agRows } = await client.query(
+      `SELECT age_group_id FROM participants WHERE id = $1`,
+      [participant_ids[0]],
+    );
+    const regAgeGroupId = age_group_id || agRows[0]?.age_group_id;
+    if (!regAgeGroupId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'age_group_id is required (leader has no age group set)' });
+    }
+
+    await client.query(
+      `INSERT INTO registrations
+         (year_id, team_id, event_id, age_group_id, category_id,
+          status, registered_by, registered_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,'registered',$6,NOW(),NOW())`,
+      [cfg.id, team.id, event_id, regAgeGroupId, category_id, req.user.id],
+    );
 
     await client.query('COMMIT');
 

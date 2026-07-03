@@ -1,5 +1,5 @@
 import { Input, Select, Textarea } from '../../components/ui/FormField';
-import { AGE_GROUP_CODES } from './constants';
+import { AGE_GROUP_CODES, GENDER_SPLITS } from './constants';
 
 export default function EventDetailsForm({ event, onChange, errors, categories = [] }) {
   const toggleAgeGroup = (code) => {
@@ -63,6 +63,37 @@ export default function EventDetailsForm({ event, onChange, errors, categories =
             ))}
           </div>
         </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Select
+          label="Gender split"
+          value={event.gender_split ?? 'common'}
+          onChange={(e) => onChange({ ...event, gender_split: e.target.value })}
+        >
+          {GENDER_SPLITS.map((g) => (
+            <option key={g.value} value={g.value}>{g.label}</option>
+          ))}
+        </Select>
+        <Input
+          label="Fee (BD) — standard"
+          type="number"
+          min={0}
+          step="0.001"
+          value={event.fee_amount ?? ''}
+          error={errors?.fee_amount}
+          onChange={(e) => onChange({ ...event, fee_amount: e.target.value })}
+          placeholder="e.g. 3"
+        />
+        <Input
+          label="Fee (BD) — KCA member"
+          type="number"
+          min={0}
+          step="0.001"
+          value={event.member_fee_amount ?? ''}
+          onChange={(e) => onChange({ ...event, member_fee_amount: e.target.value })}
+          placeholder="blank = same as standard"
+        />
       </div>
 
       <div>

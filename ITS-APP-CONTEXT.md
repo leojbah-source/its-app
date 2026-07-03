@@ -58,6 +58,24 @@ schema.sql retroactively.
 Applied so far:
 - `001_fees_payments_finance.sql` (fees, payments, refunds, finance_* tables)
 - `002_timer_role_dq.sql` ('Timer' user_role enum value — Addendum 1)
+- `003_gender_teamsize_domain.sql` (events.gender_split; year_config
+  team_size_min/max, website_domain, event_start/end_date, its_logo_url,
+  grade_c_pct, tiebreaker_scale_max; teams.fee_amount)
+
+## §4.1 Year Setup audit (July 2026) — resolved
+All §4.1 variables are now in year_config, editable in Year Setup UI
+(BrandingCard identity fields; LimitsCard caps/thresholds/team sizes;
+PaymentDeadlinesCard IBAN/BenefitPay/deadlines; Grading/Divergence/AgeGroups
+as before), and enforced. Per-event fees + gender_split editable in the
+Events page (EventDetailsForm). Bugs fixed in this pass:
+- PUT /api/admin/config/active referenced 5 columns missing from schema.sql
+  (event_start/end_date, its_logo_url, grade_c_pct, tiebreaker_scale_max) —
+  EVERY Year Setup save silently failed until migration 003.
+- Team registration violated registrations_check (participant XOR team):
+  now ONE team-level registrations row; members via team_members only.
+- Gender split enforced in event list + selection; team max size enforced
+  (min enforced at final submission); per-team fee snapshot on teams.fee_amount
+  (member rate only when ALL members have active membership).
 
 ## Addendum 1 (Timing System & Disqualifications) — status
 Schema: DONE. participant_timings, timer_assignments, events timing columns,

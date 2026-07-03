@@ -6,9 +6,30 @@ import { Loader2 } from 'lucide-react';
 export default function BrandingCard({ config, onChange, onUpload, uploadingField }) {
   return (
     <Card
-      title="Branding & teacher deadline"
-      description="Logos appear on PDFs, registration screens, and the app. The KCA logo and sponsor logo are used in generated result PDFs."
+      title="Identity & branding"
+      description="Year title, sponsor and logos. These appear on PDFs, registration screens, result cards and the app."
     >
+      <div className="mb-6 grid gap-6 sm:grid-cols-3">
+        <Input
+          label="Event year label"
+          hint="Full title incl. sponsor, e.g. 'KCA BFC THE INDIAN TALENT SCAN 2026'"
+          value={config.event_year_label ?? ''}
+          onChange={(e) => onChange({ ...config, event_year_label: e.target.value })}
+        />
+        <Input
+          label="Title sponsor name"
+          hint="Auto-applied to all reports and result cards"
+          value={config.sponsor_name ?? ''}
+          onChange={(e) => onChange({ ...config, sponsor_name: e.target.value })}
+        />
+        <Input
+          label="Website domain"
+          hint="e.g. talentscan.kcabah.com"
+          value={config.website_domain ?? ''}
+          onChange={(e) => onChange({ ...config, website_domain: e.target.value })}
+        />
+      </div>
+
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <AssetSlot
           field="its_logo"
@@ -48,15 +69,6 @@ export default function BrandingCard({ config, onChange, onUpload, uploadingFiel
         />
       </div>
 
-      <div className="mt-6 max-w-xs">
-        <Input
-          label="Teacher name deadline"
-          type="date"
-          value={config.teacher_name_deadline}
-          hint="Can be moved later if needed, even after contests conclude."
-          onChange={(e) => onChange({ ...config, teacher_name_deadline: e.target.value })}
-        />
-      </div>
     </Card>
   );
 }

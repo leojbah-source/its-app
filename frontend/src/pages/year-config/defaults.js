@@ -27,6 +27,21 @@ export function defaultYearConfig(year) {
     divergence_threshold_pct: 20,
     tiebreaker_scale_max: 10,
     teacher_name_deadline: '',
+    reg_deadline: '',
+    team_reg_deadline: '',
+    event_year_label: '',
+    sponsor_name: '',
+    website_domain: '',
+    kca_iban: '',
+    benefit_pay_number: '',
+    max_individual_events: 12,
+    category_cap: 6,
+    kca_special_min_points: 30,
+    min_entries_threshold: 5,
+    split_threshold: 25,
+    no_prize_below: 3,
+    team_size_min: 5,
+    team_size_max: 10,
     registrations_frozen: false,
     status: 'draft',
   assets: {
@@ -49,12 +64,29 @@ export function mergeYearConfig(year, incoming) {
     // Dates — handle both string and Date object from pg driver
     event_start_date: toDateString(incoming.event_start_date),
     event_end_date:   toDateString(incoming.event_end_date),
-    teacher_name_deadline: toDateString(incoming.teacher_name_deadline),
+    teacher_name_deadline: incoming.teacher_name_deadline ?? '',
 
     // Scalars
     participation_bonus_pts:  incoming.participation_bonus_pts  ?? base.participation_bonus_pts,
     divergence_threshold_pct: incoming.divergence_threshold_pct ?? base.divergence_threshold_pct,
     tiebreaker_scale_max:     incoming.tiebreaker_scale_max     ?? base.tiebreaker_scale_max,
+
+    // §4.1 identity / payment / limits (blueprint: nothing hard-coded per year)
+    event_year_label:       incoming.event_year_label       ?? base.event_year_label,
+    sponsor_name:           incoming.sponsor_name           ?? base.sponsor_name,
+    website_domain:         incoming.website_domain         ?? base.website_domain,
+    kca_iban:               incoming.kca_iban               ?? base.kca_iban,
+    benefit_pay_number:     incoming.benefit_pay_number     ?? base.benefit_pay_number,
+    reg_deadline:           incoming.reg_deadline           ?? base.reg_deadline,
+    team_reg_deadline:      incoming.team_reg_deadline      ?? base.team_reg_deadline,
+    max_individual_events:  incoming.max_individual_events  ?? base.max_individual_events,
+    category_cap:           incoming.category_cap           ?? base.category_cap,
+    kca_special_min_points: incoming.kca_special_min_points ?? base.kca_special_min_points,
+    min_entries_threshold:  incoming.min_entries_threshold  ?? base.min_entries_threshold,
+    split_threshold:        incoming.split_threshold        ?? base.split_threshold,
+    no_prize_below:         incoming.no_prize_below         ?? base.no_prize_below,
+    team_size_min:          incoming.team_size_min          ?? base.team_size_min,
+    team_size_max:          incoming.team_size_max          ?? base.team_size_max,
 
     // Status — DB stores initial_list_published boolean, not a status string
     status: incoming.initial_list_published ? 'published' : 'draft',

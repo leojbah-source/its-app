@@ -41,9 +41,14 @@ export const portalApi = {
   ageGroups: () =>
     req('/api/register/age-groups'),
 
-  /** Events for the active year; pass ageGroupId to filter to participant's group. */
-  events: (ageGroupId) =>
-    req(`/api/register/events${ageGroupId ? `?age_group_id=${ageGroupId}` : ''}`),
+  /** Events for the active year; filter by age group and participant gender. */
+  events: (ageGroupId, gender) => {
+    const q = new URLSearchParams();
+    if (ageGroupId) q.set('age_group_id', ageGroupId);
+    if (gender) q.set('gender', gender);
+    const qs = q.toString();
+    return req(`/api/register/events${qs ? `?${qs}` : ''}`);
+  },
 
   // ── Authenticated ─────────────────────────────────────────────────────────
   /** All participants created by or registered by the current user. */

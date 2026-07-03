@@ -152,6 +152,9 @@ router.post('/events', requireRole(...editRoles), async (req, res, next) => {
       time_slot_mode = false,
       criteria       = [],
       age_groups     = [],
+      fee_amount     = 0,
+      member_fee_amount = null,
+      gender_split   = 'common',
     } = req.body;
 
     if (!event_code || !event_name || !category_id) {
@@ -168,9 +171,11 @@ router.post('/events', requireRole(...editRoles), async (req, res, next) => {
     const { rows } = await client.query(
       `INSERT INTO events
          (year_id, category_id, event_code, event_name, event_kind,
-          is_stage_event, time_slot_mode, sort_order, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,0,NOW(),NOW()) RETURNING *`,
-      [year_id, category_id, event_code, event_name, event_kind, is_stage_event, time_slot_mode],
+          is_stage_event, time_slot_mode, fee_amount, member_fee_amount,
+          gender_split, sort_order, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,NOW(),NOW()) RETURNING *`,
+      [year_id, category_id, event_code, event_name, event_kind, is_stage_event,
+       time_slot_mode, fee_amount, member_fee_amount, gender_split],
     );
     const eventId = rows[0].id;
 
@@ -201,6 +206,7 @@ router.put('/events/:id', requireRole(...editRoles), async (req, res, next) => {
       event_code, event_name, category_id, event_kind,
       is_stage_event, time_slot_mode,
       criteria, age_groups,
+      fee_amount, member_fee_amount, gender_split,
     } = req.body;
 
     const { rows } = await client.query(
@@ -211,9 +217,13 @@ router.put('/events/:id', requireRole(...editRoles), async (req, res, next) => {
          event_kind     = COALESCE($4, event_kind),
          is_stage_event = COALESCE($5, is_stage_event),
          time_slot_mode = COALESCE($6, time_slot_mode),
+         fee_amount     = COALESCE($7, fee_amount),
+         member_fee_amount = COALESCE($8, member_fee_amount),
+         gender_split   = COALESCE($9, gender_split),
          updated_at     = NOW()
-       WHERE id = $7 RETURNING *`,
-      [event_code, event_name, category_id, event_kind, is_stage_event, time_slot_mode, req.params.id],
+       WHERE id = $10 RETURNING *`,
+      [event_code, event_name, category_id, event_kind, is_stage_event, time_slot_mode,
+       fee_amount, member_fee_amount, gender_split, req.params.id],
     );
     if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Event not found' }); }
 
