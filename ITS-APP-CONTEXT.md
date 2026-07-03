@@ -55,8 +55,26 @@ numeric order. When adding tables/columns, write a NEW idempotent migration
 file (CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS) — do not edit
 schema.sql retroactively.
 
-Applied so far: `001_fees_payments_finance.sql` (fees, payments, refunds,
-finance_income/expenses/expense_heads).
+Applied so far:
+- `001_fees_payments_finance.sql` (fees, payments, refunds, finance_* tables)
+- `002_timer_role_dq.sql` ('Timer' user_role enum value — Addendum 1)
+
+## Addendum 1 (Timing System & Disqualifications) — status
+Schema: DONE. participant_timings, timer_assignments, events timing columns,
+scores.is_void/voided_reason/voided_by/voided_at, event_results
+is_disqualified/disqualification_reason/disqualified_by/disqualified_at/
+dq_reversed/dq_reversal_reason (see schema.sql §14.4/14.5) + 'Timer' role (002).
+NOTE: schema uses `voided_reason` and `disqualification_reason` — use these
+exact names, and both have CHECK constraints requiring a reason when set.
+Still to build: /api/timer/* routes, admin timing & DQ endpoints, Timer UI
+(full-screen stopwatch), Timing & DQ admin tab, judge DQ banner, PWA DQ display.
+
+## WARNING — admin.judging.routes.js is schema-mismatched
+It queries s.judge_id / s.score / s.assignment_id / `criteria` table /
+year_config.grade_config — NONE of these exist. Real names: scores.judge_assignment_id,
+scores.score_value, scores.criterion_id, event_criteria, year_config.grade_a_pct etc.
+These routes will crash at runtime and must be rewritten against the real schema
+(and must filter `WHERE s.is_void = FALSE`) when building the Judging module.
 
 ## Established DB Schema (key tables)
 
@@ -187,10 +205,15 @@ Views: `v_group_championship, v_judge_scoring_board, v_judges_public, v_school_a
 - [x] Membership verify route fixed (correct verifyMembership signature; sets
       participants.membership_status: active|pending|none)
 
+## What's Done (cont.)
+- [x] Parent payment UI (PaymentSection.jsx: live fee table, balance, payment
+      submission w/ proof upload via POST /api/register/upload)
+
 ## What's Next
-- [ ] Parent portal payment UI (fee summary + submit payment screens; API client ready:
-      portalApi.fees / portalApi.paymentSubmit)
 - [ ] Admin UI: Payments & Refunds, Judges, Schedule, Awards, Finance, Chest numbers
-- [ ] Judge mobile scoring UI (backend routes exist)
-- [ ] PWA (Step 6)
 - [ ] Set per-event fees in Events admin page (fee_amount / member_fee_amount)
+- [ ] Judging module: REWRITE admin.judging.routes.js against real schema (see WARNING),
+      filter is_void, then judge mobile scoring UI
+- [ ] Addendum 1: /api/timer/* + admin timing/DQ routes, Timer stopwatch UI,
+      Timing & DQ admin tab, judge DQ banner, PWA DQ display
+- [ ] PWA (Step 6)

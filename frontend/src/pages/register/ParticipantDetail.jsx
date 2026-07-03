@@ -15,6 +15,7 @@ import {
 import { useParentAuth } from '../../context/ParentAuthContext';
 import { portalApi } from './registerApi';
 import RegisterLayout from './RegisterLayout';
+import PaymentSection from './PaymentSection';
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
 function Spinner() {
@@ -82,101 +83,6 @@ function EventCard({ event, selected, canToggle, onToggle }) {
 }
 
 // ── Payment summary ───────────────────────────────────────────────────────────
-// Per Rule 22: dance events BD 4, all other individual events BD 3.
-// Everyone pays the non-member rate at registration; KCA members receive
-// the difference credited to their membership account.
-function isDanceEvent(ev) {
-  const cat = (ev.category_name || '').toLowerCase();
-  return cat.includes('natya') || cat.includes('dance');
-}
-
-function FeeSummary({ events, savedIds }) {
-  const selected = events.filter((e) => savedIds.has(e.id));
-  if (selected.length === 0) return null;
-
-  const rows = selected.map((ev) => ({
-    ...ev,
-    fee: isDanceEvent(ev) ? 4 : 3,
-  }));
-  const total = rows.reduce((s, r) => s + r.fee, 0);
-
-  return (
-    <section>
-      <h2 className="font-semibold text-slate-800 text-base mb-3 flex items-center gap-2">
-        <BanknoteIcon size={18} className="text-emerald-600" />
-        Registration Fees
-      </h2>
-
-      <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
-        {/* ── Fee table ── */}
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-200 text-xs">
-              <th className="text-left px-4 py-2.5 text-slate-500 font-medium">Event</th>
-              <th className="text-right px-4 py-2.5 text-slate-500 font-medium w-20">Fee</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((ev, i) => (
-              <tr
-                key={ev.id}
-                className={i < rows.length - 1 ? 'border-b border-slate-100' : ''}
-              >
-                <td className="px-4 py-2.5 text-slate-700">
-                  <span className="font-medium">{ev.event_name}</span>
-                  {isDanceEvent(ev) && (
-                    <span className="ml-2 text-[10px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded font-medium">
-                      Dance
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-2.5 text-right font-semibold text-slate-800">
-                  BD {ev.fee}/-
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="bg-navy-50 border-t-2 border-navy-200">
-              <td className="px-4 py-3 font-bold text-navy-800 text-sm">
-                Total ({selected.length} event{selected.length !== 1 ? 's' : ''})
-              </td>
-              <td className="px-4 py-3 text-right font-bold text-navy-800 text-lg">
-                BD {total}/-
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-
-        {/* ── Fee note ── */}
-        <div className="px-4 py-3.5 bg-amber-50 border-t border-amber-100 space-y-1.5">
-          <p className="text-xs font-semibold text-amber-800">Fee rates (Rule 22)</p>
-          <p className="text-xs text-amber-700">
-            Dance events: BD 4/- per event · All other events: BD 3/- per event
-          </p>
-          <p className="text-xs text-amber-700">
-            KCA members: the member discount will be credited back to your membership account
-            after payment is verified.
-          </p>
-        </div>
-
-        {/* ── Payment instructions ── */}
-        <div className="px-4 py-3.5 border-t border-slate-200 space-y-1.5">
-          <p className="text-xs font-semibold text-slate-700">How to pay</p>
-          <ul className="text-xs text-slate-600 space-y-1">
-            <li>• Visit the KCA office with your participant's registration details</li>
-            <li>• Bank transfer to KCA IBAN — confirm at the KCA office</li>
-            <li>• BenefitPay — confirm number at the KCA office</li>
-          </ul>
-          <p className="text-xs text-slate-400 mt-1">
-            Registration is not complete until payment is received and confirmed.
-          </p>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 // ── Teacher name row ──────────────────────────────────────────────────────────
 function TeacherRow({ label, value, onChange, onSave, saving, readOnly }) {
   return (
@@ -490,9 +396,14 @@ export default function ParticipantDetail() {
           )}
         </section>
 
-        {/* ── Payment summary ─────────────────────────────────────────────── */}
+        {/* ── Fees & payment (live from server) ───────────────────────────── */}
         {activeEventIds.length > 0 && (
-          <FeeSummary events={events} savedIds={savedIds} />
+          <PaymentSection
+            token={token}
+            participantId={id}
+            config={config}
+            refreshKey={savedIds.size}
+          />
         )}
 
         {/* ── Teacher names ────────────────────────────────────────────────── */}
