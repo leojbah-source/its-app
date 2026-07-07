@@ -402,10 +402,10 @@ router.post('/participant/:id/events', authenticate, async (req, res, next) => {
       return res.status(403).json({ error: 'Registration deadline has passed' });
     }
 
-    // Current event count (exclude withdrawn)
+    // Current event count (exclude withdrawn/swapped)
     const { rows: cntRows } = await client.query(
       `SELECT COUNT(*) AS cnt FROM registrations
-       WHERE participant_id = $1 AND status != 'withdrawn'`,
+       WHERE participant_id = $1 AND status NOT IN ('withdrawn','swapped')`,
       [req.params.id],
     );
     const currentCount = parseInt(cntRows[0].cnt, 10);
@@ -520,17 +520,50 @@ router.put('/participant/:id/events', authenticate, async (req, res, next) => {
     const added = [];
     let additionalDue = 0;
 
-    // Add events
+    // Withdraw events FIRST so the max-events check reflects the final
+    // selection (removing 2 and adding 1 from a full 12 must succeed).
+    // Each withdrawal creates a pending refund request that the Admin
+    // confirms (amount/method) for the Refunds Report (§4.10, §5.3).
+    const withdrawn = [];
+    let refundDue = 0;
+    for (const eventId of remove_event_ids) {
+      const { rows } = await client.query(
+        `UPDATE registrations r SET status = 'withdrawn', updated_at = NOW()
+         FROM events e
+         WHERE r.participant_id = $1 AND r.event_id = $2 AND r.status = 'registered'
+           AND e.id = r.event_id
+         RETURNING r.*, e.event_code, e.event_name`,
+        [req.params.id, eventId],
+      );
+      for (const reg of rows) {
+        refundDue = round3(refundDue + Number(reg.fee_amount || 0));
+        await client.query(
+          `INSERT INTO refunds
+             (year_id, participant_id, registration_id, events_withdrawn, reason,
+              original_amount, refund_amount, status, requested_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8)`,
+          [p.year_id, req.params.id, reg.id,
+           `${reg.event_code} — ${reg.event_name}`, removal_reason.trim(),
+           reg.fee_amount || 0, reg.fee_amount || 0, req.user.id],
+        );
+      }
+      withdrawn.push(...rows);
+    }
+
+    // Add events (cap check now runs against the post-withdrawal count)
     if (add_event_ids.length > 0) {
       const { rows: cntRows } = await client.query(
         `SELECT COUNT(*) AS cnt FROM registrations
-         WHERE participant_id = $1 AND status != 'withdrawn'`,
+         WHERE participant_id = $1 AND status NOT IN ('withdrawn','swapped')`,
         [req.params.id],
       );
       const currentCount = parseInt(cntRows[0].cnt, 10);
       if (currentCount + add_event_ids.length > p.max_individual_events) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ error: `Cannot exceed ${p.max_individual_events} individual events` });
+        return res.status(400).json({
+          error: `${p.full_name} can select at most ${p.max_individual_events} events ` +
+                 `(currently ${currentCount} after removals, trying to add ${add_event_ids.length})`,
+        });
       }
 
       for (const eventId of add_event_ids) {
@@ -564,34 +597,6 @@ router.put('/participant/:id/events', authenticate, async (req, res, next) => {
         );
         added.push(rows[0]);
       }
-    }
-
-    // Withdraw events — each withdrawal creates a pending refund request that
-    // the Admin confirms (amount/method) for the Refunds Report (§4.10, §5.3).
-    const withdrawn = [];
-    let refundDue = 0;
-    for (const eventId of remove_event_ids) {
-      const { rows } = await client.query(
-        `UPDATE registrations r SET status = 'withdrawn', updated_at = NOW()
-         FROM events e
-         WHERE r.participant_id = $1 AND r.event_id = $2 AND r.status = 'registered'
-           AND e.id = r.event_id
-         RETURNING r.*, e.event_code, e.event_name`,
-        [req.params.id, eventId],
-      );
-      for (const reg of rows) {
-        refundDue = round3(refundDue + Number(reg.fee_amount || 0));
-        await client.query(
-          `INSERT INTO refunds
-             (year_id, participant_id, registration_id, events_withdrawn, reason,
-              original_amount, refund_amount, status, requested_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8)`,
-          [p.year_id, req.params.id, reg.id,
-           `${reg.event_code} — ${reg.event_name}`, removal_reason.trim(),
-           reg.fee_amount || 0, reg.fee_amount || 0, req.user.id],
-        );
-      }
-      withdrawn.push(...rows);
     }
 
     await client.query('COMMIT');
