@@ -64,6 +64,23 @@ Applied so far:
 - `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
   per-age-group duration override; event-level value is the default)
 
+## Registration screen rules (July 2026)
+- category_cap is an AWARDS-ONLY rule (top-N per category count towards
+  championships). Migration 005 removed it from the registration trigger;
+  only max_individual_events limits selection. Trigger errors now use the
+  child's name, not participant ids.
+- Event list is grouped by category (collapsible), shows per-category
+  selected counts, per-event fee (member rate when active) and a running
+  total bar.
+- Teacher names: ONLY dance (Natya) and music (Sangeet) events. PUT
+  /api/register/participant/:id/teacher accepts apply_to_all=true to copy a
+  name to all of the participant's events in that category (regex
+  natya|dance / sangeet|music|song on category name/code).
+- Registration summary email (utils/email.js, nodemailer — new dependency,
+  run `npm install` in backend; SMTP_* vars in .env.example) sent after
+  payment submission; response includes email_sent, surfaced in the UI.
+  Skips gracefully when SMTP unconfigured, like WhatsApp.
+
 ## Events module notes (July 2026 fixes)
 - Year Setup publish no longer DELETEs age_groups (FK violation once
   participants exist) — upserts by (year_id, code); removed codes deleted

@@ -11,6 +11,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   CheckSquare, Square, Clock, AlertCircle, CheckCircle2, Save, BanknoteIcon,
+  ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { useParentAuth } from '../../context/ParentAuthContext';
 import { portalApi } from './registerApi';
@@ -49,7 +50,7 @@ function fmtDate(d) {
 }
 
 // ── Event card ────────────────────────────────────────────────────────────────
-function EventCard({ event, selected, canToggle, onToggle }) {
+function EventCard({ event, selected, canToggle, onToggle, fee }) {
   return (
     <button
       onClick={canToggle ? onToggle : undefined}
@@ -77,6 +78,11 @@ function EventCard({ event, selected, canToggle, onToggle }) {
             {event.category_name || '—'} · {event.event_kind}
           </p>
         </div>
+        {fee != null && (
+          <span className={`shrink-0 text-xs font-semibold ${selected ? 'text-navy-700' : 'text-slate-400'}`}>
+            BD {Number(fee).toFixed(3)}
+          </span>
+        )}
       </div>
     </button>
   );
@@ -131,6 +137,7 @@ export default function ParticipantDetail() {
   // selectedIds = what the user currently has checked (may differ)
   const [savedIds, setSavedIds] = useState(new Set());
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [openCats, setOpenCats] = useState(new Set()); // expanded category sections
 
   // Teacher names: { [eventId]: { dance_teacher: '', music_teacher: '', reg_id } }
   const [teachers, setTeachers] = useState({});
@@ -242,17 +249,28 @@ export default function ParticipantDetail() {
   }
 
   // ── Save teacher name ───────────────────────────────────────────────────
-  async function handleSaveTeacher(eventId, teacherType) {
+  async function handleSaveTeacher(eventId, teacherType, applyAll = false) {
     const name = teachers[eventId]?.[`${teacherType}_teacher`]?.trim();
     if (!name) return;
     const key = `${eventId}_${teacherType}`;
     setTeacherSaving((prev) => ({ ...prev, [key]: true }));
     try {
-      await portalApi.teacherUpdate(token, id, {
+      const result = await portalApi.teacherUpdate(token, id, {
         event_id: eventId,
         teacher_type: teacherType,
         teacher_name: name,
+        apply_to_all: applyAll || undefined,
       });
+      if (applyAll && Array.isArray(result.event_ids)) {
+        // Reflect the copied name in every matching row locally
+        setTeachers((prev) => {
+          const next = { ...prev };
+          for (const eid of result.event_ids) {
+            next[eid] = { ...(next[eid] || {}), [`${teacherType}_teacher`]: name };
+          }
+          return next;
+        });
+      }
       setTeacherSaved((prev) => ({ ...prev, [key]: true }));
       setTimeout(() => setTeacherSaved((prev) => ({ ...prev, [key]: false })), 2500);
     } catch (err) {
@@ -286,6 +304,41 @@ export default function ParticipantDetail() {
 
   // Active (saved) event IDs, for the teacher-names section
   const activeEventIds = [...savedIds];
+
+  // ── Fees & category grouping ────────────────────────────────────────────
+  const memberActive = participant?.membership_status === 'active';
+  const feeFor = (ev) => {
+    const std = Number(ev.fee_amount || 0);
+    if (memberActive && ev.member_fee_amount != null) return Number(ev.member_fee_amount);
+    return std;
+  };
+  const selectedTotal = events
+    .filter((e) => selectedIds.has(e.id))
+    .reduce((sum, e) => sum + feeFor(e), 0);
+
+  const grouped = [];
+  {
+    const map = new Map();
+    for (const ev of events) {
+      const cat = ev.category_name || 'Other';
+      if (!map.has(cat)) { map.set(cat, []); grouped.push({ name: cat, events: map.get(cat) ?? [] }); }
+      map.get(cat).push(ev);
+    }
+    grouped.forEach((g) => { g.events = map.get(g.name); });
+  }
+  const toggleCat = (name) =>
+    setOpenCats((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+
+  // Teacher names apply ONLY to dance (Natya) and music (Sangeet) events.
+  const isDanceEv = (ev) => /natya|dance/i.test(ev?.category_name || '');
+  const isMusicEv = (ev) => /sangeet|music|song/i.test(ev?.category_name || '');
+  const teacherEvents = activeEventIds
+    .map((eid) => events.find((e) => e.id === eid))
+    .filter((ev) => ev && (isDanceEv(ev) || isMusicEv(ev)));
 
   return (
     <RegisterLayout
@@ -346,20 +399,57 @@ export default function ParticipantDetail() {
               No events available for this age group.
             </p>
           ) : (
-            <div className="space-y-2 mt-3">
-              {events.map((ev) => {
-                const isSelected = selectedIds.has(ev.id);
-                const canToggle  = !regDeadlinePassed && (isSelected || !atMax);
+            <div className="space-y-3 mt-3">
+              {grouped.map(({ name, events: catEvents }) => {
+                const catSelected = catEvents.filter((e) => selectedIds.has(e.id)).length;
+                const isOpen = openCats.has(name);
                 return (
-                  <EventCard
-                    key={ev.id}
-                    event={ev}
-                    selected={isSelected}
-                    canToggle={canToggle}
-                    onToggle={() => toggleEvent(ev.id)}
-                  />
+                  <div key={name} className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                    <button
+                      onClick={() => toggleCat(name)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors"
+                    >
+                      <span className="flex items-center gap-2 font-medium text-sm text-slate-800">
+                        {isOpen ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronRight size={16} className="text-slate-400" />}
+                        {name}
+                      </span>
+                      <span className={`text-xs font-semibold rounded-full px-2.5 py-1 ${
+                        catSelected > 0 ? 'bg-navy-100 text-navy-700' : 'bg-slate-100 text-slate-400'
+                      }`}>
+                        {catSelected} of {catEvents.length} selected
+                      </span>
+                    </button>
+                    {isOpen && (
+                      <div className="px-3 pb-3 space-y-2">
+                        {catEvents.map((ev) => {
+                          const isSelected = selectedIds.has(ev.id);
+                          const canToggle  = !regDeadlinePassed && (isSelected || !atMax);
+                          return (
+                            <EventCard
+                              key={ev.id}
+                              event={ev}
+                              selected={isSelected}
+                              canToggle={canToggle}
+                              fee={feeFor(ev)}
+                              onToggle={() => toggleEvent(ev.id)}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
+
+              {/* Running selection summary */}
+              <div className="flex items-center justify-between rounded-xl bg-navy-50 border border-navy-200 px-4 py-3">
+                <span className="text-sm font-semibold text-navy-800">
+                  {selectedCount} event{selectedCount !== 1 ? 's' : ''} selected
+                </span>
+                <span className="text-sm font-bold text-navy-800">
+                  Total: BD {selectedTotal.toFixed(3)}
+                </span>
+              </div>
             </div>
           )}
 
@@ -415,74 +505,67 @@ export default function ParticipantDetail() {
               <Alert variant="muted">Teacher name submission is closed.</Alert>
             ) : (
               <p className="text-xs text-slate-500 mb-3">
-                Enter the name of the teacher who prepared your child for each event.
-                Tap <strong>Save</strong> after each entry.
+                Teacher names are needed only for <strong>Dance (Natya)</strong> and{' '}
+                <strong>Music (Sangeet)</strong> events. Enter a name and tap{' '}
+                <strong>Save</strong> — or use <strong>"Apply to all"</strong> if the same
+                teacher prepared your child for every event in that category. If your child
+                is self-taught or taught by a parent, write "Not Applicable".
               </p>
             )}
 
-            <div className="space-y-3">
-              {activeEventIds.map((eventId) => {
-                const ev = events.find((e) => e.id === eventId);
-                if (!ev) return null;
+            {teacherEvents.length === 0 ? (
+              <Alert variant="muted">
+                None of the selected events require a teacher name.
+              </Alert>
+            ) : (
+              <div className="space-y-3">
+                {teacherEvents.map((ev) => {
+                  const eventId = ev.id;
+                  const t = teachers[eventId] || {};
+                  const type = isDanceEv(ev) ? 'dance' : 'music';
+                  const field = `${type}_teacher`;
+                  const catCount = teacherEvents.filter((e) =>
+                    (type === 'dance' ? isDanceEv(e) : isMusicEv(e))).length;
 
-                const t = teachers[eventId] || {};
-                const cat = (ev.category_name || '').toLowerCase();
-                const isDance = cat.includes('dance');
-                const isMusic = cat.includes('music');
-                // If category is unrecognized, show both fields
-                const showDance = isDance || (!isDance && !isMusic);
-                const showMusic = isMusic || (!isDance && !isMusic);
+                  return (
+                    <div key={eventId} className="rounded-xl bg-white border border-slate-200 p-4 space-y-3">
+                      <div>
+                        <p className="font-medium text-sm text-slate-700">{ev.event_name}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {ev.category_name} · {ev.event_code}
+                        </p>
+                      </div>
 
-                return (
-                  <div key={eventId} className="rounded-xl bg-white border border-slate-200 p-4 space-y-3">
-                    <div>
-                      <p className="font-medium text-sm text-slate-700">{ev.event_name}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {ev.category_name} · {ev.event_code}
-                      </p>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">
+                          {type === 'dance' ? 'Dance teacher' : 'Music teacher'}
+                        </label>
+                        <TeacherRow
+                          label={`${type === 'dance' ? 'Dance' : 'Music'} teacher name`}
+                          value={t[field] || ''}
+                          onChange={(e) => setTeacherField(eventId, field, e.target.value)}
+                          onSave={() => handleSaveTeacher(eventId, type)}
+                          saving={teacherSaving[`${eventId}_${type}`]}
+                          readOnly={teacherDeadlinePassed}
+                        />
+                        {teacherSaved[`${eventId}_${type}`] && (
+                          <p className="text-xs text-emerald-600 mt-1">✓ Saved</p>
+                        )}
+                        {!teacherDeadlinePassed && catCount > 1 && (t[field] || '').trim() && (
+                          <button
+                            onClick={() => handleSaveTeacher(eventId, type, true)}
+                            disabled={teacherSaving[`${eventId}_${type}`]}
+                            className="mt-2 text-xs font-medium text-navy-600 underline hover:text-navy-800 disabled:opacity-50"
+                          >
+                            Apply this name to all {catCount} {type === 'dance' ? 'Dance' : 'Music'} events
+                          </button>
+                        )}
+                      </div>
                     </div>
-
-                    {showDance && (
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">
-                          Dance teacher
-                        </label>
-                        <TeacherRow
-                          label="Dance teacher name"
-                          value={t.dance_teacher || ''}
-                          onChange={(e) => setTeacherField(eventId, 'dance_teacher', e.target.value)}
-                          onSave={() => handleSaveTeacher(eventId, 'dance')}
-                          saving={teacherSaving[`${eventId}_dance`]}
-                          readOnly={teacherDeadlinePassed}
-                        />
-                        {teacherSaved[`${eventId}_dance`] && (
-                          <p className="text-xs text-emerald-600 mt-1">✓ Saved</p>
-                        )}
-                      </div>
-                    )}
-
-                    {showMusic && (
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">
-                          Music teacher
-                        </label>
-                        <TeacherRow
-                          label="Music teacher name"
-                          value={t.music_teacher || ''}
-                          onChange={(e) => setTeacherField(eventId, 'music_teacher', e.target.value)}
-                          onSave={() => handleSaveTeacher(eventId, 'music')}
-                          saving={teacherSaving[`${eventId}_music`]}
-                          readOnly={teacherDeadlinePassed}
-                        />
-                        {teacherSaved[`${eventId}_music`] && (
-                          <p className="text-xs text-emerald-600 mt-1">✓ Saved</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
         )}
       </div>

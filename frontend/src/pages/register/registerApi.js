@@ -91,10 +91,11 @@ export const portalApi = {
       method: 'POST', token, body: data,
     }),
 
-  /** Save a teacher name for a specific event registration. */
-  teacherUpdate: (token, participantId, { event_id, teacher_type, teacher_name }) =>
+  /** Save a teacher name. apply_to_all=true copies it to every dance (or
+   *  music) event the participant has selected. */
+  teacherUpdate: (token, participantId, { event_id, teacher_type, teacher_name, apply_to_all }) =>
     req(`/api/register/participant/${participantId}/teacher`, {
       method: 'PUT', token,
-      body: { event_id, teacher_type, teacher_name },
+      body: { event_id, teacher_type, teacher_name, apply_to_all },
     }),
 };

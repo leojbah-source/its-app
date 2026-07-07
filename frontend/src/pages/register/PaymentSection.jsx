@@ -45,6 +45,7 @@ export default function PaymentSection({ token, participantId, config, refreshKe
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,14 +96,15 @@ export default function PaymentSection({ token, participantId, config, refreshKe
     }
     setSubmitting(true);
     try {
-      await portalApi.paymentSubmit(token, participantId, {
+      const result = await portalApi.paymentSubmit(token, participantId, {
         amount: amt, method, reference: reference.trim() || undefined, proof_url: proofUrl || undefined,
       });
+      setEmailSent(Boolean(result?.email_sent));
       setSubmitted(true);
       setShowForm(false);
       setProofUrl(''); setReference('');
       load();
-      setTimeout(() => setSubmitted(false), 5000);
+      setTimeout(() => setSubmitted(false), 10000);
     } catch (err) {
       setFormError(err.message || 'Payment submission failed.');
     } finally {
@@ -179,6 +181,9 @@ export default function PaymentSection({ token, participantId, config, refreshKe
         {submitted && (
           <p className="px-4 py-2.5 text-xs font-medium text-emerald-700 bg-emerald-50 border-t border-emerald-100">
             Payment submitted! You will receive a WhatsApp confirmation once KCA verifies it.
+            {emailSent
+              ? ' A registration summary email with all your details has been sent to you.'
+              : ''}
           </p>
         )}
 
