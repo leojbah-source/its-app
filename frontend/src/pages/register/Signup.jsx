@@ -11,7 +11,8 @@ export default function Signup() {
   const { signup } = useParentAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({
-    full_name: '', email: '', phone: '', password: '', confirm: '',
+    full_name: '', email: '', phone: '', whatsapp_number: '', kca_member_no: '',
+    password: '', confirm: '',
   });
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -38,6 +39,8 @@ export default function Signup() {
         full_name: form.full_name.trim(),
         email: form.email.trim(),
         phone: form.phone.trim() || undefined,
+        whatsapp_number: form.whatsapp_number.trim() || undefined,
+        kca_member_no: form.kca_member_no.trim() || undefined,
         password: form.password,
       });
       navigate('/register/dashboard', { replace: true });
@@ -96,6 +99,40 @@ export default function Signup() {
             className={inputClass}
             placeholder="+973 3XXX XXXX"
           />
+        </div>
+
+        {/* WhatsApp */}
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">
+            WhatsApp number <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="tel"
+            required
+            value={form.whatsapp_number}
+            onChange={set('whatsapp_number')}
+            className={inputClass}
+            placeholder="+973 3XXX XXXX"
+          />
+          <p className="text-xs text-slate-400 mt-1">
+            Schedule updates and confirmations are sent on WhatsApp.
+          </p>
+        </div>
+
+        {/* KCA member ID */}
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">
+            KCA member ID <span className="text-slate-400 font-normal">(optional)</span>
+          </label>
+          <input
+            value={form.kca_member_no}
+            onChange={set('kca_member_no')}
+            className={inputClass}
+            placeholder="e.g. KCA1234"
+          />
+          <p className="text-xs text-slate-400 mt-1">
+            We verify this with KCA — active members get reduced event fees.
+          </p>
         </div>
 
         {/* Password */}

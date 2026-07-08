@@ -157,12 +157,14 @@ router.get('/registrations', requireRole(...staffRoles), async (req, res, next) 
          r.age_group_id, r.category_id, r.status,
          r.dance_teacher, r.music_teacher, r.registered_at, r.updated_at,
          p.full_name AS participant_name, p.cpr_number, p.gender, p.dob,
+         t.team_name,
          s.name AS school_name,
          e.event_name, e.event_code, e.event_kind,
          c.name AS category_name,
          ag.code AS age_group_code, ag.label AS age_group_label
        FROM registrations r
-       JOIN participants p ON p.id = r.participant_id
+       LEFT JOIN participants p ON p.id = r.participant_id
+       LEFT JOIN teams t ON t.id = r.team_id
        LEFT JOIN schools s ON s.id = p.school_id
        JOIN events e ON e.id = r.event_id
        LEFT JOIN categories c ON c.id = r.category_id

@@ -43,6 +43,12 @@ export default function PaymentDeadlinesCard({ config, onChange, errors }) {
           {...text('benefit_pay_number')}
         />
         <Input
+          label="KCA subscription paid up to (YYYY-MM)"
+          hint="Members must be paid up to this month to get member rates"
+          placeholder="e.g. 2026-10"
+          {...text('member_subscription_upto')}
+        />
+        <Input
           label="Individual registration deadline"
           hint="Date and time — event add/remove locks after this"
           {...dt('reg_deadline')}

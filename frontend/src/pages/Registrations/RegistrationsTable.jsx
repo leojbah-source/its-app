@@ -28,6 +28,7 @@ const COLUMNS = [
 const PAGE_SIZES = [25, 50, 100];
 
 export default function RegistrationsTable({ registrations, onView }) {
+  const [mode,     setMode]     = useState('participant'); // 'participant' | 'entries'
   const [search,   setSearch]   = useState('');
   const [status,   setStatus]   = useState('');
   const [sortKey,  setSortKey]  = useState('participant_name');
@@ -59,9 +60,33 @@ export default function RegistrationsTable({ registrations, onView }) {
     return sorted;
   }, [registrations, search, status, sortKey, sortDir]);
 
-  const totalPages  = Math.max(1, Math.ceil(filtered.length / pageSize));
+  // One row per participant with their events aggregated
+  const groupedRows = useMemo(() => {
+    const map = new Map();
+    for (const r of filtered) {
+      const key = r.participant_id ?? `t${r.team_id}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          participant_name: r.participant_name || r.team_name || '—',
+          cpr_number: r.cpr_number,
+          age_group_code: r.age_group_code,
+          school_name: r.school_name,
+          events: [],
+          first: r,
+        });
+      }
+      map.get(key).events.push(r);
+    }
+    return [...map.values()].sort((a, b) =>
+      a.participant_name.localeCompare(b.participant_name));
+  }, [filtered]);
+
+  const totalPages  = Math.max(1, Math.ceil(
+    (mode === 'participant' ? groupedRows.length : filtered.length) / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pageRows    = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageGroups  = groupedRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const toggleSort = (key) => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -94,8 +119,23 @@ export default function RegistrationsTable({ registrations, onView }) {
           <option value="withdrawn">Withdrawn</option>
           <option value="swapped">Swapped</option>
         </select>
+        <div className="flex rounded-md border border-slate-300 overflow-hidden text-xs font-medium">
+          {[['participant', 'By participant'], ['entries', 'By event entry']].map(([m, label]) => (
+            <button
+              key={m}
+              onClick={() => { setMode(m); setPage(1); }}
+              className={`px-3 py-2 transition-colors ${
+                mode === m ? 'bg-navy-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <p className="ml-auto text-sm text-slate-500">
-          {filtered.length} of {registrations.length} registrations
+          {mode === 'participant'
+            ? `${groupedRows.length} participants · ${filtered.length} event entries`
+            : `${filtered.length} of ${registrations.length} registrations`}
         </p>
       </div>
 
@@ -104,6 +144,60 @@ export default function RegistrationsTable({ registrations, onView }) {
           title="No registrations match your filters"
           description="Try adjusting the search or status filter."
         />
+      ) : mode === 'participant' ? (
+        <div className="overflow-x-auto scroll-thin rounded-lg border border-slate-200">
+          <table className="w-full min-w-[900px] text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-3 font-medium">Participant</th>
+                <th className="px-4 py-3 font-medium">Group</th>
+                <th className="px-4 py-3 font-medium">School</th>
+                <th className="px-4 py-3 font-medium">Events</th>
+                <th className="px-4 py-3 font-medium">Registered events</th>
+                <th className="px-4 py-3 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {pageGroups.map((g) => (
+                <tr key={g.key} className="hover:bg-slate-50 align-top">
+                  <td className="px-4 py-3">
+                    <span className="font-medium text-slate-800">{g.participant_name}</span>
+                    {g.cpr_number && (
+                      <span className="block text-[11px] text-slate-400 font-mono">{g.cpr_number}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 text-xs font-mono">{g.age_group_code || '—'}</td>
+                  <td className="px-4 py-3 text-slate-600 text-xs">{g.school_name || '—'}</td>
+                  <td className="px-4 py-3">
+                    <Badge tone="navy">{g.events.length}</Badge>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-1.5 max-w-md">
+                      {g.events.map((ev) => (
+                        <span
+                          key={ev.id}
+                          title={`${ev.event_name} — ${ev.status}`}
+                          className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-mono border ${
+                            ev.status === 'withdrawn' || ev.status === 'swapped'
+                              ? 'bg-slate-50 text-slate-400 border-slate-200 line-through'
+                              : 'bg-navy-50 text-navy-700 border-navy-200'
+                          }`}
+                        >
+                          {ev.event_code || ev.event_name}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Button variant="ghost" size="sm" icon={Eye} onClick={() => onView(g.first)}>
+                      View
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <div className="overflow-x-auto scroll-thin rounded-lg border border-slate-200">
           <table className="w-full min-w-[900px] text-sm">

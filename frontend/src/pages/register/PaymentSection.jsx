@@ -112,11 +112,23 @@ export default function PaymentSection({ token, participantId, config, refreshKe
     }
   }
 
+  const [recheck, setRecheck] = useState({ busy: false, note: '' });
+  async function handleRecheckMembership() {
+    setRecheck({ busy: true, note: '' });
+    try {
+      const r = await portalApi.membershipRefresh(token);
+      setRecheck({ busy: false, note: r.note || '' });
+      load(); // refresh fees with new status
+    } catch (err) {
+      setRecheck({ busy: false, note: err.message || 'Could not re-check membership.' });
+    }
+  }
+
   if (loading && !data) return null;
   if (error) return <p className="text-sm text-red-600">{error}</p>;
   if (!data || data.items.length === 0) return null;
 
-  const { items, payments, summary } = data;
+  const { items, payments, summary, membership } = data;
   const due = summary.balance_due;
 
   return (
@@ -125,6 +137,20 @@ export default function PaymentSection({ token, participantId, config, refreshKe
         <BanknoteIcon size={18} className="text-emerald-600" />
         Fees &amp; Payment
       </h2>
+
+      {membership?.note && (
+        <div className="mb-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800 space-y-2">
+          <p>{membership.note}</p>
+          <button
+            onClick={handleRecheckMembership}
+            disabled={recheck.busy}
+            className="text-xs font-semibold underline text-amber-900 disabled:opacity-50"
+          >
+            {recheck.busy ? 'Checking…' : 'Re-check membership'}
+          </button>
+          {recheck.note && <p className="text-xs">{recheck.note}</p>}
+        </div>
+      )}
 
       <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
         {/* ── Fee table (live from server, member rate already applied) ── */}

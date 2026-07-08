@@ -5,8 +5,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, UserCheck, User } from 'lucide-react';
+import { Upload } from 'lucide-react';
 import { useParentAuth } from '../../context/ParentAuthContext';
-import { portalApi } from './registerApi';
+import { portalApi, API_BASE } from './registerApi';
 import RegisterLayout from './RegisterLayout';
 
 export default function ParticipantAdd() {
@@ -24,10 +25,49 @@ export default function ParticipantAdd() {
   const [schools, setSchools] = useState([]);
   const [form, setForm] = useState({
     cpr_number: '', full_name: '', dob: '', gender: '',
-    school_id: '', guardian_name: '', guardian_phone: '',
+    school_id: '', cpr_scan_url: '', photo_url: '',
   });
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [uploading, setUploading] = useState({}); // { cpr: bool, photo: bool }
+
+  /** CPR = YYMM##### (a leading 0 may drop → 8 digits). Must match the DOB. */
+  function cprDobError(cprVal, dobVal) {
+    if (!cprVal || !dobVal) return '';
+    const digits = String(cprVal).replace(/\D/g, '');
+    if (digits.length !== 8 && digits.length !== 9)
+      return 'CPR number must be 8 or 9 digits.';
+    const full = digits.length === 8 ? '0' + digits : digits;
+    const d = new Date(dobVal);
+    const yy = String(d.getFullYear() % 100).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    if (full.slice(0, 2) !== yy || full.slice(2, 4) !== mm)
+      return `The CPR should start with ${yy}${mm} (birth year + month) — please check the CPR number and date of birth.`;
+    return '';
+  }
+  const cprMismatch = cprDobError(form.cpr_number, form.dob);
+
+  async function handleFileUpload(kind, file) {
+    if (!file) return;
+    setUploading((u) => ({ ...u, [kind]: true }));
+    setSaveError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`${API_BASE}/api/register/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Upload failed');
+      setForm((f) => ({ ...f, [kind === 'cpr' ? 'cpr_scan_url' : 'photo_url']: d.url }));
+    } catch (err) {
+      setSaveError(err.message || 'Upload failed');
+    } finally {
+      setUploading((u) => ({ ...u, [kind]: false }));
+    }
+  }
 
   useEffect(() => {
     portalApi.schools().then(setSchools).catch(() => null);
@@ -72,6 +112,9 @@ export default function ParticipantAdd() {
 
   async function handleCreate(e) {
     e.preventDefault();
+    if (cprMismatch) { setSaveError(cprMismatch); return; }
+    if (!form.cpr_scan_url) { setSaveError('Please upload a photo/scan of the CPR card.'); return; }
+    if (!form.photo_url) { setSaveError("Please upload the participant's photo (used on result cards)."); return; }
     setSaveLoading(true);
     setSaveError('');
     try {
@@ -219,32 +262,52 @@ export default function ParticipantAdd() {
               </select>
             </div>
 
-            {/* Guardian name */}
+            {/* Contact details come from the parent account — not re-entered */}
+            <p className="text-xs text-slate-400">
+              Contact details are taken from your account — no need to enter them again.
+            </p>
+
+            {/* CPR card scan (compulsory) */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                Guardian / Parent name
+                CPR card photo/scan <span className="text-red-500">*</span>
               </label>
-              <input
-                value={form.guardian_name}
-                onChange={setField('guardian_name')}
-                className={inputClass}
-                placeholder="Parent or guardian full name"
-              />
+              <label className={`flex items-center justify-center gap-2 rounded-xl border-2 border-dashed px-3 py-4 text-sm font-medium cursor-pointer transition-colors ${
+                form.cpr_scan_url ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-300 text-slate-500 hover:border-navy-400'
+              }`}>
+                <Upload size={15} />
+                {uploading.cpr ? 'Uploading…' : form.cpr_scan_url ? 'CPR scan uploaded ✓ (tap to replace)' : 'Upload CPR card (front) — png/jpg, max 5 MB'}
+                <input type="file" accept="image/*" capture="environment" className="hidden"
+                       onChange={(e) => handleFileUpload('cpr', e.target.files?.[0])} />
+              </label>
+              <p className="text-xs text-slate-400 mt-1">
+                The original CPR is kept on record to verify the name, CPR number and date of birth.
+              </p>
             </div>
 
-            {/* Guardian phone */}
+            {/* Participant photo (for result cards) */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                Guardian phone
+                Participant photo <span className="text-red-500">*</span>
               </label>
-              <input
-                type="tel"
-                value={form.guardian_phone}
-                onChange={setField('guardian_phone')}
-                className={inputClass}
-                placeholder="+973 3XXX XXXX"
-              />
+              <label className={`flex items-center justify-center gap-2 rounded-xl border-2 border-dashed px-3 py-4 text-sm font-medium cursor-pointer transition-colors ${
+                form.photo_url ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-300 text-slate-500 hover:border-navy-400'
+              }`}>
+                <Upload size={15} />
+                {uploading.photo ? 'Uploading…' : form.photo_url ? 'Photo uploaded ✓ (tap to replace)' : "Upload participant's photo — png/jpg, max 5 MB"}
+                <input type="file" accept="image/*" className="hidden"
+                       onChange={(e) => handleFileUpload('photo', e.target.files?.[0])} />
+              </label>
+              <p className="text-xs text-slate-400 mt-1">
+                Used on winner result cards published after each event.
+              </p>
             </div>
+
+            {cprMismatch && (
+              <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
+                {cprMismatch}
+              </div>
+            )}
 
             {saveError && (
               <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">

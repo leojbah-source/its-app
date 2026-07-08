@@ -64,6 +64,23 @@ Applied so far:
 - `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
   per-age-group duration override; event-level value is the default)
 
+## Parent membership & participant identity (July 2026)
+- Membership is PARENT-level (migration 006): users.kca_member_no /
+  membership_status (none|active|lapsed|pending) / whatsapp_number, verified
+  at signup against mem.kcabah.com incl. paid-up-to check vs
+  year_config.member_subscription_upto ('YYYY-MM', set in Year Setup).
+  POST /api/register/membership/refresh re-verifies after renewal.
+  Fee calc (events POST/PUT, /fees) uses parentMemberActive(req.user.id);
+  /fees returns membership{status,note} → amber alert + Re-check button in
+  PaymentSection.
+- Participant creation: CPR must be 8/9 digits, prefix YYMM matching DOB
+  (leading 0 may drop, e.g. 2008 → '80312345'); cpr_scan_url is COMPULSORY,
+  photo_url collected for result cards; guardian name/phone inherited from
+  the parent account (not re-entered).
+- Admin Registrations page defaults to By-participant view (one row per
+  child, event code chips); toggle to By-event-entry. GET /registrations
+  now LEFT JOINs participants/teams so team rows appear (team_name).
+
 ## Registration screen rules (July 2026)
 - category_cap is an AWARDS-ONLY rule (top-N per category count towards
   championships). Migration 005 removed it from the registration trigger;

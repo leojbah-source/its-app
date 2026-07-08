@@ -59,6 +59,60 @@ function genderEligible(genderSplit, participantGender) {
   return true; // 'common' / 'none' / unset
 }
 
+/**
+ * Bahrain CPR format: YYMM##### (9 digits; a leading 0 may be dropped, so
+ * 8 digits is also valid — e.g. year 2008 CPR may start with '8'). Returns
+ * an error string when the CPR prefix does not match the DOB, else null.
+ */
+function cprDobMismatch(cpr, dob) {
+  const digits = String(cpr).replace(/\D/g, '');
+  if (digits.length !== 8 && digits.length !== 9)
+    return 'CPR number must be 8 or 9 digits';
+  const full = digits.length === 8 ? '0' + digits : digits;
+  const d = new Date(dob);
+  if (Number.isNaN(d.getTime())) return 'Invalid date of birth';
+  const yy = String(d.getFullYear() % 100).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  if (full.slice(0, 2) !== yy || full.slice(2, 4) !== mm)
+    return `CPR starts with ${full.slice(0, 4)} but date of birth ${dob} requires ${yy}${mm} (YYMM)`;
+  return null;
+}
+
+/** The PARENT account's membership drives member rates (collected at signup). */
+async function parentMemberActive(db, userId) {
+  const { rows } = await db.query(
+    `SELECT membership_status FROM users WHERE id = $1`, [userId]);
+  return rows[0]?.membership_status === 'active';
+}
+
+/**
+ * Verifies a user's KCA membership against mem.kcabah.com, checking the
+ * subscription is paid up to year_config.member_subscription_upto.
+ * Updates the users row and returns { status, name, note }.
+ */
+async function verifyAndStoreUserMembership(userId, memberNo) {
+  const { rows: cfgRows } = await pool.query(
+    `SELECT member_subscription_upto FROM year_config WHERE is_active = TRUE LIMIT 1`);
+  const upto = cfgRows[0]?.member_subscription_upto || null;
+  const result = await verifyMembership(memberNo, upto);
+  const status = result.error === 'API_UNAVAILABLE' ? 'pending'
+    : result.valid && result.active ? 'active'
+    : result.valid ? 'lapsed'
+    : 'none';
+  await pool.query(
+    `UPDATE users SET kca_member_no = $1, membership_status = $2,
+            membership_checked_at = NOW(), updated_at = NOW()
+     WHERE id = $3`,
+    [memberNo, status, userId]);
+  const note =
+    status === 'active'  ? 'KCA membership verified — member rates apply.' :
+    status === 'lapsed'  ? `Your KCA subscription is not paid up${upto ? ` to ${upto}` : ''}. ` +
+                           'Full event fees will apply. Please update your subscription to avail the KCA member rates.' :
+    status === 'pending' ? 'Membership could not be verified right now — KCA will confirm it manually. Full fees apply until confirmed.' :
+    'Member number not recognised — full event fees will apply.';
+  return { status, name: result.name || null, note };
+}
+
 /** Looks up the age_group_id for a given DOB (ISO string) within a year. */
 async function resolveAgeGroup(dob, yearId) {
   const { rows } = await pool.query(
@@ -161,7 +215,7 @@ router.get('/events', async (req, res, next) => {
 // Creates a parent user account. Role is 'Viewer' until admin elevates it.
 router.post('/account', async (req, res, next) => {
   try {
-    const { email, password, full_name, phone } = req.body;
+    const { email, password, full_name, phone, whatsapp_number, kca_member_no } = req.body;
     if (!email || !password || !full_name)
       return res.status(400).json({ error: 'email, password and full_name are required' });
 
@@ -173,12 +227,20 @@ router.post('/account', async (req, res, next) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const { rows } = await pool.query(
-      `INSERT INTO users (full_name, email, phone, password_hash, role, is_active, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, 'Viewer', TRUE, NOW(), NOW())
+      `INSERT INTO users (full_name, email, phone, whatsapp_number, password_hash, role, is_active, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, 'Viewer', TRUE, NOW(), NOW())
        RETURNING id, email, full_name, role`,
-      [full_name, email.toLowerCase(), phone || null, passwordHash],
+      [full_name, email.toLowerCase(), phone || null, whatsapp_number || null, passwordHash],
     );
-    res.status(201).json(rows[0]);
+
+    // Verify KCA membership live against mem.kcabah.com (§4.3), incl. the
+    // paid-up-to month set in Year Setup. Never blocks account creation.
+    let membership = null;
+    if (kca_member_no?.trim()) {
+      try { membership = await verifyAndStoreUserMembership(rows[0].id, kca_member_no.trim()); }
+      catch (e) { console.error('membership verify at signup failed:', e.message); }
+    }
+    res.status(201).json({ ...rows[0], membership });
   } catch (err) { next(err); }
 });
 
@@ -186,12 +248,28 @@ router.post('/account', async (req, res, next) => {
 // Registers a participant (child) under the active year. Requires auth token.
 router.post('/participant', authenticate, async (req, res, next) => {
   try {
-    const { cpr_number, full_name, dob, gender, school_id, guardian_name, guardian_phone } = req.body;
+    const { cpr_number, full_name, dob, gender, school_id,
+            guardian_name, guardian_phone, cpr_scan_url, photo_url } = req.body;
     if (!cpr_number || !full_name || !dob)
       return res.status(400).json({ error: 'cpr_number, full_name and dob are required' });
 
+    // CPR prefix must match the date of birth (YYMM#####, leading 0 may drop)
+    const cprErr = cprDobMismatch(cpr_number, dob);
+    if (cprErr) return res.status(400).json({ error: cprErr });
+
+    // Original CPR document scan is compulsory (§5.1 manual-entry fallback)
+    if (!cpr_scan_url)
+      return res.status(400).json({ error: 'Please upload a scan/photo of the CPR card (cpr_scan_url)' });
+
     const cfg = await getActiveYear();
     if (!cfg) return res.status(400).json({ error: 'No active year configuration' });
+
+    // Contact details default to the parent account — not re-entered (§5.1)
+    const { rows: parentRows } = await pool.query(
+      `SELECT full_name, phone, whatsapp_number FROM users WHERE id = $1`, [req.user.id]);
+    const parent = parentRows[0] || {};
+    const gName  = guardian_name  || parent.full_name || null;
+    const gPhone = guardian_phone || parent.whatsapp_number || parent.phone || null;
 
     const age_group_id = await resolveAgeGroup(dob, cfg.id);
 
@@ -209,11 +287,12 @@ router.post('/participant', authenticate, async (req, res, next) => {
     const { rows } = await pool.query(
       `INSERT INTO participants
          (year_id, cpr_number, full_name, dob, gender, school_id, age_group_id,
-          guardian_name, guardian_phone, pwa_username, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW())
+          guardian_name, guardian_phone, cpr_scan_url, photo_url, pwa_username,
+          created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
        RETURNING *`,
       [cfg.id, cpr_number, full_name, dob, gender || null, school_id || null,
-       age_group_id, guardian_name || null, guardian_phone || null,
+       age_group_id, gName, gPhone, cpr_scan_url, photo_url || null,
        req.user.id.toString()],
     );
     res.status(201).json(rows[0]);
@@ -340,6 +419,20 @@ router.post('/participant/:id/scan', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── POST /api/register/membership/refresh ────────────────────────────────────
+// Re-verifies the logged-in parent's KCA membership (e.g. after they update
+// their subscription). Body may include a new member_no.
+router.post('/membership/refresh', authenticate, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT kca_member_no FROM users WHERE id = $1`, [req.user.id]);
+    const memberNo = (req.body?.member_no || rows[0]?.kca_member_no || '').trim();
+    if (!memberNo) return res.status(400).json({ error: 'No KCA member number on record — provide member_no' });
+    const membership = await verifyAndStoreUserMembership(req.user.id, memberNo);
+    res.json(membership);
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/register/membership/verify ─────────────────────────────────────
 // Verifies a KCA member number via mem.kcabah.com (§4.3). If participant_id is
 // given, the result is stored on the participant and logged for the Admin:
@@ -416,8 +509,8 @@ router.post('/participant/:id/events', authenticate, async (req, res, next) => {
       });
     }
 
-    // Member rate applies only on verified-active KCA membership (§4.3)
-    const memberActive = p.membership_status === 'active';
+    // Member rate applies from the PARENT account's verified membership (§4.3)
+    const memberActive = await parentMemberActive(client, req.user.id);
 
     const created = [];
     let grossTotal = 0;
@@ -516,7 +609,7 @@ router.put('/participant/:id/events', authenticate, async (req, res, next) => {
       return res.status(403).json({ error: 'Registration deadline has passed' });
     }
 
-    const memberActive = p.membership_status === 'active';
+    const memberActive = await parentMemberActive(client, req.user.id);
     const added = [];
     let additionalDue = 0;
 
@@ -696,10 +789,29 @@ router.get('/participant/:id/fees', authenticate, async (req, res, next) => {
     const paidPending = round3(pays.filter(x => x.status === 'pending')
       .reduce((s, x) => s + Number(x.amount), 0));
 
+    // Membership alert (§4.3): parent has a member number but rates don't apply
+    const { rows: uRows } = await pool.query(
+      `SELECT kca_member_no, membership_status FROM users WHERE id = $1`, [req.user.id]);
+    const u = uRows[0] || {};
+    const { rows: cfgR } = await pool.query(
+      `SELECT member_subscription_upto FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    const upto = cfgR[0]?.member_subscription_upto;
+    let membership_note = null;
+    if (u.kca_member_no && u.membership_status !== 'active') {
+      membership_note =
+        u.membership_status === 'lapsed'
+          ? `Your KCA subscription is not paid up${upto ? ` to ${upto}` : ''} — full event fees apply. ` +
+            'Update your subscription and tap "Re-check membership" to avail KCA member rates.'
+          : u.membership_status === 'pending'
+            ? 'Your KCA membership is awaiting verification — full fees apply until confirmed.'
+            : 'Your KCA member number was not recognised — full event fees apply.';
+    }
+
     res.json({
       items,
       payments: pays,
       refunds: refs,
+      membership: { status: u.membership_status || 'none', member_no: u.kca_member_no || null, note: membership_note },
       summary: {
         fees_total: feesTotal,
         paid_confirmed: paidConfirmed,

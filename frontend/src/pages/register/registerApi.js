@@ -81,6 +81,10 @@ export const portalApi = {
       body: { add_event_ids, remove_event_ids, removal_reason },
     }),
 
+  /** Re-verify the logged-in parent's KCA membership (after renewing). */
+  membershipRefresh: (token, member_no) =>
+    req('/api/register/membership/refresh', { method: 'POST', token, body: { member_no } }),
+
   /** Fee summary: per-event fees, payments, refunds, balance due. */
   fees: (token, participantId) =>
     req(`/api/register/participant/${participantId}/fees`, { token }),
