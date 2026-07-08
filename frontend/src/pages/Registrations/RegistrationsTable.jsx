@@ -69,6 +69,8 @@ export default function RegistrationsTable({ registrations, onView }) {
         map.set(key, {
           key,
           participant_name: r.participant_name || r.team_name || '—',
+          is_team: !r.participant_id,
+          team_member_count: r.team_member_count,
           cpr_number: r.cpr_number,
           age_group_code: r.age_group_code,
           school_name: r.school_name,
@@ -162,6 +164,11 @@ export default function RegistrationsTable({ registrations, onView }) {
                 <tr key={g.key} className="hover:bg-slate-50 align-top">
                   <td className="px-4 py-3">
                     <span className="font-medium text-slate-800">{g.participant_name}</span>
+                    {g.is_team && (
+                      <span className="ml-2 inline-block rounded bg-gold-100 text-gold-700 px-1.5 py-0.5 text-[10px] font-semibold">
+                        TEAM · {g.team_member_count ?? 0} member{(g.team_member_count ?? 0) !== 1 ? 's' : ''}
+                      </span>
+                    )}
                     {g.cpr_number && (
                       <span className="block text-[11px] text-slate-400 font-mono">{g.cpr_number}</span>
                     )}

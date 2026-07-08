@@ -64,6 +64,28 @@ Applied so far:
 - `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
   per-age-group duration override; event-level value is the default)
 
+## Team registration flow (July 2026)
+- Individual selection EXCLUDES team events (GET /events?kind=, POST/PUT
+  enforce event_kind='individual'); max_individual_events applies only to
+  individual events (team regs are team-level rows, never counted).
+- Teams (migration 007: teams.created_by, payments.team_id): POST /team
+  registers with event + team_name + >=1 member given as details
+  {full_name, dob, cpr_number, school_id}; members validated against the
+  EVENT's eligible age-group DOB ranges; participants auto-created by CPR
+  (no scan required for team-sheet members). Min size enforced later (note
+  returned), max enforced always. GET /my-teams, GET /team/:id,
+  POST /team/:id/members (until team_reg_deadline), POST /team/:id/payment
+  (per-team fee; member rate when the registering parent is active).
+- Parent portal: Dashboard offers Individual (Add Participant) and Team
+  Event Entry (/register/team → TeamRegister.jsx: my-teams cards with member
+  list + add-later + fee payment, new-team form).
+- Completion: POST /participant/:id/confirm sends the summary email +
+  WhatsApp 'registration received'; ParticipantDetail shows a green
+  'Registration received & saved' panel (Complete Registration button,
+  disabled while unsaved changes exist).
+- Admin Registrations: Individual / Team tabs; team rows show TEAM badge
+  with member count (admin GET includes team_member_count).
+
 ## Parent membership & participant identity (July 2026)
 - Membership is PARENT-level (migration 006): users.kca_member_no /
   membership_status (none|active|lapsed|pending) / whatsapp_number, verified

@@ -113,6 +113,25 @@ async function verifyAndStoreUserMembership(userId, memberNo) {
   return { status, name: result.name || null, note };
 }
 
+/**
+ * Team member eligibility: the member's DOB must fall inside one of the
+ * event's eligible age-group DOB ranges (Junior/Senior/Common per §5.5).
+ * Returns { ok, age_group_id?, ranges } — ranges for error messages.
+ */
+async function dobEligibleForEvent(db, eventId, dob) {
+  const { rows } = await db.query(
+    `SELECT ag.id, ag.code, ag.label, ag.dob_from, ag.dob_to
+     FROM event_age_groups eag JOIN age_groups ag ON ag.id = eag.age_group_id
+     WHERE eag.event_id = $1 ORDER BY ag.sort_order`,
+    [eventId]);
+  const d = new Date(dob);
+  for (const ag of rows) {
+    if (d >= new Date(ag.dob_from) && d <= new Date(ag.dob_to))
+      return { ok: true, age_group_id: ag.id, ranges: rows };
+  }
+  return { ok: false, ranges: rows };
+}
+
 /** Looks up the age_group_id for a given DOB (ISO string) within a year. */
 async function resolveAgeGroup(dob, yearId) {
   const { rows } = await pool.query(
@@ -190,10 +209,15 @@ router.get('/events', async (req, res, next) => {
   try {
     const cfg = await getActiveYear();
     if (!cfg) return res.json([]);
-    const { age_group_id, gender } = req.query;
+    const { age_group_id, gender, kind } = req.query;
     const args = [cfg.id];
     const ageFilter = age_group_id ? 'AND eag.age_group_id = $2' : '';
     if (age_group_id) args.push(age_group_id);
+    let kindFilter = '';
+    if (kind === 'individual' || kind === 'team') {
+      args.push(kind);
+      kindFilter = `AND e.event_kind = $${args.length}`;
+    }
 
     const { rows } = await pool.query(
       `SELECT DISTINCT e.id, e.event_name, e.event_code, e.event_kind, e.fee_amount, e.member_fee_amount,
@@ -201,7 +225,7 @@ router.get('/events', async (req, res, next) => {
        FROM events e
        JOIN event_age_groups eag ON eag.event_id = e.id
        LEFT JOIN categories c ON c.id = e.category_id
-       WHERE e.year_id = $1 ${ageFilter} AND e.is_cancelled = FALSE
+       WHERE e.year_id = $1 ${ageFilter} ${kindFilter} AND e.is_cancelled = FALSE
        ORDER BY e.event_code`,
       args,
     );
@@ -524,6 +548,7 @@ router.post('/participant/:id/events', authenticate, async (req, res, next) => {
          WHERE e.id = $1
            AND eag.age_group_id = $2
            AND e.is_cancelled = FALSE
+           AND e.event_kind = 'individual'
            AND e.year_id = $3`,
         [eventId, p.age_group_id, p.year_id],
       );
@@ -663,7 +688,8 @@ router.put('/participant/:id/events', authenticate, async (req, res, next) => {
         const { rows: evRows } = await client.query(
           `SELECT e.id, e.category_id, e.fee_amount, e.member_fee_amount, e.gender_split FROM events e
            JOIN event_age_groups eag ON eag.event_id = e.id
-           WHERE e.id = $1 AND eag.age_group_id = $2 AND e.is_cancelled = FALSE`,
+           WHERE e.id = $1 AND eag.age_group_id = $2 AND e.is_cancelled = FALSE
+             AND e.event_kind = 'individual'`,
           [eventId, p.age_group_id],
         );
         if (!evRows[0]) continue; // silently skip ineligible — caller should validate first
@@ -904,29 +930,91 @@ router.post('/participant/:id/payment', authenticate, async (req, res, next) => 
   } catch (err) { next(err); }
 });
 
+// ── Team helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Finds or creates a participant from team-sheet details (name, DOB, CPR,
+ * school). CPR-DOB prefix is validated; the CPR scan is not required here
+ * (team sheet entry), the Admin verifies documents at attendance (§6.9).
+ */
+async function findOrCreateMember(client, yearId, m, createdByUserId) {
+  const cprErr = cprDobMismatch(m.cpr_number, m.dob);
+  if (cprErr) throw Object.assign(new Error(`${m.full_name || m.cpr_number}: ${cprErr}`), { status: 400 });
+  const { rows: found } = await client.query(
+    `SELECT id, dob FROM participants WHERE cpr_number = $1 AND year_id = $2`,
+    [String(m.cpr_number).trim(), yearId]);
+  if (found[0]) return found[0].id;
+  const ageGroupId = await resolveAgeGroup(m.dob, yearId);
+  const { rows } = await client.query(
+    `INSERT INTO participants
+       (year_id, cpr_number, full_name, dob, gender, school_id, age_group_id, pwa_username, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW()) RETURNING id`,
+    [yearId, String(m.cpr_number).trim(), m.full_name, m.dob, m.gender || null,
+     m.school_id || null, ageGroupId, String(createdByUserId)]);
+  return rows[0].id;
+}
+
+/** Validates and adds one member to a team. Throws {status,message} on error. */
+async function addMemberToTeam(client, team, member, userId) {
+  // DOB must fall in the event's eligible age-group ranges (Junior/Senior/Common)
+  const elig = await dobEligibleForEvent(client, team.event_id, member.dob);
+  if (!elig.ok) {
+    const ranges = elig.ranges.map((r) =>
+      `${r.label || r.code}: ${String(r.dob_from).slice(0, 10)} to ${String(r.dob_to).slice(0, 10)}`).join(' · ');
+    throw Object.assign(new Error(
+      `${member.full_name || member.cpr_number}: date of birth ${member.dob} is outside ` +
+      `the eligible range for this event (${ranges})`), { status: 400 });
+  }
+  const pid = await findOrCreateMember(client, team.year_id, member, userId);
+  const { rows: dup } = await client.query(
+    `SELECT 1 FROM team_members WHERE team_id = $1 AND participant_id = $2`, [team.id, pid]);
+  if (dup[0]) return { participant_id: pid, duplicate: true };
+  await client.query(
+    `INSERT INTO team_members (team_id, participant_id) VALUES ($1, $2)`, [team.id, pid]);
+  return { participant_id: pid, duplicate: false };
+}
+
+/** Loads a team with its member list; checks the caller owns it (or is staff). */
+async function loadOwnTeam(db, teamId, user) {
+  const { rows } = await db.query(
+    `SELECT t.*, e.event_name, e.event_code, e.min_participants_per_team,
+            e.max_participants_per_team, yc.team_size_min, yc.team_size_max,
+            yc.team_reg_deadline
+     FROM teams t
+     JOIN events e ON e.id = t.event_id
+     JOIN year_config yc ON yc.id = t.year_id
+     WHERE t.id = $1`, [teamId]);
+  const team = rows[0];
+  if (!team) throw Object.assign(new Error('Team not found'), { status: 404 });
+  const staff = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'].includes(user.role);
+  if (!staff && team.created_by !== user.id)
+    throw Object.assign(new Error('This team belongs to another account'), { status: 403 });
+  return team;
+}
+
 // ── POST /api/register/team ───────────────────────────────────────────────────
-// Creates a team registration with initial member list.
+// Registers a team: event + team name + at least ONE member (the leader).
+// Members are given as details {full_name, dob, cpr_number, school_id, gender}
+// and validated against the event's age-group DOB ranges. Remaining members
+// can be added later via POST /team/:id/members, until team_reg_deadline.
 router.post('/team', authenticate, async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    const { event_id, team_name, school_id, age_group_id, participant_ids = [] } = req.body;
-    if (!event_id || !team_name || participant_ids.length === 0) {
+    const { event_id, team_name, school_id, members = [], participant_ids = [] } = req.body;
+    if (!event_id || !team_name?.trim() || (members.length === 0 && participant_ids.length === 0)) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'event_id, team_name and participant_ids are required' });
+      return res.status(400).json({ error: 'event_id, team_name and at least one member are required' });
     }
 
     const cfg = await getActiveYear(client);
     if (!cfg) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'No active year' }); }
-
-    // Team deadline check
     if (cfg.team_reg_deadline && new Date() > new Date(cfg.team_reg_deadline)) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'Team registration deadline has passed' });
     }
 
-    // Validate the event exists and is a team event
     const { rows: evRows } = await client.query(
       `SELECT e.id, e.category_id, e.event_kind, e.fee_amount, e.member_fee_amount,
               e.min_participants_per_team, e.max_participants_per_team,
@@ -939,72 +1027,266 @@ router.post('/team', authenticate, async (req, res, next) => {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Event not found or is not a team event' });
     }
-    const category_id = evRows[0].category_id;
-
-    // Team size limits (§4.1 / §5.5): per-event override, else year defaults.
-    // Min applies at final submission; team leader may register alone first
-    // and add members later, so we only enforce the MAX here.
-    const sizeMax = evRows[0].max_participants_per_team ?? evRows[0].team_size_max ?? 10;
-    if (participant_ids.length > sizeMax) {
+    const ev = evRows[0];
+    const sizeMax = ev.max_participants_per_team ?? ev.team_size_max ?? 10;
+    const totalMembers = members.length + participant_ids.length;
+    if (totalMembers > sizeMax) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: `A team may have at most ${sizeMax} members` });
     }
 
-    // Per-team fee (§4.1): member rate only if ALL members have verified
-    // active KCA membership.
-    const { rows: memRows } = await client.query(
-      `SELECT COUNT(*)::int AS n,
-              COUNT(*) FILTER (WHERE membership_status = 'active')::int AS active_n
-       FROM participants WHERE id = ANY($1)`,
-      [participant_ids],
-    );
-    const allMembers = memRows[0].n > 0 && memRows[0].n === memRows[0].active_n;
-    const teamFee = eventFee(evRows[0], allMembers);
+    // Per-team fee: member rate only if the registering parent is an active member
+    const memberActive = await parentMemberActive(client, req.user.id);
+    const teamFee = eventFee(ev, memberActive);
 
     const { rows: teamRows } = await client.query(
-      `INSERT INTO teams (year_id, event_id, team_name, school_id, age_group_id, fee_amount, created_at)
+      `INSERT INTO teams (year_id, event_id, team_name, school_id, fee_amount, created_by, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,NOW()) RETURNING *`,
-      [cfg.id, event_id, team_name, school_id || null, age_group_id || null, teamFee],
+      [cfg.id, event_id, team_name.trim(), school_id || null, teamFee, req.user.id],
     );
-    const team = teamRows[0];
+    const team = { ...teamRows[0] };
 
-    // Members are tracked in team_members; the registrations table takes ONE
-    // team-level row (schema CHECK: participant XOR team, never both).
-    for (const participantId of participant_ids) {
-      await client.query(
-        `INSERT INTO team_members (team_id, participant_id) VALUES ($1,$2)`,
-        [team.id, participantId],
-      );
+    // Add members (details) with DOB-vs-event validation
+    const memberResults = [];
+    let firstAgeGroupId = null;
+    for (const m of members) {
+      if (!m.full_name || !m.dob || !m.cpr_number) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Each member needs full_name, dob and cpr_number' });
+      }
+      const elig = await dobEligibleForEvent(client, event_id, m.dob);
+      if (!firstAgeGroupId && elig.ok) firstAgeGroupId = elig.age_group_id;
+      const r = await addMemberToTeam(client, { ...team, year_id: cfg.id, event_id }, m, req.user.id);
+      memberResults.push(r);
+    }
+    for (const pid of participant_ids) {
+      const { rows: pr } = await client.query(`SELECT id, full_name, dob, cpr_number FROM participants WHERE id = $1`, [pid]);
+      if (!pr[0]) { await client.query('ROLLBACK'); return res.status(400).json({ error: `Participant ${pid} not found` }); }
+      const r = await addMemberToTeam(client, { ...team, year_id: cfg.id, event_id }, pr[0], req.user.id);
+      memberResults.push(r);
     }
 
-    // Registration age group: explicit parameter, else the leader's group.
-    const { rows: agRows } = await client.query(
-      `SELECT age_group_id FROM participants WHERE id = $1`,
-      [participant_ids[0]],
-    );
-    const regAgeGroupId = age_group_id || agRows[0]?.age_group_id;
+    // ONE team-level registration row (schema CHECK: participant XOR team)
+    const regAgeGroupId = firstAgeGroupId
+      || (await client.query(
+          `SELECT ag.id FROM event_age_groups eag JOIN age_groups ag ON ag.id = eag.age_group_id
+           WHERE eag.event_id = $1 ORDER BY ag.sort_order LIMIT 1`, [event_id])).rows[0]?.id;
     if (!regAgeGroupId) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'age_group_id is required (leader has no age group set)' });
+      return res.status(400).json({ error: 'This team event has no eligible age groups configured' });
     }
-
     await client.query(
       `INSERT INTO registrations
          (year_id, team_id, event_id, age_group_id, category_id,
           status, registered_by, registered_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,'registered',$6,NOW(),NOW())`,
-      [cfg.id, team.id, event_id, regAgeGroupId, category_id, req.user.id],
+      [cfg.id, team.id, event_id, regAgeGroupId, ev.category_id, req.user.id],
     );
 
     await client.query('COMMIT');
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
-      action: 'CREATE_TEAM', entity: 'teams', entityId: team.id });
-    res.status(201).json(team);
+      action: 'CREATE_TEAM', entity: 'teams', entityId: team.id,
+      details: { team_name, event_id, members: memberResults.length, fee: teamFee } });
+
+    const sizeMin = ev.min_participants_per_team ?? ev.team_size_min ?? 5;
+    res.status(201).json({
+      ...team,
+      members_count: memberResults.length,
+      size_min: sizeMin,
+      size_max: sizeMax,
+      note: memberResults.length < sizeMin
+        ? `Team registered with ${memberResults.length} member(s). Add the remaining members ` +
+          `(minimum ${sizeMin}) before the team registration deadline.`
+        : 'Team registered.',
+    });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => null);
+    if (err.status) return res.status(err.status).json({ error: err.message });
     next(err);
   } finally { client.release(); }
+});
+
+// ── GET /api/register/my-teams ────────────────────────────────────────────────
+router.get('/my-teams', authenticate, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.*, e.event_name, e.event_code,
+              COALESCE(e.min_participants_per_team, yc.team_size_min) AS size_min,
+              COALESCE(e.max_participants_per_team, yc.team_size_max) AS size_max,
+              (SELECT COUNT(*)::int FROM team_members tm WHERE tm.team_id = t.id) AS members_count,
+              COALESCE((SELECT SUM(amount) FROM payments pay
+                        WHERE pay.team_id = t.id AND pay.status = 'confirmed'), 0) AS paid_confirmed,
+              COALESCE((SELECT SUM(amount) FROM payments pay
+                        WHERE pay.team_id = t.id AND pay.status = 'pending'), 0) AS paid_pending
+       FROM teams t
+       JOIN events e ON e.id = t.event_id
+       JOIN year_config yc ON yc.id = t.year_id
+       WHERE t.created_by = $1
+       ORDER BY t.created_at DESC`,
+      [req.user.id]);
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/register/team/:id ────────────────────────────────────────────────
+router.get('/team/:id', authenticate, async (req, res, next) => {
+  try {
+    const team = await loadOwnTeam(pool, req.params.id, req.user);
+    const { rows: members } = await pool.query(
+      `SELECT tm.id AS member_id, p.id AS participant_id, p.full_name, p.dob,
+              p.cpr_number, s.name AS school_name
+       FROM team_members tm
+       JOIN participants p ON p.id = tm.participant_id
+       LEFT JOIN schools s ON s.id = p.school_id
+       WHERE tm.team_id = $1 ORDER BY tm.created_at`,
+      [req.params.id]);
+    res.json({ ...team, members });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+});
+
+// ── POST /api/register/team/:id/members ──────────────────────────────────────
+// Adds members to an existing team (until team_reg_deadline, up to the max).
+router.post('/team/:id/members', authenticate, async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const team = await loadOwnTeam(client, req.params.id, req.user);
+
+    if (team.team_reg_deadline && new Date() > new Date(team.team_reg_deadline)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Team registration deadline has passed' });
+    }
+
+    const { members = [] } = req.body;
+    if (!members.length) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'members array is required' }); }
+
+    const { rows: cnt } = await client.query(
+      `SELECT COUNT(*)::int AS n FROM team_members WHERE team_id = $1`, [team.id]);
+    const sizeMax = team.max_participants_per_team ?? team.team_size_max ?? 10;
+    if (cnt[0].n + members.length > sizeMax) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `A team may have at most ${sizeMax} members (currently ${cnt[0].n})` });
+    }
+
+    const added = [];
+    for (const m of members) {
+      if (!m.full_name || !m.dob || !m.cpr_number) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Each member needs full_name, dob and cpr_number' });
+      }
+      added.push(await addMemberToTeam(client, team, m, req.user.id));
+    }
+    await client.query('COMMIT');
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'ADD_TEAM_MEMBERS', entity: 'teams', entityId: team.id,
+      details: { added: added.length } });
+
+    const sizeMin = team.min_participants_per_team ?? team.team_size_min ?? 5;
+    const total = cnt[0].n + added.filter((a) => !a.duplicate).length;
+    res.json({
+      added: added.length,
+      members_count: total,
+      note: total < sizeMin
+        ? `${total} member(s) so far — minimum ${sizeMin} required before the event.`
+        : null,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  } finally { client.release(); }
+});
+
+// ── POST /api/register/team/:id/payment ──────────────────────────────────────
+// Per-team fee payment (§4.1). Same methods as individual payments.
+router.post('/team/:id/payment', authenticate, async (req, res, next) => {
+  try {
+    const team = await loadOwnTeam(pool, req.params.id, req.user);
+    const { amount, method, reference, proof_url, notes } = req.body;
+    if (!amount || Number(amount) <= 0)
+      return res.status(400).json({ error: 'A positive amount is required' });
+    if (!['cash', 'benefitpay', 'bank_transfer'].includes(method))
+      return res.status(400).json({ error: "method must be 'cash', 'benefitpay' or 'bank_transfer'" });
+    if (method !== 'cash' && !proof_url)
+      return res.status(400).json({ error: 'proof_url (payment screenshot) is required for BenefitPay / bank transfer' });
+
+    const { rows } = await pool.query(
+      `INSERT INTO payments
+         (year_id, parent_user_id, team_id, amount, method, status, reference, proof_url, notes)
+       VALUES ($1,$2,$3,$4,$5,'pending',$6,$7,$8) RETURNING *`,
+      [team.year_id, req.user.id, team.id, amount, method,
+       reference || null, proof_url || null, notes || null]);
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'SUBMIT_TEAM_PAYMENT', entity: 'payments', entityId: rows[0].id,
+      details: { team_id: team.id, amount, method } });
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+});
+
+// ── POST /api/register/participant/:id/confirm ───────────────────────────────
+// Final step: parent confirms the registration is complete. Sends the full
+// summary email + WhatsApp acknowledgement; returns email_sent for the UI.
+router.post('/participant/:id/confirm', authenticate, async (req, res, next) => {
+  try {
+    const { rows: pRows } = await pool.query(
+      `SELECT p.id, p.year_id, p.full_name, p.cpr_number, p.guardian_phone,
+              ag.label AS age_group_label
+       FROM participants p LEFT JOIN age_groups ag ON ag.id = p.age_group_id
+       WHERE p.id = $1`, [req.params.id]);
+    const p = pRows[0];
+    if (!p) return res.status(404).json({ error: 'Participant not found' });
+
+    const { rows: items } = await pool.query(
+      `SELECT e.event_code, e.event_name, r.fee_amount
+       FROM registrations r JOIN events e ON e.id = r.event_id
+       WHERE r.participant_id = $1 AND r.status NOT IN ('withdrawn','swapped')
+       ORDER BY e.event_code`, [p.id]);
+    if (!items.length)
+      return res.status(400).json({ error: 'No events selected yet — choose events before confirming' });
+
+    const { rows: pays } = await pool.query(
+      `SELECT amount, method, status FROM payments WHERE participant_id = $1 ORDER BY created_at`, [p.id]);
+    const { rows: yl } = await pool.query(
+      `SELECT event_year_label FROM year_config WHERE id = $1`, [p.year_id]);
+    const { rows: uRows } = await pool.query(`SELECT email FROM users WHERE id = $1`, [req.user.id]);
+
+    const feesTotal = items.reduce((t, r) => t + Number(r.fee_amount || 0), 0);
+    const paidConfirmed = pays.filter((x) => x.status === 'confirmed')
+      .reduce((t, x) => t + Number(x.amount), 0);
+
+    let email_sent = false;
+    if (uRows[0]?.email) {
+      const result = await sendEmail({
+        to: uRows[0].email,
+        subject: `${yl[0]?.event_year_label || 'KCA ITS'} — Registration confirmed for ${p.full_name}`,
+        html: registrationSummaryHtml({
+          yearLabel: yl[0]?.event_year_label,
+          participant: p,
+          items, payments: pays,
+          summary: { fees_total: feesTotal, balance_due: feesTotal - paidConfirmed },
+        }),
+      });
+      email_sent = result.sent;
+    }
+    if (p.guardian_phone) {
+      sendWhatsApp(p.guardian_phone,
+        `KCA ITS: Registration for ${p.full_name} has been received and saved — ` +
+        `${items.length} event(s). Thank you!`).catch(() => null);
+    }
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'CONFIRM_REGISTRATION', entity: 'participants', entityId: p.id,
+      details: { events: items.length, email_sent } });
+    res.json({ confirmed: true, events: items.length, email_sent });
+  } catch (err) { next(err); }
 });
 
 // ── POST /api/register/participant/:id/swap ───────────────────────────────────

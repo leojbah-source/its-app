@@ -144,6 +144,11 @@ export default function ParticipantDetail() {
   const [teacherSaving, setTeacherSaving] = useState({}); // { `${eventId}_dance`: bool }
   const [teacherSaved, setTeacherSaved] = useState({});   // flash success
 
+  // Final confirmation state
+  const [confirming, setConfirming] = useState(false);
+  const [confirmResult, setConfirmResult] = useState(null); // {events, email_sent}
+  const [confirmError, setConfirmError] = useState('');
+
   // Events save state
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -162,7 +167,7 @@ export default function ParticipantDetail() {
       setConfig(cfg);
       setParticipant(part);
 
-      const evs = await portalApi.events(part.age_group_id, part.gender);
+      const evs = await portalApi.events(part.age_group_id, part.gender, 'individual');
       setEvents(evs);
 
       const activeRegs = (part.registrations || []).filter(
@@ -245,6 +250,19 @@ export default function ParticipantDetail() {
       setSaveError(err.message || 'Failed to save. Please try again.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleConfirmRegistration() {
+    setConfirming(true);
+    setConfirmError('');
+    try {
+      const r = await portalApi.participantConfirm(token, id);
+      setConfirmResult(r);
+    } catch (err) {
+      setConfirmError(err.message || 'Could not confirm registration.');
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -564,6 +582,45 @@ export default function ParticipantDetail() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ── Complete registration ────────────────────────────────────────── */}
+        {activeEventIds.length > 0 && (
+          <section>
+            {confirmResult ? (
+              <div className="rounded-2xl bg-emerald-50 border border-emerald-300 p-5 text-center space-y-1.5">
+                <CheckCircle2 size={28} className="mx-auto text-emerald-600" />
+                <p className="font-semibold text-emerald-800">
+                  Registration received &amp; saved!
+                </p>
+                <p className="text-sm text-emerald-700">
+                  {participant?.full_name} is registered for {confirmResult.events} event{confirmResult.events !== 1 ? 's' : ''}.
+                  {confirmResult.email_sent
+                    ? ' A confirmation email with all the details has been sent to you.'
+                    : ' A confirmation will be sent to you by KCA.'}
+                </p>
+                <p className="text-xs text-emerald-600">
+                  You can return to this page to make changes until the registration deadline.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {confirmError && <Alert variant="danger">{confirmError}</Alert>}
+                <button
+                  onClick={handleConfirmRegistration}
+                  disabled={confirming || isDirty}
+                  className="w-full rounded-xl bg-emerald-600 py-4 text-base font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
+                >
+                  {confirming ? 'Confirming…' : 'Complete Registration ✓'}
+                </button>
+                <p className="text-xs text-slate-400 text-center">
+                  {isDirty
+                    ? 'Save your event selection first, then complete the registration.'
+                    : 'Confirms your registration and emails you the full summary.'}
+                </p>
               </div>
             )}
           </section>

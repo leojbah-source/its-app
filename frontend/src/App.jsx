@@ -17,6 +17,7 @@ import LoginPage from './pages/register/Login';
 import Dashboard from './pages/register/Dashboard';
 import ParticipantAdd from './pages/register/ParticipantAdd';
 import ParticipantDetail from './pages/register/ParticipantDetail';
+import TeamRegister from './pages/register/TeamRegister';
 
 /** Redirects unauthenticated parents to the portal login. */
 function ParentRoute({ children }) {
@@ -63,6 +64,10 @@ export default function App() {
               <Route
                 path="/register/participant/:id"
                 element={<ParentRoute><ParticipantDetail /></ParentRoute>}
+              />
+              <Route
+                path="/register/team"
+                element={<ParentRoute><TeamRegister /></ParentRoute>}
               />
 
               {/* ── Fallback ─────────────────────────────────────────────── */}

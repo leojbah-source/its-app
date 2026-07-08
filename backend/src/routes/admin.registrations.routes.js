@@ -158,6 +158,7 @@ router.get('/registrations', requireRole(...staffRoles), async (req, res, next) 
          r.dance_teacher, r.music_teacher, r.registered_at, r.updated_at,
          p.full_name AS participant_name, p.cpr_number, p.gender, p.dob,
          t.team_name,
+         (SELECT COUNT(*)::int FROM team_members tm WHERE tm.team_id = r.team_id) AS team_member_count,
          s.name AS school_name,
          e.event_name, e.event_code, e.event_kind,
          c.name AS category_name,

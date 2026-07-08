@@ -161,6 +161,7 @@ export default function Dashboard() {
 
         {/* Add participant button — only while registration is open */}
         {regOpen && (
+          <>
           <button
             onClick={() => navigate('/register/add')}
             className="w-full flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-navy-300 py-5 text-navy-700 font-semibold hover:bg-navy-50 active:bg-navy-100 transition-colors"
@@ -168,6 +169,17 @@ export default function Dashboard() {
             <Plus size={20} />
             Add Participant
           </button>
+
+          <button
+            onClick={() => navigate('/register/team')}
+            className="w-full rounded-2xl border-2 border-dashed border-navy-300 bg-navy-50 py-4 text-base font-semibold text-navy-700 hover:bg-navy-100 active:bg-navy-200 transition-colors"
+          >
+            Team Event Entry →
+          </button>
+          <p className="text-xs text-slate-400 text-center -mt-2">
+            Individual events above · Register or manage teams here (separate deadline)
+          </p>
+          </>
         )}
       </div>
     </RegisterLayout>

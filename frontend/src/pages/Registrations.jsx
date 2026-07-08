@@ -10,6 +10,7 @@ import AdminLayout from '../components/layout/AdminLayout';
 import { useAuth } from '../context/AuthContext';
 import { registrationsApi, participantsApi, API_BASE } from '../api/client';
 import RegistrationsTable from './Registrations/RegistrationsTable';
+import { useState as useTabState } from 'react';
 import RegistrationDrawer from './Registrations/RegistrationDrawer';
 import { EmptyState, ErrorBanner, PageLoader } from '../components/ui/States';
 import { Badge } from '../components/ui/Card';
@@ -25,6 +26,7 @@ const TABS = [
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Registrations() {
   const { token } = useAuth();
+  const [regTab, setRegTab] = useTabState('individual');
   const [activeTab, setActiveTab] = useState('registrations');
 
   // ── Registrations tab state
@@ -182,10 +184,30 @@ export default function Registrations() {
             description="Registrations will appear here once participants start signing up."
           />
         ) : (
+          <>
+          <div className="mb-4 flex rounded-lg border border-slate-300 overflow-hidden w-fit text-sm font-medium">
+            {[['individual', 'Individual events'], ['team', 'Team events']].map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setRegTab(k)}
+                className={`px-4 py-2 transition-colors ${
+                  regTab === k ? 'bg-navy-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {label} ({k === 'individual'
+                  ? registrations.filter((r) => r.participant_id).length
+                  : registrations.filter((r) => r.team_id).length})
+              </button>
+            ))}
+          </div>
           <RegistrationsTable
-            registrations={registrations}
+            key={regTab}
+            registrations={regTab === 'individual'
+              ? registrations.filter((r) => r.participant_id)
+              : registrations.filter((r) => r.team_id)}
             onView={setViewReg}
           />
+          </>
         )
       )}
 

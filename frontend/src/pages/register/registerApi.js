@@ -41,11 +41,12 @@ export const portalApi = {
   ageGroups: () =>
     req('/api/register/age-groups'),
 
-  /** Events for the active year; filter by age group and participant gender. */
-  events: (ageGroupId, gender) => {
+  /** Events for the active year; filter by age group, gender and kind. */
+  events: (ageGroupId, gender, kind) => {
     const q = new URLSearchParams();
     if (ageGroupId) q.set('age_group_id', ageGroupId);
     if (gender) q.set('gender', gender);
+    if (kind) q.set('kind', kind);
     const qs = q.toString();
     return req(`/api/register/events${qs ? `?${qs}` : ''}`);
   },
@@ -94,6 +95,20 @@ export const portalApi = {
     req(`/api/register/participant/${participantId}/payment`, {
       method: 'POST', token, body: data,
     }),
+
+  /** Final confirmation: sends summary email + WhatsApp acknowledgement. */
+  participantConfirm: (token, participantId) =>
+    req(`/api/register/participant/${participantId}/confirm`, { method: 'POST', token, body: {} }),
+
+  // ── Teams ────────────────────────────────────────────────────────────────
+  myTeams: (token) => req('/api/register/my-teams', { token }),
+  teamGet: (token, id) => req(`/api/register/team/${id}`, { token }),
+  /** { event_id, team_name, school_id?, members: [{full_name,dob,cpr_number,gender?,school_id?}] } */
+  teamCreate: (token, data) => req('/api/register/team', { method: 'POST', token, body: data }),
+  teamAddMembers: (token, id, members) =>
+    req(`/api/register/team/${id}/members`, { method: 'POST', token, body: { members } }),
+  teamPayment: (token, id, data) =>
+    req(`/api/register/team/${id}/payment`, { method: 'POST', token, body: data }),
 
   /** Save a teacher name. apply_to_all=true copies it to every dance (or
    *  music) event the participant has selected. */
