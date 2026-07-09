@@ -13,6 +13,41 @@ import { useState } from 'react';
 import { Camera, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { API_BASE } from './registerApi';
 
+// The OCR engine is loaded from a CDN at runtime (not an npm dependency):
+// scanning already requires internet for the language data, and this keeps
+// the app running even when node_modules hasn't been refreshed.
+// /* @vite-ignore */ stops Vite from trying to resolve the URL at build time.
+const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.esm.min.js';
+let tesseractPromise = null;
+function loadTesseract() {
+  if (!tesseractPromise) {
+    tesseractPromise = import(/* @vite-ignore */ TESSERACT_CDN)
+      .then((m) => m.default ?? m)
+      .catch((e) => { tesseractPromise = null; throw e; });
+  }
+  return tesseractPromise;
+}
+
+/** Runs OCR on an image file, working across tesseract.js API variants. */
+async function ocrImage(file, onProgress) {
+  const T = await loadTesseract();
+  const logger = (m) => {
+    if (m.status === 'recognizing text') onProgress(Math.round((m.progress || 0) * 100));
+  };
+  if (typeof T.recognize === 'function') {
+    const { data } = await T.recognize(file, 'eng', { logger });
+    return data.text;
+  }
+  // createWorker API fallback
+  const worker = await T.createWorker('eng', 1, { logger });
+  try {
+    const { data } = await worker.recognize(file);
+    return data.text;
+  } finally {
+    await worker.terminate();
+  }
+}
+
 /** MRZ (TD1) parser. Bahrain CPR back has:
  *    IDBHR010308296<<<<<<<<<<<<<<<6
  *    0103277M1509234IND<<<<<<<<<<<6
@@ -157,26 +192,24 @@ export default function CprScanner({ token, onResult }) {
       const up = await res.json();
       if (!res.ok) throw new Error(up.error || 'Upload failed');
 
-      // 2. OCR in the browser (lazy-loaded)
+      // 2. OCR in the browser (engine loaded from CDN on first use)
       setStage('Reading… (first scan downloads the reader)');
-      const { default: Tesseract } = await import('tesseract.js');
-      const { data } = await Tesseract.recognize(file, 'eng', {
-        logger: (m) => {
-          if (m.status === 'recognizing text')
-            setStage(`Reading… ${Math.round((m.progress || 0) * 100)}%`);
-        },
-      });
+      const text = await ocrImage(file, (pct) => setStage(`Reading… ${pct}%`));
 
-      const fields = parseCprText(data.text);
+      const fields = parseCprText(text);
       setDoneSides((d) => ({ ...d, [side]: true }));
       onResult({
         side,
         ...fields,
         [side === 'front' ? 'cpr_scan_url' : 'cpr_scan_back_url']: up.url,
-        raw_text: data.text,
+        raw_text: text,
       });
     } catch (err) {
-      setError(err.message || 'Could not read the card — you can still type the details and upload the photos below.');
+      setError(
+        (err?.message?.includes('Failed to fetch') || err?.message?.includes('import'))
+          ? 'Could not load the card reader (internet required). The photo was still saved — please type the details manually.'
+          : (err.message || 'Could not read the card — you can still type the details and upload the photos below.'),
+      );
     } finally {
       setBusySide(null); setStage('');
     }
