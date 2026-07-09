@@ -71,12 +71,17 @@ Applied so far:
   (verified_by/verified_at columns for later admin UI). Parent uploads from
   the team card; admin sees them in GET /api/admin/teams/:id/members
   (NOTE: that response is now {members, documents}, no longer a bare array).
-- Individual entry: CprScanner.jsx — camera capture → upload photo (becomes
-  cpr_scan_url) → in-browser OCR via tesseract.js (NEW frontend dependency,
-  run `npm install` in frontend/) → parseCprText() extracts CPR/DOB/name →
-  prefills empty fields, warns on mismatch with typed values. Server still
-  re-validates CPR-vs-DOB prefix on submit. OCR lang data downloads on
-  first use (~10 s online).
+- Individual entry: CprScanner.jsx — TWO-SIDED camera capture (front →
+  cpr_scan_url, back → cpr_scan_back_url, migration 009). The DOB is on the
+  BACK of the Bahrain CPR card, which also carries a TD1 MRZ
+  (IDBHR<cpr>… / YYMMDD?M… / SURNAME<<GIVEN) — parseMrz() decodes CPR, DOB
+  (century pivot on current YY), gender and name from it; parseCprText()
+  falls back to labelled text ('Personal Number', 'Date of Birth', 'Name /
+  الاسم' bilingual labels) and NEVER trusts unlabelled dates (front carries
+  EXP/issue dates). Handles OCR noise (« for <, injected spaces) and 8-digit
+  CPRs (leading 0 dropped). tesseract.js is a frontend dependency (run
+  `npm install` in frontend/); lang data downloads on first scan. Parent
+  always reviews; server re-validates CPR-vs-DOB prefix on submit.
 
 ## Team registration flow (July 2026)
 - Individual selection EXCLUDES team events (GET /events?kind=, POST/PUT

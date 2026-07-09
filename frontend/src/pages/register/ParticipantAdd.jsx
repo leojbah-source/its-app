@@ -26,25 +26,31 @@ export default function ParticipantAdd() {
   const [schools, setSchools] = useState([]);
   const [form, setForm] = useState({
     cpr_number: '', full_name: '', dob: '', gender: '',
-    school_id: '', cpr_scan_url: '', photo_url: '',
+    school_id: '', cpr_scan_url: '', cpr_scan_back_url: '', photo_url: '',
   });
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [uploading, setUploading] = useState({}); // { cpr: bool, photo: bool }
   const [scanCheck, setScanCheck] = useState(null); // OCR vs typed comparison
 
-  /** OCR result: prefill empty fields, verify already-typed ones. */
+  /** OCR result (front or back): prefill empty fields, verify typed ones,
+   *  and cross-check the CPR between the two sides. */
   function handleScanResult(r) {
     const notes = [];
     setForm((f) => {
-      const next = { ...f, cpr_scan_url: r.cpr_scan_url || f.cpr_scan_url };
-      for (const k of ['cpr_number', 'full_name', 'dob']) {
+      const next = {
+        ...f,
+        cpr_scan_url: r.cpr_scan_url || f.cpr_scan_url,
+        cpr_scan_back_url: r.cpr_scan_back_url || f.cpr_scan_back_url,
+      };
+      const norm = (v) => String(v || '').replace(/\D/g, '');
+      for (const k of ['cpr_number', 'full_name', 'dob', 'gender']) {
         if (!r[k]) continue;
         if (!f[k]) next[k] = r[k];
-        else if (k === 'cpr_number' && f[k].replace(/\D/g, '') !== r[k].replace(/\D/g, ''))
-          notes.push(`CPR on the card reads ${r[k]} but you typed ${f[k]} — please check.`);
+        else if (k === 'cpr_number' && norm(f[k]) !== norm(r[k]) && norm('0' + f[k]) !== norm(r[k]))
+          notes.push(`CPR on the ${r.side} of the card reads ${r[k]} but the form has ${f[k]} — please check.`);
         else if (k === 'dob' && f[k] !== r[k])
-          notes.push(`Date of birth on the card reads ${r[k]} but you entered ${f[k]} — please check.`);
+          notes.push(`Date of birth on the card reads ${r[k]} but the form has ${f[k]} — please check.`);
       }
       return next;
     });
@@ -310,6 +316,9 @@ export default function ParticipantAdd() {
               </label>
               <p className="text-xs text-slate-400 mt-1">
                 The original CPR is kept on record to verify the name, CPR number and date of birth.
+                {form.cpr_scan_back_url
+                  ? ' Back side captured ✓.'
+                  : ' Scanning the back side (above) also records it — the DOB is printed there.'}
               </p>
             </div>
 

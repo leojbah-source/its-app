@@ -286,7 +286,7 @@ router.post('/account', async (req, res, next) => {
 router.post('/participant', authenticate, async (req, res, next) => {
   try {
     const { cpr_number, full_name, dob, gender, school_id,
-            guardian_name, guardian_phone, cpr_scan_url, photo_url } = req.body;
+            guardian_name, guardian_phone, cpr_scan_url, cpr_scan_back_url, photo_url } = req.body;
     if (!cpr_number || !full_name || !dob)
       return res.status(400).json({ error: 'cpr_number, full_name and dob are required' });
 
@@ -324,13 +324,13 @@ router.post('/participant', authenticate, async (req, res, next) => {
     const { rows } = await pool.query(
       `INSERT INTO participants
          (year_id, cpr_number, full_name, dob, gender, school_id, age_group_id,
-          guardian_name, guardian_phone, cpr_scan_url, photo_url, pwa_username,
-          created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
+          guardian_name, guardian_phone, cpr_scan_url, cpr_scan_back_url, photo_url,
+          pwa_username, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
        RETURNING *`,
       [cfg.id, cpr_number, full_name, dob, gender || null, school_id || null,
-       age_group_id, gName, gPhone, cpr_scan_url, photo_url || null,
-       req.user.id.toString()],
+       age_group_id, gName, gPhone, cpr_scan_url, cpr_scan_back_url || null,
+       photo_url || null, req.user.id.toString()],
     );
     res.status(201).json(rows[0]);
   } catch (err) { next(err); }
