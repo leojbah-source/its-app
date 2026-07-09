@@ -109,6 +109,17 @@ export const portalApi = {
     req(`/api/register/team/${id}/members`, { method: 'POST', token, body: { members } }),
   teamPayment: (token, id, data) =>
     req(`/api/register/team/${id}/payment`, { method: 'POST', token, body: data }),
+  /** Upload a CPR scan for the team (image or PDF; may contain several members). */
+  teamDocUpload: async (token, id, file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch(`${API_BASE}/api/register/team/${id}/documents`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'Upload failed');
+    return d;
+  },
 
   /** Save a teacher name. apply_to_all=true copies it to every dance (or
    *  music) event the participant has selected. */

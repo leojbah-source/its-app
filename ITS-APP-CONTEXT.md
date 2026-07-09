@@ -64,6 +64,20 @@ Applied so far:
 - `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
   per-age-group duration override; event-level value is the default)
 
+## CPR capture & team documents (July 2026)
+- Team CPR scans (migration 008, team_documents): POST/GET
+  /api/register/team/:id/documents — images OR PDFs up to 10 MB, one file
+  may contain several members' CPRs; verified manually by KCA
+  (verified_by/verified_at columns for later admin UI). Parent uploads from
+  the team card; admin sees them in GET /api/admin/teams/:id/members
+  (NOTE: that response is now {members, documents}, no longer a bare array).
+- Individual entry: CprScanner.jsx — camera capture → upload photo (becomes
+  cpr_scan_url) → in-browser OCR via tesseract.js (NEW frontend dependency,
+  run `npm install` in frontend/) → parseCprText() extracts CPR/DOB/name →
+  prefills empty fields, warns on mismatch with typed values. Server still
+  re-validates CPR-vs-DOB prefix on submit. OCR lang data downloads on
+  first use (~10 s online).
+
 ## Team registration flow (July 2026)
 - Individual selection EXCLUDES team events (GET /events?kind=, POST/PUT
   enforce event_kind='individual'); max_individual_events applies only to

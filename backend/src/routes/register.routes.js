@@ -163,6 +163,19 @@ router.post('/upload', authenticate, proofUpload.single('file'), (req, res) => {
   res.json({ url: `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}` });
 });
 
+// Documents (CPR scans etc.): images OR PDFs, up to 10 MB — team bulk scans
+// often pack all members into one or two PDFs.
+const docUpload = multer({
+  storage: multer.diskStorage({
+    destination: uploadDir,
+    filename: (req, file, cb) =>
+      cb(null, `doc-${req.user?.id || 'x'}-${Date.now()}${path.extname(file.originalname)}`),
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) =>
+    cb(null, /^(image\/(png|jpe?g|webp|heic)|application\/pdf)$/i.test(file.mimetype)),
+});
+
 // ── GET /api/register/config ─────────────────────────────────────────────────
 // Returns active year config for the registration portal (no auth).
 router.get('/config', async (req, res, next) => {
@@ -1141,7 +1154,10 @@ router.get('/team/:id', authenticate, async (req, res, next) => {
        LEFT JOIN schools s ON s.id = p.school_id
        WHERE tm.team_id = $1 ORDER BY tm.created_at`,
       [req.params.id]);
-    res.json({ ...team, members });
+    const { rows: documents } = await pool.query(
+      `SELECT id, url, original_name, uploaded_at FROM team_documents
+       WHERE team_id = $1 ORDER BY uploaded_at`, [req.params.id]);
+    res.json({ ...team, members, documents });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     next(err);
@@ -1226,6 +1242,42 @@ router.post('/team/:id/payment', authenticate, async (req, res, next) => {
       action: 'SUBMIT_TEAM_PAYMENT', entity: 'payments', entityId: rows[0].id,
       details: { team_id: team.id, amount, method } });
     res.status(201).json(rows[0]);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+});
+
+// ── Team CPR documents ────────────────────────────────────────────────────────
+// POST /api/register/team/:id/documents — upload a CPR scan (image or PDF;
+// one file may contain several members). GET lists them; both owner-only.
+router.post('/team/:id/documents', authenticate, docUpload.single('file'), async (req, res, next) => {
+  try {
+    const team = await loadOwnTeam(pool, req.params.id, req.user);
+    if (!req.file)
+      return res.status(400).json({ error: 'No file received (image or PDF, max 10 MB)' });
+    const url = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    const { rows } = await pool.query(
+      `INSERT INTO team_documents (team_id, url, original_name, uploaded_by)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [team.id, url, req.file.originalname || null, req.user.id]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'UPLOAD_TEAM_DOCUMENT', entity: 'teams', entityId: team.id,
+      details: { document_id: rows[0].id, name: req.file.originalname } });
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+});
+
+router.get('/team/:id/documents', authenticate, async (req, res, next) => {
+  try {
+    const team = await loadOwnTeam(pool, req.params.id, req.user);
+    const { rows } = await pool.query(
+      `SELECT id, url, original_name, uploaded_at FROM team_documents
+       WHERE team_id = $1 ORDER BY uploaded_at`, [team.id]);
+    res.json(rows);
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     next(err);

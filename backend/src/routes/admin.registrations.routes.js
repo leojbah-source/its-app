@@ -295,7 +295,11 @@ router.get('/teams/:id/members', requireRole(...staffRoles), async (req, res, ne
        ORDER BY p.full_name`,
       [req.params.id],
     );
-    res.json(rows);
+    const { rows: documents } = await pool.query(
+      `SELECT td.id, td.url, td.original_name, td.uploaded_at, u.full_name AS uploaded_by_name
+       FROM team_documents td LEFT JOIN users u ON u.id = td.uploaded_by
+       WHERE td.team_id = $1 ORDER BY td.uploaded_at`, [req.params.id]);
+    res.json({ members: rows, documents });
   } catch (err) { next(err); }
 });
 

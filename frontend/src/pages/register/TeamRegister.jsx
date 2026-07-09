@@ -168,6 +168,20 @@ function TeamCard({ token, team, schools, config, onChanged }) {
     finally { setBusy(false); }
   }
 
+  const [docBusy, setDocBusy] = useState(false);
+  async function uploadDoc(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setDocBusy(true); setMsg('');
+    try {
+      await portalApi.teamDocUpload(token, team.id, file);
+      setDetail(await portalApi.teamGet(token, team.id));
+      setMsg('CPR document uploaded — KCA will verify it.');
+    } catch (err) { setMsg(err.message); }
+    finally { setDocBusy(false); }
+  }
+
   const paid = Number(team.paid_confirmed) + Number(team.paid_pending) >= Number(team.fee_amount);
   const belowMin = team.members_count < team.size_min;
 
@@ -224,6 +238,33 @@ function TeamCard({ token, team, schools, config, onChanged }) {
               )}
             </div>
           )}
+          {/* CPR documents — bulk scans, image or PDF (several members per file OK) */}
+          <div>
+            <p className="text-xs font-semibold text-slate-600 mb-1.5">Members' CPR copies</p>
+            {detail?.documents?.length > 0 && (
+              <ul className="mb-2 space-y-1">
+                {detail.documents.map((d) => (
+                  <li key={d.id} className="text-xs text-slate-600 flex items-center gap-1.5">
+                    <CheckCircle2 size={12} className="text-emerald-500 shrink-0" />
+                    <a href={d.url} target="_blank" rel="noreferrer" className="underline truncate">
+                      {d.original_name || 'document'}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <label className={`flex items-center justify-center gap-2 rounded-lg border-2 border-dashed px-3 py-2.5 text-xs font-medium cursor-pointer ${
+              detail?.documents?.length ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-300 text-slate-500 hover:border-navy-400'}`}>
+              <Upload size={13} />
+              {docBusy ? 'Uploading…' : 'Upload CPR scans (PDF or photo — several members in one file is fine)'}
+              <input type="file" accept="image/*,application/pdf" className="hidden"
+                     disabled={docBusy} onChange={uploadDoc} />
+            </label>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Please upload CPR copies for all team members. KCA verifies these manually.
+            </p>
+          </div>
+
           {msg && <p className="text-xs text-navy-700">{msg}</p>}
 
           {!paid && <TeamPayForm token={token} team={team} config={config} onPaid={onChanged} />}

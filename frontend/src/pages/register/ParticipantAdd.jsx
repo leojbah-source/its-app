@@ -9,6 +9,7 @@ import { Upload } from 'lucide-react';
 import { useParentAuth } from '../../context/ParentAuthContext';
 import { portalApi, API_BASE } from './registerApi';
 import RegisterLayout from './RegisterLayout';
+import CprScanner from './CprScanner';
 
 export default function ParticipantAdd() {
   const { token } = useParentAuth();
@@ -30,6 +31,25 @@ export default function ParticipantAdd() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [uploading, setUploading] = useState({}); // { cpr: bool, photo: bool }
+  const [scanCheck, setScanCheck] = useState(null); // OCR vs typed comparison
+
+  /** OCR result: prefill empty fields, verify already-typed ones. */
+  function handleScanResult(r) {
+    const notes = [];
+    setForm((f) => {
+      const next = { ...f, cpr_scan_url: r.cpr_scan_url || f.cpr_scan_url };
+      for (const k of ['cpr_number', 'full_name', 'dob']) {
+        if (!r[k]) continue;
+        if (!f[k]) next[k] = r[k];
+        else if (k === 'cpr_number' && f[k].replace(/\D/g, '') !== r[k].replace(/\D/g, ''))
+          notes.push(`CPR on the card reads ${r[k]} but you typed ${f[k]} — please check.`);
+        else if (k === 'dob' && f[k] !== r[k])
+          notes.push(`Date of birth on the card reads ${r[k]} but you entered ${f[k]} — please check.`);
+      }
+      return next;
+    });
+    setScanCheck(notes.length ? { ok: false, notes } : { ok: true, notes: [] });
+  }
 
   /** CPR = YYMM##### (a leading 0 may drop → 8 digits). Must match the DOB. */
   function cprDobError(cprVal, dobVal) {
@@ -266,6 +286,14 @@ export default function ParticipantAdd() {
             <p className="text-xs text-slate-400">
               Contact details are taken from your account — no need to enter them again.
             </p>
+
+            {/* Scan with camera: OCR prefill + auto photo upload */}
+            <CprScanner token={token} onResult={handleScanResult} />
+            {scanCheck && !scanCheck.ok && scanCheck.notes.map((n, i) => (
+              <p key={i} className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+                {n}
+              </p>
+            ))}
 
             {/* CPR card scan (compulsory) */}
             <div>
