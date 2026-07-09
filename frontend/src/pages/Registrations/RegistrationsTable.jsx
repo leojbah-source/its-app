@@ -30,7 +30,12 @@ const PAGE_SIZES = [25, 50, 100];
 export default function RegistrationsTable({ registrations, onView }) {
   const [mode,     setMode]     = useState('participant'); // 'participant' | 'entries'
   const [search,   setSearch]   = useState('');
-  const [status,   setStatus]   = useState('');
+  const [status,   setStatus]   = useState('');   // '' = all, 'registered'
+  const [payment,  setPayment]  = useState('');   // '' | cash | benefitpay | bank_transfer | none
+  const [cprVerify, setCprVerify] = useState('');  // '' | ocr | manual
+  const [member,   setMember]   = useState('');   // '' | yes | no
+  const [ageGroup, setAgeGroup] = useState('');
+  const [school,   setSchool]   = useState('');
   const [sortKey,  setSortKey]  = useState('participant_name');
   const [sortDir,  setSortDir]  = useState('asc');
   const [page,     setPage]     = useState(1);
@@ -50,6 +55,19 @@ export default function RegistrationsTable({ registrations, onView }) {
       );
     }
     if (status) rows = rows.filter((r) => r.status === status);
+    if (payment) {
+      rows = rows.filter((r) => {
+        const methods = (r.payment_methods || '').split(',').filter(Boolean);
+        return payment === 'none' ? methods.length === 0 : methods.includes(payment);
+      });
+    }
+    if (cprVerify) rows = rows.filter((r) => (r.cpr_verified_method || 'manual') === cprVerify);
+    if (member) rows = rows.filter((r) =>
+      member === 'yes'
+        ? r.parent_membership_status === 'active'
+        : r.parent_membership_status !== 'active');
+    if (ageGroup) rows = rows.filter((r) => r.age_group_code === ageGroup);
+    if (school) rows = rows.filter((r) => (r.school_name || '') === school);
 
     const sorted = [...rows].sort((a, b) => {
       const av = (a[sortKey] ?? '').toString().toLowerCase();
@@ -58,7 +76,14 @@ export default function RegistrationsTable({ registrations, onView }) {
       return (av > bv ? 1 : -1) * (sortDir === 'asc' ? 1 : -1);
     });
     return sorted;
-  }, [registrations, search, status, sortKey, sortDir]);
+  }, [registrations, search, status, payment, cprVerify, member, ageGroup, school, sortKey, sortDir]);
+
+  const ageGroups = useMemo(
+    () => [...new Set(registrations.map((r) => r.age_group_code).filter(Boolean))].sort(),
+    [registrations]);
+  const schools = useMemo(
+    () => [...new Set(registrations.map((r) => r.school_name).filter(Boolean))].sort(),
+    [registrations]);
 
   // One row per participant with their events aggregated
   const groupedRows = useMemo(() => {
@@ -114,12 +139,53 @@ export default function RegistrationsTable({ registrations, onView }) {
           onChange={(e) => { setStatus(e.target.value); setPage(1); }}
           className="rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:outline-none"
         >
-          <option value="">All statuses</option>
+          <option value="">All</option>
           <option value="registered">Registered</option>
-          <option value="attended">Attended</option>
-          <option value="absent">Absent</option>
-          <option value="withdrawn">Withdrawn</option>
-          <option value="swapped">Swapped</option>
+        </select>
+        <select
+          value={payment}
+          onChange={(e) => { setPayment(e.target.value); setPage(1); }}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:outline-none"
+        >
+          <option value="">Payment: any</option>
+          <option value="cash">KCA office (cash)</option>
+          <option value="benefitpay">BenefitPay</option>
+          <option value="bank_transfer">Bank transfer</option>
+          <option value="none">No payment yet</option>
+        </select>
+        <select
+          value={cprVerify}
+          onChange={(e) => { setCprVerify(e.target.value); setPage(1); }}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:outline-none"
+        >
+          <option value="">CPR: any</option>
+          <option value="ocr">Verified — OCR scan</option>
+          <option value="manual">Verified — manual</option>
+        </select>
+        <select
+          value={member}
+          onChange={(e) => { setMember(e.target.value); setPage(1); }}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:outline-none"
+        >
+          <option value="">KCA member: any</option>
+          <option value="yes">KCA member</option>
+          <option value="no">Non-member</option>
+        </select>
+        <select
+          value={ageGroup}
+          onChange={(e) => { setAgeGroup(e.target.value); setPage(1); }}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:outline-none"
+        >
+          <option value="">Age group: all</option>
+          {ageGroups.map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <select
+          value={school}
+          onChange={(e) => { setSchool(e.target.value); setPage(1); }}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:outline-none"
+        >
+          <option value="">School: all</option>
+          {schools.map((sc) => <option key={sc} value={sc}>{sc}</option>)}
         </select>
         <div className="flex rounded-md border border-slate-300 overflow-hidden text-xs font-medium">
           {[['participant', 'By participant'], ['entries', 'By event entry']].map(([m, label]) => (

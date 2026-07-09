@@ -157,6 +157,13 @@ router.get('/registrations', requireRole(...staffRoles), async (req, res, next) 
          r.age_group_id, r.category_id, r.status,
          r.dance_teacher, r.music_teacher, r.registered_at, r.updated_at,
          p.full_name AS participant_name, p.cpr_number, p.gender, p.dob,
+         p.cpr_verified_method,
+         (SELECT string_agg(DISTINCT pay.method::text, ',')
+          FROM payments pay
+          WHERE (r.participant_id IS NOT NULL AND pay.participant_id = r.participant_id)
+             OR (r.team_id IS NOT NULL AND pay.team_id = r.team_id)) AS payment_methods,
+         (SELECT pu.membership_status FROM users pu
+          WHERE pu.id = p.created_by) AS parent_membership_status,
          t.team_name,
          (SELECT COUNT(*)::int FROM team_members tm WHERE tm.team_id = r.team_id) AS team_member_count,
          s.name AS school_name,

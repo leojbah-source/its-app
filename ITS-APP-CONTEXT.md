@@ -64,6 +64,20 @@ Applied so far:
 - `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
   per-age-group duration override; event-level value is the default)
 
+## Admin registration filters & participant ownership (July 2026)
+- participants.created_by (migration 010) is THE link to the parent account.
+  participants.pwa_username is trigger-owned (name+CPR PWA login,
+  fn_generate_pwa_username overwrites it) — NEVER use it to reference users.
+  my-participants and parent-membership lookups now use created_by.
+- participants.cpr_verified_method 'ocr'|'manual' (migration 010): 'ocr' when
+  the camera scan filled details without mismatch, else 'manual'.
+- Admin GET /registrations rows include payment_methods (distinct methods,
+  participant or team payments), parent_membership_status, cpr_verified_method.
+- Registrations filter bar: search, status (All/Registered only — attended/
+  absent/withdrawn/swapped removed), payment method (KCA office cash /
+  BenefitPay / bank / none), CPR verified (OCR/manual), KCA member (yes/no),
+  age group, school (dropdowns built from loaded rows, client-side filtering).
+
 ## CPR capture & team documents (July 2026)
 - Team CPR scans (migration 008, team_documents): POST/GET
   /api/register/team/:id/documents — images OR PDFs up to 10 MB, one file

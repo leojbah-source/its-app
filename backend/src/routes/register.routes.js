@@ -286,7 +286,8 @@ router.post('/account', async (req, res, next) => {
 router.post('/participant', authenticate, async (req, res, next) => {
   try {
     const { cpr_number, full_name, dob, gender, school_id,
-            guardian_name, guardian_phone, cpr_scan_url, cpr_scan_back_url, photo_url } = req.body;
+            guardian_name, guardian_phone, cpr_scan_url, cpr_scan_back_url, photo_url,
+            cpr_verified_method } = req.body;
     if (!cpr_number || !full_name || !dob)
       return res.status(400).json({ error: 'cpr_number, full_name and dob are required' });
 
@@ -325,12 +326,13 @@ router.post('/participant', authenticate, async (req, res, next) => {
       `INSERT INTO participants
          (year_id, cpr_number, full_name, dob, gender, school_id, age_group_id,
           guardian_name, guardian_phone, cpr_scan_url, cpr_scan_back_url, photo_url,
-          pwa_username, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
+          cpr_verified_method, created_by, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())
        RETURNING *`,
       [cfg.id, cpr_number, full_name, dob, gender || null, school_id || null,
        age_group_id, gName, gPhone, cpr_scan_url, cpr_scan_back_url || null,
-       photo_url || null, req.user.id.toString()],
+       photo_url || null, cpr_verified_method === 'ocr' ? 'ocr' : 'manual',
+       req.user.id],
     );
     res.status(201).json(rows[0]);
   } catch (err) { next(err); }
@@ -388,13 +390,13 @@ router.get('/my-participants', authenticate, async (req, res, next) => {
        FROM participants p
        LEFT JOIN schools s ON s.id = p.school_id
        LEFT JOIN age_groups ag ON ag.id = p.age_group_id
-       WHERE p.pwa_username = $1
+       WHERE p.created_by = $1
           OR EXISTS (
             SELECT 1 FROM registrations r
-            WHERE r.participant_id = p.id AND r.registered_by = $2
+            WHERE r.participant_id = p.id AND r.registered_by = $1
           )
        ORDER BY p.full_name`,
-      [req.user.id.toString(), req.user.id],
+      [req.user.id],
     );
     res.json(rows);
   } catch (err) { next(err); }
@@ -960,10 +962,10 @@ async function findOrCreateMember(client, yearId, m, createdByUserId) {
   const ageGroupId = await resolveAgeGroup(m.dob, yearId);
   const { rows } = await client.query(
     `INSERT INTO participants
-       (year_id, cpr_number, full_name, dob, gender, school_id, age_group_id, pwa_username, created_at, updated_at)
+       (year_id, cpr_number, full_name, dob, gender, school_id, age_group_id, created_by, created_at, updated_at)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW()) RETURNING id`,
     [yearId, String(m.cpr_number).trim(), m.full_name, m.dob, m.gender || null,
-     m.school_id || null, ageGroupId, String(createdByUserId)]);
+     m.school_id || null, ageGroupId, createdByUserId]);
   return rows[0].id;
 }
 

@@ -144,7 +144,9 @@ export default function ParticipantAdd() {
     setSaveLoading(true);
     setSaveError('');
     try {
-      const result = await portalApi.participantCreate(token, form);
+      // OCR-verified when the camera scan filled the details without mismatches
+      const cpr_verified_method = scanCheck?.ok ? 'ocr' : 'manual';
+      const result = await portalApi.participantCreate(token, { ...form, cpr_verified_method });
       navigate(`/register/participant/${result.id}`, { replace: true });
     } catch (err) {
       setSaveError(err.message || 'Failed to create participant. Please try again.');
