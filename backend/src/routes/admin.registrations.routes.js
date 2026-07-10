@@ -19,6 +19,8 @@ const express = require('express');
 const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { sendWhatsApp } = require('../utils/notify');
+const { sendEmail } = require('../utils/email');
 
 const router = express.Router();
 router.use(authenticate);
@@ -308,6 +310,198 @@ router.get('/teams/:id/members', requireRole(...staffRoles), async (req, res, ne
        WHERE td.team_id = $1 ORDER BY td.uploaded_at`, [req.params.id]);
     res.json({ members: rows, documents });
   } catch (err) { next(err); }
+});
+
+// ── Participant verification (View drawer) ───────────────────────────────────
+
+// GET /api/admin/participants/:id/detail — everything the admin needs to
+// verify a participant: identity + scans, registrations, payments, audit.
+router.get('/participants/:id/detail', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const { rows: pRows } = await pool.query(
+      `SELECT p.*, s.name AS school_name, ag.code AS age_group_code, ag.label AS age_group_label,
+              u.full_name AS parent_name, u.email AS parent_email, u.phone AS parent_phone,
+              u.whatsapp_number AS parent_whatsapp, u.membership_status AS parent_membership_status,
+              vu.full_name AS admin_verified_by_name
+       FROM participants p
+       LEFT JOIN schools s ON s.id = p.school_id
+       LEFT JOIN age_groups ag ON ag.id = p.age_group_id
+       LEFT JOIN users u ON u.id = p.created_by
+       LEFT JOIN users vu ON vu.id = p.admin_verified_by
+       WHERE p.id = $1`, [req.params.id]);
+    if (!pRows[0]) return res.status(404).json({ error: 'Participant not found' });
+
+    const { rows: regs } = await pool.query(
+      `SELECT r.id, r.event_id, r.status, r.fee_amount, r.dance_teacher, r.music_teacher,
+              e.event_code, e.event_name, c.name AS category_name
+       FROM registrations r
+       JOIN events e ON e.id = r.event_id
+       LEFT JOIN categories c ON c.id = e.category_id
+       WHERE r.participant_id = $1 ORDER BY e.event_code`, [req.params.id]);
+
+    const { rows: payments } = await pool.query(
+      `SELECT id, amount, method, status, reference, proof_url, notes, created_at, confirmed_at
+       FROM payments WHERE participant_id = $1 ORDER BY created_at`, [req.params.id]);
+
+    const { rows: audit } = await pool.query(
+      `SELECT a.id, a.table_name, a.record_id, a.action, a.old_value, a.new_value,
+              a.reason, a.changed_at, u.full_name AS changed_by_name
+       FROM audit_log a LEFT JOIN users u ON u.id = a.changed_by
+       WHERE (a.table_name = 'participants' AND a.record_id = $1)
+          OR (a.table_name = 'payments' AND a.record_id IN (SELECT id FROM payments WHERE participant_id = $1))
+          OR (a.table_name = 'registrations' AND a.record_id IN (SELECT id FROM registrations WHERE participant_id = $1))
+       ORDER BY a.changed_at DESC LIMIT 50`, [req.params.id]);
+
+    res.json({ participant: pRows[0], registrations: regs, payments, audit });
+  } catch (err) { next(err); }
+});
+
+// POST /api/admin/participants/:id/verify — mark CPR/identity verified, or
+// flag an issue (mandatory note) which notifies the parent to correct it.
+router.post('/participants/:id/verify', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const { status, note } = req.body;
+    if (!['verified', 'issue'].includes(status))
+      return res.status(400).json({ error: "status must be 'verified' or 'issue'" });
+    if (status === 'issue' && !note?.trim())
+      return res.status(400).json({ error: 'A note describing the issue is required' });
+
+    const { rows: before } = await pool.query(
+      `SELECT admin_verified_status, admin_verify_note FROM participants WHERE id = $1`, [req.params.id]);
+    if (!before[0]) return res.status(404).json({ error: 'Participant not found' });
+
+    const { rows } = await pool.query(
+      `UPDATE participants SET
+         admin_verified_status = $1,
+         admin_verified_by = $2,
+         admin_verified_at = NOW(),
+         admin_verify_note = $3,
+         updated_at = NOW()
+       WHERE id = $4
+       RETURNING id, full_name, guardian_phone, created_by,
+                 admin_verified_status, admin_verify_note`, 
+      [status, req.user.id, note?.trim() || null, req.params.id]);
+    const p = rows[0];
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'ADMIN_VERIFY_CPR', entity: 'participants', entityId: p.id,
+      before: before[0],
+      details: { admin_verified_status: status, note: note?.trim() || null },
+      reason: note?.trim() || 'CPR/identity check' });
+
+    // Notify the parent when an issue is flagged so they can correct it
+    let notified = false;
+    if (status === 'issue') {
+      if (p.guardian_phone) {
+        sendWhatsApp(p.guardian_phone,
+          `KCA ITS: A problem was found while verifying ${p.full_name}'s CPR details: ` +
+          `"${note.trim()}". Please open the registration portal and correct the details.`)
+          .catch(() => null);
+        notified = true;
+      }
+      const { rows: u } = await pool.query(`SELECT email FROM users WHERE id = $1`, [p.created_by]);
+      if (u[0]?.email) {
+        sendEmail({
+          to: u[0].email,
+          subject: `KCA ITS — Action needed: ${p.full_name}'s CPR details`,
+          html: `<p>Dear parent,</p><p>While verifying <b>${p.full_name}</b>'s registration we found:</p>
+                 <blockquote>${note.trim()}</blockquote>
+                 <p>Please sign in to the registration portal, open your child's page and correct the
+                 details (you can re-scan the CPR card there). The registration will be re-verified after
+                 your update.</p><p>— KCA Indian Talent Scan</p>`,
+        }).catch(() => null);
+        notified = true;
+      }
+    }
+    res.json({ ...p, parent_notified: notified });
+  } catch (err) { next(err); }
+});
+
+// PUT /api/admin/participants/:id/events — CHAIRMAN-ONLY event corrections
+// (add/remove regardless of parent deadlines). Fully audited before/after.
+router.put('/participants/:id/events', requireRole('Chairman', 'SuperAdmin'), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { add_event_ids = [], remove_event_ids = [], reason } = req.body;
+    if (!reason?.trim()) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'A reason is required for event corrections' });
+    }
+
+    const { rows: pRows } = await client.query(
+      `SELECT p.*, u.membership_status AS parent_membership
+       FROM participants p LEFT JOIN users u ON u.id = p.created_by
+       WHERE p.id = $1`, [req.params.id]);
+    const p = pRows[0];
+    if (!p) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Participant not found' }); }
+
+    const { rows: beforeRegs } = await client.query(
+      `SELECT e.event_code FROM registrations r JOIN events e ON e.id = r.event_id
+       WHERE r.participant_id = $1 AND r.status NOT IN ('withdrawn','swapped')
+       ORDER BY e.event_code`, [req.params.id]);
+
+    const memberActive = p.parent_membership === 'active';
+    const added = [], removed = [];
+
+    for (const eventId of remove_event_ids) {
+      const { rows } = await client.query(
+        `UPDATE registrations r SET status = 'withdrawn', updated_at = NOW()
+         FROM events e
+         WHERE r.participant_id = $1 AND r.event_id = $2 AND r.status = 'registered' AND e.id = r.event_id
+         RETURNING r.id, r.fee_amount, e.event_code, e.event_name`,
+        [req.params.id, eventId]);
+      for (const reg of rows) {
+        await client.query(
+          `INSERT INTO refunds (year_id, participant_id, registration_id, events_withdrawn,
+                                reason, original_amount, refund_amount, status, requested_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8)`,
+          [p.year_id, p.id, reg.id, `${reg.event_code} — ${reg.event_name}`,
+           `Chairman correction: ${reason.trim()}`, reg.fee_amount || 0, reg.fee_amount || 0, req.user.id]);
+        removed.push(reg.event_code);
+      }
+    }
+
+    for (const eventId of add_event_ids) {
+      const { rows: ev } = await client.query(
+        `SELECT e.id, e.category_id, e.fee_amount, e.member_fee_amount, e.event_code
+         FROM events e JOIN event_age_groups eag ON eag.event_id = e.id
+         WHERE e.id = $1 AND eag.age_group_id = $2 AND e.is_cancelled = FALSE
+           AND e.event_kind = 'individual'`,
+        [eventId, p.age_group_id]);
+      if (!ev[0]) { await client.query('ROLLBACK'); return res.status(400).json({ error: `Event ${eventId} is not eligible for this participant` }); }
+      const { rows: dup } = await client.query(
+        `SELECT 1 FROM registrations WHERE participant_id = $1 AND event_id = $2 AND status != 'withdrawn'`,
+        [p.id, eventId]);
+      if (dup[0]) continue;
+      const fee = memberActive && ev[0].member_fee_amount != null
+        ? Number(ev[0].member_fee_amount) : Number(ev[0].fee_amount || 0);
+      await client.query(
+        `INSERT INTO registrations (year_id, participant_id, event_id, age_group_id, category_id,
+                                    fee_amount, status, registered_by, registered_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,'registered',$7,NOW(),NOW())`,
+        [p.year_id, p.id, eventId, p.age_group_id, ev[0].category_id, fee, req.user.id]);
+      added.push(ev[0].event_code);
+    }
+
+    const { rows: afterRegs } = await client.query(
+      `SELECT e.event_code FROM registrations r JOIN events e ON e.id = r.event_id
+       WHERE r.participant_id = $1 AND r.status NOT IN ('withdrawn','swapped')
+       ORDER BY e.event_code`, [req.params.id]);
+
+    await client.query('COMMIT');
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'CHAIRMAN_EVENT_CORRECTION', entity: 'participants', entityId: p.id,
+      before: { events: beforeRegs.map((r) => r.event_code) },
+      details: { events: afterRegs.map((r) => r.event_code), added, removed },
+      reason: reason.trim() });
+
+    res.json({ added, removed, events: afterRegs.map((r) => r.event_code) });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
+    next(err);
+  } finally { client.release(); }
 });
 
 // ── GET /api/admin/schools ────────────────────────────────────────────────────

@@ -64,6 +64,32 @@ Applied so far:
 - `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
   per-age-group duration override; event-level value is the default)
 
+## Admin verification workflow (July 2026)
+- AUDIT FIX: utils/audit.js previously wrote to non-existent audit_log
+  columns — every logAudit silently failed. Now maps to the real columns
+  (table_name, record_id, action, old_value, new_value, changed_by, reason);
+  migration 011 drops the INSERT/UPDATE/DELETE-only CHECK so semantic
+  actions ('CONFIRM_PAYMENT', 'ADMIN_VERIFY_CPR', …) are stored. logAudit
+  accepts optional before/reason for before/after logging. DB triggers also
+  write UPDATE/INSERT rows independently.
+- Participant verification (migration 011: admin_verified_status
+  pending|verified|issue + by/at/note):
+  GET /api/admin/participants/:id/detail (identity+scans, regs, payments,
+  audit trail), POST /api/admin/participants/:id/verify (verified | issue —
+  issue requires note, notifies parent via WhatsApp + email).
+  Parent corrects via PATCH /api/register/participant/:id (owner-only,
+  CPR-DOB revalidated, resets status to pending, audited before/after);
+  ParticipantDetail shows the issue note + correction form with CprScanner.
+- Payment verification: RegistrationDrawer shows proof screenshots with
+  Confirm / Reject-with-reason; rejection now notifies the parent
+  (WhatsApp + email, e.g. wrong transfer amount).
+- Chairman-only event corrections: PUT /api/admin/participants/:id/events
+  (Chairman/SuperAdmin, mandatory reason, no deadline check, refund rows for
+  removals, before/after audit). Admin gets 403.
+- RegistrationDrawer rewritten as the verification panel: identity + CPR
+  front/back/photo previews, verify/flag, payments, chairman event editor,
+  audit trail list.
+
 ## Admin registration filters & participant ownership (July 2026)
 - participants.created_by (migration 010) is THE link to the parent account.
   participants.pwa_username is trigger-owned (name+CPR PWA login,

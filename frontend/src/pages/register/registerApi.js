@@ -64,6 +64,10 @@ export const portalApi = {
   participantGet: (token, id) =>
     req(`/api/register/participant/${id}`, { token }),
 
+  /** Correct participant details (resets admin verification to pending). */
+  participantUpdate: (token, id, data) =>
+    req(`/api/register/participant/${id}`, { method: 'PATCH', token, body: data }),
+
   /** Create a new participant (or returns existing if CPR already registered). */
   participantCreate: (token, data) =>
     req('/api/register/participant', { method: 'POST', token, body: data }),

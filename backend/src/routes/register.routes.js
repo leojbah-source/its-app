@@ -338,6 +338,69 @@ router.post('/participant', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── PATCH /api/register/participant/:id ──────────────────────────────────────
+// Parent corrects identity details (e.g. after the Admin flags an issue).
+// Resets the admin verification to 'pending' for re-checking. Fully audited.
+router.patch('/participant/:id', authenticate, async (req, res, next) => {
+  try {
+    const { rows: pRows } = await pool.query(
+      `SELECT * FROM participants WHERE id = $1`, [req.params.id]);
+    const p = pRows[0];
+    if (!p) return res.status(404).json({ error: 'Participant not found' });
+    const staff = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'].includes(req.user.role);
+    if (!staff && p.created_by !== req.user.id)
+      return res.status(403).json({ error: 'This participant belongs to another account' });
+
+    const { full_name, dob, cpr_number, gender, school_id,
+            cpr_scan_url, cpr_scan_back_url, photo_url, cpr_verified_method } = req.body;
+
+    const newCpr = cpr_number ?? p.cpr_number;
+    const newDob = dob ?? (p.dob ? new Date(p.dob).toISOString().slice(0, 10) : null);
+    const cprErr = cprDobMismatch(newCpr, newDob);
+    if (cprErr) return res.status(400).json({ error: cprErr });
+
+    const cfg = await getActiveYear();
+    const ageGroupId = dob ? await resolveAgeGroup(newDob, p.year_id) : p.age_group_id;
+
+    const before = {
+      full_name: p.full_name, dob: p.dob, cpr_number: p.cpr_number,
+      gender: p.gender, school_id: p.school_id,
+      admin_verified_status: p.admin_verified_status,
+    };
+    const { rows } = await pool.query(
+      `UPDATE participants SET
+         full_name = COALESCE($1, full_name),
+         dob = COALESCE($2, dob),
+         cpr_number = COALESCE($3, cpr_number),
+         gender = COALESCE($4, gender),
+         school_id = COALESCE($5, school_id),
+         cpr_scan_url = COALESCE($6, cpr_scan_url),
+         cpr_scan_back_url = COALESCE($7, cpr_scan_back_url),
+         photo_url = COALESCE($8, photo_url),
+         cpr_verified_method = COALESCE($9, cpr_verified_method),
+         age_group_id = COALESCE($10, age_group_id),
+         admin_verified_status = 'pending',
+         admin_verify_note = NULL,
+         updated_at = NOW()
+       WHERE id = $11 RETURNING *`,
+      [full_name || null, dob || null, cpr_number || null, gender || null,
+       school_id || null, cpr_scan_url || null, cpr_scan_back_url || null,
+       photo_url || null,
+       cpr_verified_method === 'ocr' ? 'ocr' : (cpr_verified_method === 'manual' ? 'manual' : null),
+       ageGroupId, req.params.id]);
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'PARENT_CORRECT_PARTICIPANT', entity: 'participants', entityId: p.id,
+      before,
+      details: { full_name: rows[0].full_name, dob: rows[0].dob, cpr_number: rows[0].cpr_number,
+                 gender: rows[0].gender, school_id: rows[0].school_id,
+                 admin_verified_status: 'pending' },
+      reason: 'Parent corrected participant details' });
+
+    res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/register/participant/lookup ─────────────────────────────────────
 // Lookup by CPR in the active year. MUST be defined before /:id.
 // Returns { found: true, participant: {...} } or { found: false }.

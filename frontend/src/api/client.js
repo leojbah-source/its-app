@@ -151,12 +151,28 @@ export const registrationsApi = {
 
 // ── Participants (admin) ─────────────────────────────────────────────────────
 export const participantsApi = {
+  /** Full verification detail: identity + scans, registrations, payments, audit. */
+  detail: (token, id) => request(`/api/admin/participants/${id}/detail`, { token }),
+  /** Mark CPR/identity verified, or flag an issue (note required; parent notified). */
+  verify: (token, id, body) => request(`/api/admin/participants/${id}/verify`, { method: 'POST', token, body }),
+  /** Chairman-only event corrections with mandatory reason. */
+  chairmanEvents: (token, id, body) =>
+    request(`/api/admin/participants/${id}/events`, { method: 'PUT', token, body }),
+  /** Eligible individual events for add-corrections (public endpoint). */
+  eligibleEvents: (token, ageGroupId, gender) =>
+    request(`/api/register/events?age_group_id=${ageGroupId}&kind=individual${gender ? `&gender=${gender}` : ''}`, { token }),
   /** List participants; optional filters: search, school_id, age_group_id */
   list: (token, params = {}) =>
     request(`/api/admin/participants${qs(params)}`, { token }),
 };
 
 // ── Teams (admin) ────────────────────────────────────────────────────────────
+export const paymentsApi = {
+  list: (token, params = {}) => request(`/api/admin/payments${qs(params)}`, { token }),
+  confirm: (token, id) => request(`/api/admin/payments/${id}/confirm`, { method: 'POST', token, body: {} }),
+  reject: (token, id, reason) => request(`/api/admin/payments/${id}/reject`, { method: 'POST', token, body: { reason } }),
+};
+
 export const teamsApi = {
   list: (token) => request('/api/admin/teams', { token }),
   members: (token, teamId) => request(`/api/admin/teams/${teamId}/members`, { token }),

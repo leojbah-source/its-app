@@ -17,6 +17,7 @@ const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { sendWhatsApp } = require('../utils/notify');
+const { sendEmail } = require('../utils/email');
 
 const router = express.Router();
 router.use(authenticate);
@@ -99,7 +100,32 @@ router.post('/payments/:id/reject', requireRole(...editRoles), async (req, res, 
     if (!rows[0]) return res.status(404).json({ error: 'Pending payment not found' });
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'REJECT_PAYMENT', entity: 'payments', entityId: req.params.id,
-      details: { reason } });
+      details: { amount: rows[0].amount, method: rows[0].method }, reason: reason.trim() });
+
+    // Notify the parent so they can resubmit (e.g. wrong transfer amount)
+    const { rows: info } = await pool.query(
+      `SELECT p.full_name, p.guardian_phone, u.email AS parent_email
+       FROM payments pay
+       LEFT JOIN participants p ON p.id = pay.participant_id
+       LEFT JOIN users u ON u.id = pay.parent_user_id
+       WHERE pay.id = $1`, [req.params.id]);
+    const i = info[0] || {};
+    if (i.guardian_phone) {
+      sendWhatsApp(i.guardian_phone,
+        `KCA ITS: Your payment of BHD ${Number(rows[0].amount).toFixed(3)}` +
+        `${i.full_name ? ` for ${i.full_name}` : ''} could NOT be verified: "${reason.trim()}". ` +
+        `Please submit the payment again from the registration portal.`).catch(() => null);
+    }
+    if (i.parent_email) {
+      sendEmail({
+        to: i.parent_email,
+        subject: 'KCA ITS — Payment could not be verified',
+        html: `<p>Dear parent,</p><p>Your payment of <b>BHD ${Number(rows[0].amount).toFixed(3)}</b>` +
+              `${i.full_name ? ` for <b>${i.full_name}</b>` : ''} could not be verified:</p>` +
+              `<blockquote>${reason.trim()}</blockquote>` +
+              `<p>Please submit the payment again from the registration portal.</p><p>— KCA Indian Talent Scan</p>`,
+      }).catch(() => null);
+    }
     res.json(rows[0]);
   } catch (err) { next(err); }
 });

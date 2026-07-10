@@ -17,6 +17,7 @@ import { useParentAuth } from '../../context/ParentAuthContext';
 import { portalApi } from './registerApi';
 import RegisterLayout from './RegisterLayout';
 import PaymentSection from './PaymentSection';
+import CprScanner from './CprScanner';
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
 function Spinner() {
@@ -144,6 +145,11 @@ export default function ParticipantDetail() {
   const [teacherSaving, setTeacherSaving] = useState({}); // { `${eventId}_dance`: bool }
   const [teacherSaved, setTeacherSaved] = useState({});   // flash success
 
+  // Identity-correction state (shown when the Admin flags an issue)
+  const [fixForm, setFixForm] = useState(null); // {full_name, dob, cpr_number, ...}
+  const [fixBusy, setFixBusy] = useState(false);
+  const [fixMsg, setFixMsg] = useState('');
+
   // Final confirmation state
   const [confirming, setConfirming] = useState(false);
   const [confirmResult, setConfirmResult] = useState(null); // {events, email_sent}
@@ -250,6 +256,30 @@ export default function ParticipantDetail() {
       setSaveError(err.message || 'Failed to save. Please try again.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  function openFixForm() {
+    setFixForm({
+      full_name: participant.full_name || '',
+      dob: participant.dob ? String(participant.dob).slice(0, 10) : '',
+      cpr_number: participant.cpr_number || '',
+    });
+    setFixMsg('');
+  }
+
+  async function handleFixSave(extra = {}) {
+    setFixBusy(true);
+    setFixMsg('');
+    try {
+      await portalApi.participantUpdate(token, id, { ...fixForm, ...extra });
+      setFixMsg('Details updated — KCA will re-verify them. Thank you!');
+      setFixForm(null);
+      load();
+    } catch (err) {
+      setFixMsg(err.message || 'Update failed.');
+    } finally {
+      setFixBusy(false);
     }
   }
 
@@ -390,6 +420,64 @@ export default function ParticipantDetail() {
             </span>
           )}
         </div>
+
+        {/* ── Admin verification issue (correct & resubmit) ───────────────── */}
+        {participant?.admin_verified_status === 'issue' && (
+          <div className="rounded-2xl bg-amber-50 border border-amber-300 p-4 space-y-2">
+            <p className="text-sm font-semibold text-amber-800">
+              KCA found a problem while verifying {participant.full_name}'s details:
+            </p>
+            <p className="text-sm text-amber-700">{participant.admin_verify_note}</p>
+            {fixMsg && <p className="text-xs text-emerald-700">{fixMsg}</p>}
+            {!fixForm ? (
+              <button onClick={openFixForm}
+                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700">
+                Correct the details
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <CprScanner token={token} onResult={(r) =>
+                  setFixForm((f) => ({
+                    ...f,
+                    full_name: r.full_name || f.full_name,
+                    dob: r.dob || f.dob,
+                    cpr_number: r.cpr_number || f.cpr_number,
+                    cpr_scan_url: r.cpr_scan_url || f.cpr_scan_url,
+                    cpr_scan_back_url: r.cpr_scan_back_url || f.cpr_scan_back_url,
+                    cpr_verified_method: 'ocr',
+                  }))} />
+                <input value={fixForm.full_name}
+                  onChange={(e) => setFixForm((f) => ({ ...f, full_name: e.target.value }))}
+                  placeholder="Full name (as on CPR)"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" value={fixForm.dob}
+                    onChange={(e) => setFixForm((f) => ({ ...f, dob: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                  <input value={fixForm.cpr_number}
+                    onChange={(e) => setFixForm((f) => ({ ...f, cpr_number: e.target.value }))}
+                    placeholder="CPR number" inputMode="numeric"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setFixForm(null)}
+                    className="flex-1 rounded-lg border border-slate-300 py-2 text-sm text-slate-600">
+                    Cancel
+                  </button>
+                  <button onClick={() => handleFixSave()} disabled={fixBusy}
+                    className="flex-1 rounded-lg bg-navy-700 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                    {fixBusy ? 'Saving…' : 'Save corrections'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {participant?.admin_verified_status === 'verified' && (
+          <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full font-medium border bg-emerald-50 text-emerald-700 border-emerald-200">
+            <CheckCircle2 size={11} /> Details verified by KCA
+          </span>
+        )}
 
         {/* ── Event selection ─────────────────────────────────────────────── */}
         <section>
