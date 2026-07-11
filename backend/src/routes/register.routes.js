@@ -1037,8 +1037,9 @@ async function addMemberToTeam(client, team, member, userId) {
   // DOB must fall in the event's eligible age-group ranges (Junior/Senior/Common)
   const elig = await dobEligibleForEvent(client, team.event_id, member.dob);
   if (!elig.ok) {
+    const iso = (d) => new Date(d).toISOString().slice(0, 10);
     const ranges = elig.ranges.map((r) =>
-      `${r.label || r.code}: ${String(r.dob_from).slice(0, 10)} to ${String(r.dob_to).slice(0, 10)}`).join(' · ');
+      `${r.label || r.code}: born ${iso(r.dob_from)} to ${iso(r.dob_to)}`).join(' · ');
     throw Object.assign(new Error(
       `${member.full_name || member.cpr_number}: date of birth ${member.dob} is outside ` +
       `the eligible range for this event (${ranges})`), { status: 400 });

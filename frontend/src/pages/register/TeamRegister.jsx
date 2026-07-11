@@ -31,7 +31,7 @@ const inputCls =
 // Otherwise the details can be typed, or the CPR card scanned per member.
 // Bulk option: all members' CPR copies can be uploaded as one PDF from the
 // team card after registering.
-function MemberRows({ members, setMembers, schools, max, token, firstIsCaptain = false }) {
+function MemberRows({ members, setMembers, schools, max, token, firstIsCaptain = false, startIndex = 0 }) {
   const [scanRow, setScanRow] = useState(null);
   const update = (i, patch) =>
     setMembers((list) => list.map((m, idx) => (idx === i ? { ...m, ...patch } : m)));
@@ -63,7 +63,7 @@ function MemberRows({ members, setMembers, schools, max, token, firstIsCaptain =
         <div key={i} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
           <div className="flex items-center justify-between">
             <span className={`text-xs font-semibold ${firstIsCaptain && i === 0 ? 'text-navy-700' : 'text-slate-500'}`}>
-              {firstIsCaptain && i === 0 ? 'Team Captain (Member 1)' : `Member ${i + 1}`}
+              {firstIsCaptain && i === 0 ? 'Team Captain (Member 1)' : `Member ${startIndex + i + 1}`}
             </span>
             {members.length > 1 && (
               <button onClick={() => setMembers((l) => l.filter((_, idx) => idx !== i))}
@@ -76,7 +76,11 @@ function MemberRows({ members, setMembers, schools, max, token, firstIsCaptain =
           {/* CPR first */}
           <div className="flex gap-2">
             <input placeholder="CPR number" inputMode="numeric" value={m.cpr_number}
-              onChange={(e) => update(i, { cpr_number: e.target.value, found: null })}
+              onChange={(e) => update(i, {
+                cpr_number: e.target.value,
+                // a different CPR means a different child — clear stale details
+                found: null, full_name: '', dob: '', school_id: '',
+              })}
               className={inputCls} />
             <button onClick={() => checkCpr(i)} disabled={m.checking || !m.cpr_number.trim()}
               className="shrink-0 rounded-lg bg-navy-700 px-3 text-white text-xs font-semibold disabled:opacity-40 flex items-center gap-1">
@@ -311,7 +315,8 @@ function TeamCard({ token, team, schools, config, onChanged }) {
               ) : (
                 <div className="space-y-2">
                   <MemberRows members={newMembers} setMembers={setNewMembers}
-                    schools={schools} max={team.size_max - team.members_count} token={token} />
+                    schools={schools} max={team.size_max - team.members_count} token={token}
+                    startIndex={team.members_count} />
                   <button onClick={saveMembers} disabled={busy}
                     className="w-full rounded-lg bg-navy-700 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
                     {busy ? 'Saving…' : 'Save Members'}
