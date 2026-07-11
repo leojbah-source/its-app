@@ -119,15 +119,29 @@ export default function Registrations() {
           >
             Refresh
           </Button>
-          <a
-            href={`${API_BASE}/api/admin/registrations/export`}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            onClick={async () => {
+              try {
+                const res = await fetch(`${API_BASE}/api/admin/registrations/export`, {
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!res.ok) throw new Error('Export failed');
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'its-registrations.csv';
+                a.click();
+                URL.revokeObjectURL(url);
+              } catch (err) {
+                alert(err.message || 'Export failed.');
+              }
+            }}
             className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition"
           >
             <Download size={14} />
             Export CSV
-          </a>
+          </button>
         </div>
       </div>
 

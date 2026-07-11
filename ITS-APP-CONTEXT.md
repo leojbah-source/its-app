@@ -64,6 +64,19 @@ Applied so far:
 - `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
   per-age-group duration override; event-level value is the default)
 
+## Verification visibility on the registrations list (July 2026)
+- List rows now include admin_verified_status and computed payment_status
+  ('verified' if any confirmed payment, 'pending' if any pending, else
+  'none'); grouped view shows CPR ✓/issue/pending + Paid ✓/pending/none
+  badges per participant.
+- New filters: 'CPR check' (verified / not verified / issue) and 'Payment'
+  status (verified / pending / none); the old OCR/manual filter is relabelled
+  'Entry'.
+- GET /registrations/export CSV enriched: fee, CPR admin-verified + note,
+  entry method, scan uploaded, payment status/methods/confirmed total,
+  parent name/contact, KCA membership; team rows included (LEFT JOINs).
+  The Export button now sends the JWT (the old plain <a> got 401s).
+
 ## Admin verification workflow (July 2026)
 - AUDIT FIX: utils/audit.js previously wrote to non-existent audit_log
   columns — every logAudit silently failed. Now maps to the real columns

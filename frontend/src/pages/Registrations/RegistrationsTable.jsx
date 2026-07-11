@@ -32,7 +32,9 @@ export default function RegistrationsTable({ registrations, onView }) {
   const [search,   setSearch]   = useState('');
   const [status,   setStatus]   = useState('');   // '' = all, 'registered'
   const [payment,  setPayment]  = useState('');   // '' | cash | benefitpay | bank_transfer | none
-  const [cprVerify, setCprVerify] = useState('');  // '' | ocr | manual
+  const [cprVerify, setCprVerify] = useState('');  // '' | ocr | manual (entry method)
+  const [adminVerify, setAdminVerify] = useState(''); // '' | verified | pending | issue
+  const [payStatus, setPayStatus] = useState('');  // '' | verified | pending | none
   const [member,   setMember]   = useState('');   // '' | yes | no
   const [ageGroup, setAgeGroup] = useState('');
   const [school,   setSchool]   = useState('');
@@ -62,6 +64,8 @@ export default function RegistrationsTable({ registrations, onView }) {
       });
     }
     if (cprVerify) rows = rows.filter((r) => (r.cpr_verified_method || 'manual') === cprVerify);
+    if (adminVerify) rows = rows.filter((r) => (r.admin_verified_status || 'pending') === adminVerify);
+    if (payStatus) rows = rows.filter((r) => (r.payment_status || 'none') === payStatus);
     if (member) rows = rows.filter((r) =>
       member === 'yes'
         ? r.parent_membership_status === 'active'
@@ -76,7 +80,7 @@ export default function RegistrationsTable({ registrations, onView }) {
       return (av > bv ? 1 : -1) * (sortDir === 'asc' ? 1 : -1);
     });
     return sorted;
-  }, [registrations, search, status, payment, cprVerify, member, ageGroup, school, sortKey, sortDir]);
+  }, [registrations, search, status, payment, cprVerify, adminVerify, payStatus, member, ageGroup, school, sortKey, sortDir]);
 
   const ageGroups = useMemo(
     () => [...new Set(registrations.map((r) => r.age_group_code).filter(Boolean))].sort(),
@@ -96,6 +100,8 @@ export default function RegistrationsTable({ registrations, onView }) {
           participant_name: r.participant_name || r.team_name || '—',
           is_team: !r.participant_id,
           team_member_count: r.team_member_count,
+          admin_verified_status: r.admin_verified_status,
+          payment_status: r.payment_status,
           cpr_number: r.cpr_number,
           age_group_code: r.age_group_code,
           school_name: r.school_name,
@@ -158,9 +164,29 @@ export default function RegistrationsTable({ registrations, onView }) {
           onChange={(e) => { setCprVerify(e.target.value); setPage(1); }}
           className="rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:outline-none"
         >
-          <option value="">CPR: any</option>
-          <option value="ocr">Verified — OCR scan</option>
-          <option value="manual">Verified — manual</option>
+          <option value="">Entry: any</option>
+          <option value="ocr">Entry: OCR scan</option>
+          <option value="manual">Entry: manual</option>
+        </select>
+        <select
+          value={adminVerify}
+          onChange={(e) => { setAdminVerify(e.target.value); setPage(1); }}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:outline-none"
+        >
+          <option value="">CPR check: any</option>
+          <option value="verified">CPR verified</option>
+          <option value="pending">Not verified yet</option>
+          <option value="issue">Issue flagged</option>
+        </select>
+        <select
+          value={payStatus}
+          onChange={(e) => { setPayStatus(e.target.value); setPage(1); }}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:outline-none"
+        >
+          <option value="">Payment: any status</option>
+          <option value="verified">Payment verified</option>
+          <option value="pending">Payment pending</option>
+          <option value="none">No payment</option>
         </select>
         <select
           value={member}
@@ -221,6 +247,7 @@ export default function RegistrationsTable({ registrations, onView }) {
                 <th className="px-4 py-3 font-medium">Group</th>
                 <th className="px-4 py-3 font-medium">School</th>
                 <th className="px-4 py-3 font-medium">Events</th>
+                <th className="px-4 py-3 font-medium">Verification</th>
                 <th className="px-4 py-3 font-medium">Registered events</th>
                 <th className="px-4 py-3 text-right font-medium">Actions</th>
               </tr>
@@ -243,6 +270,20 @@ export default function RegistrationsTable({ registrations, onView }) {
                   <td className="px-4 py-3 text-slate-600 text-xs">{g.school_name || '—'}</td>
                   <td className="px-4 py-3">
                     <Badge tone="navy">{g.events.length}</Badge>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-1">
+                      <Badge tone={g.admin_verified_status === 'verified' ? 'success'
+                        : g.admin_verified_status === 'issue' ? 'danger' : 'slate'}>
+                        {g.admin_verified_status === 'verified' ? 'CPR ✓'
+                          : g.admin_verified_status === 'issue' ? 'CPR issue' : 'CPR pending'}
+                      </Badge>
+                      <Badge tone={g.payment_status === 'verified' ? 'success'
+                        : g.payment_status === 'pending' ? 'gold' : 'slate'}>
+                        {g.payment_status === 'verified' ? 'Paid ✓'
+                          : g.payment_status === 'pending' ? 'Pay pending' : 'No payment'}
+                      </Badge>
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1.5 max-w-md">

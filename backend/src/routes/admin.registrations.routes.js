@@ -73,30 +73,63 @@ router.get('/registrations/export', requireRole(...staffRoles), async (req, res,
 
     const { rows } = await pool.query(
       `SELECT
-         p.full_name AS participant_name, p.cpr_number, p.gender, p.dob,
+         COALESCE(p.full_name, t.team_name) AS participant_name,
+         p.cpr_number, p.gender, to_char(p.dob, 'YYYY-MM-DD') AS dob,
          s.name AS school_name,
          ag.code AS age_group_code,
          e.event_code, e.event_name, e.event_kind,
          c.name AS category_name,
-         r.status, r.dance_teacher, r.music_teacher, r.registered_at
+         r.status, r.fee_amount, r.dance_teacher, r.music_teacher,
+         to_char(r.registered_at, 'YYYY-MM-DD HH24:MI') AS registered_at,
+         p.admin_verified_status AS cpr_admin_verified,
+         p.admin_verify_note,
+         p.cpr_verified_method AS cpr_entry_method,
+         CASE WHEN p.cpr_scan_url IS NOT NULL THEN 'yes' ELSE 'no' END AS cpr_scan_uploaded,
+         (SELECT CASE
+            WHEN COUNT(*) FILTER (WHERE pay.status = 'confirmed') > 0 THEN 'verified'
+            WHEN COUNT(*) FILTER (WHERE pay.status = 'pending') > 0 THEN 'pending'
+            ELSE 'none' END
+          FROM payments pay
+          WHERE (r.participant_id IS NOT NULL AND pay.participant_id = r.participant_id)
+             OR (r.team_id IS NOT NULL AND pay.team_id = r.team_id)) AS payment_status,
+         (SELECT string_agg(DISTINCT pay.method::text, '|')
+          FROM payments pay
+          WHERE (r.participant_id IS NOT NULL AND pay.participant_id = r.participant_id)
+             OR (r.team_id IS NOT NULL AND pay.team_id = r.team_id)) AS payment_methods,
+         (SELECT COALESCE(SUM(pay.amount), 0)
+          FROM payments pay
+          WHERE pay.status = 'confirmed'
+            AND ((r.participant_id IS NOT NULL AND pay.participant_id = r.participant_id)
+             OR (r.team_id IS NOT NULL AND pay.team_id = r.team_id))) AS paid_confirmed,
+         pu.full_name AS parent_name,
+         COALESCE(pu.whatsapp_number, pu.phone) AS parent_contact,
+         pu.membership_status AS kca_membership
        FROM registrations r
-       JOIN participants p ON p.id = r.participant_id
+       LEFT JOIN participants p ON p.id = r.participant_id
+       LEFT JOIN teams t ON t.id = r.team_id
+       LEFT JOIN users pu ON pu.id = COALESCE(p.created_by, t.created_by)
        LEFT JOIN schools s ON s.id = p.school_id
        JOIN events e ON e.id = r.event_id
        LEFT JOIN categories c ON c.id = r.category_id
        LEFT JOIN age_groups ag ON ag.id = r.age_group_id
        WHERE ($1::int IS NULL OR r.year_id = $1)
-       ORDER BY p.full_name, e.event_name`,
+       ORDER BY participant_name, e.event_name`,
       [year_id],
     );
 
-    const header = 'Participant,CPR,Gender,DOB,School,Age Group,Event Code,Event,Type,Category,Status,Dance Teacher,Music Teacher,Registered At';
+    const header = 'Participant,CPR,Gender,DOB,School,Age Group,Event Code,Event,Type,Category,Status,Fee,' +
+      'Dance Teacher,Music Teacher,Registered At,' +
+      'CPR Admin Verified,CPR Verify Note,CPR Entry Method,CPR Scan Uploaded,' +
+      'Payment Status,Payment Methods,Paid Confirmed (BD),Parent,Parent Contact,KCA Membership';
     const csv = [
       header,
       ...rows.map((r) =>
         [r.participant_name, r.cpr_number, r.gender, r.dob, r.school_name,
          r.age_group_code, r.event_code, r.event_name, r.event_kind,
-         r.category_name, r.status, r.dance_teacher, r.music_teacher, r.registered_at]
+         r.category_name, r.status, r.fee_amount, r.dance_teacher, r.music_teacher, r.registered_at,
+         r.cpr_admin_verified, r.admin_verify_note, r.cpr_entry_method, r.cpr_scan_uploaded,
+         r.payment_status, r.payment_methods, r.paid_confirmed,
+         r.parent_name, r.parent_contact, r.kca_membership]
           .map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')),
     ].join('\n');
 
@@ -159,11 +192,18 @@ router.get('/registrations', requireRole(...staffRoles), async (req, res, next) 
          r.age_group_id, r.category_id, r.status,
          r.dance_teacher, r.music_teacher, r.registered_at, r.updated_at,
          p.full_name AS participant_name, p.cpr_number, p.gender, p.dob,
-         p.cpr_verified_method,
+         p.cpr_verified_method, p.admin_verified_status,
          (SELECT string_agg(DISTINCT pay.method::text, ',')
           FROM payments pay
           WHERE (r.participant_id IS NOT NULL AND pay.participant_id = r.participant_id)
              OR (r.team_id IS NOT NULL AND pay.team_id = r.team_id)) AS payment_methods,
+         (SELECT CASE
+            WHEN COUNT(*) FILTER (WHERE pay.status = 'confirmed') > 0 THEN 'verified'
+            WHEN COUNT(*) FILTER (WHERE pay.status = 'pending') > 0 THEN 'pending'
+            ELSE 'none' END
+          FROM payments pay
+          WHERE (r.participant_id IS NOT NULL AND pay.participant_id = r.participant_id)
+             OR (r.team_id IS NOT NULL AND pay.team_id = r.team_id)) AS payment_status,
          (SELECT pu.membership_status FROM users pu
           WHERE pu.id = p.created_by) AS parent_membership_status,
          t.team_name,
