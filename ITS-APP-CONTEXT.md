@@ -64,6 +64,22 @@ Applied so far:
 - `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
   per-age-group duration override; event-level value is the default)
 
+## Venues & report formats (July 2026)
+- venues table (migration 013, max 4 enforced): has_stage, capacity
+  (NULL = unlimited), suitable_for {dance,music,arts,literary} (empty = all),
+  weekday_hours JSONB {"fri":{"start","end"},…} — missing weekday = closed.
+  GET/PUT /api/admin/schedule/venues; VenuesCard in Year Setup.
+- generate-draft no longer takes venues/blocks: it builds per-date blocks
+  from each venue's weekday hours, and restricts each event to venues that
+  match its category tag (categoryTag regex), capacity ≥ entries, and stage
+  requirement. scheduler service gained optional event.allowed_venues filter
+  (one-line change, tests untouched). Body: {start_date?, end_date?, buffer}.
+- Report formats: NO CPR numbers or schools on printed lists; ITS logo
+  centred in the header (its_logo_url); 'by event' print restructured to
+  Age group (asc) → event name (alpha) → participant names (alpha);
+  final list shows events one per row (code + name; /final now returns an
+  events json array per participant).
+
 ## Lists & Schedule (July 2026)
 - Lists (routes/admin.lists.routes.js, /api/admin/lists/*): by-event (entries
   grouped by age group), by-participant (with parent + signature line),

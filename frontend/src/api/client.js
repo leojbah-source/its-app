@@ -185,6 +185,11 @@ export const listsApi = {
   publishInitial: (token) => request('/api/admin/lists/publish-initial', { method: 'POST', token, body: {} }),
 };
 
+export const venuesApi = {
+  list: (token) => request('/api/admin/schedule/venues', { token }),
+  save: (token, venues) => request('/api/admin/schedule/venues', { method: 'PUT', token, body: { venues } }),
+};
+
 export const scheduleApi = {
   list: (token) => request('/api/admin/schedule', { token }),
   generateDraft: (token, body) => request('/api/admin/schedule/generate-draft', { method: 'POST', token, body }),

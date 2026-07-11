@@ -36,12 +36,13 @@ function openPrint(year, title, bodyHtml) {
   @media print { .noprint { display: none; } }
 </style></head><body>
 <div class="hdr">
-  ${year?.kca_logo_url ? `<img src="${esc(year.kca_logo_url)}" alt="KCA" />` : '<div></div>'}
+  ${year?.kca_logo_url ? `<img src="${esc(year.kca_logo_url)}" alt="KCA" />` : '<div style="width:54px"></div>'}
   <div style="text-align:center">
+    ${year?.its_logo_url ? `<img src="${esc(year.its_logo_url)}" alt="ITS" style="max-height:56px;display:block;margin:0 auto 4px" />` : ''}
     <h1>${esc(year?.event_year_label || 'KCA Indian Talent Scan')}</h1>
     <div class="sub">${esc(title)} · printed ${new Date().toLocaleString('en-GB')}</div>
   </div>
-  ${year?.sponsor_logo_url ? `<img src="${esc(year.sponsor_logo_url)}" alt="Sponsor" />` : '<div></div>'}
+  ${year?.sponsor_logo_url ? `<img src="${esc(year.sponsor_logo_url)}" alt="Sponsor" />` : '<div style="width:54px"></div>'}
 </div>
 ${bodyHtml}
 <script>window.onload = () => setTimeout(() => window.print(), 300);</script>
@@ -79,23 +80,36 @@ export default function Lists() {
 
   // ── Print builders ──────────────────────────────────────────────────────
   function printByEvent() {
-    const body = byEvent.events.map((ev) => {
-      // group entries by age group within the event
-      const groups = {};
-      for (const en of ev.entries) (groups[en.age_group_code || '—'] ??= []).push(en);
-      const groupHtml = Object.entries(groups).map(([g, list]) => `
-        <table><thead><tr>
-          <th style="width:28px">#</th><th>Name</th><th style="width:110px">CPR</th>
-          <th>School</th><th style="width:70px">Group</th></tr></thead>
-        <tbody>${list.map((en, i) =>
-          `<tr><td>${i + 1}</td><td>${esc(en.name)}</td><td>${esc(en.cpr_number || '')}</td>
-           <td>${esc(en.school_name || '')}</td><td>${esc(g)}</td></tr>`).join('')}
-        </tbody></table>`).join('');
-      return `<div class="block"><h2>${esc(ev.event_code)} — ${esc(ev.event_name)}
-        <span style="font-weight:normal;font-size:11px;color:#64748b"> · ${esc(ev.category_name || '')} · ${ev.entries.length} entr${ev.entries.length === 1 ? 'y' : 'ies'}</span></h2>
-        ${groupHtml}</div>`;
+    // Restructure: Age group (ascending) → event names (alphabetical) →
+    // participant names (alphabetical). No CPR numbers or schools.
+    const byGroup = new Map(); // group → Map(eventName → {code, names[]})
+    for (const ev of byEvent.events) {
+      for (const en of ev.entries) {
+        const g = en.age_group_code || '—';
+        const label = en.age_group_label || '';
+        if (!byGroup.has(g)) byGroup.set(g, { label, events: new Map() });
+        const grp = byGroup.get(g);
+        if (!grp.events.has(ev.event_name))
+          grp.events.set(ev.event_name, { code: ev.event_code, names: [] });
+        grp.events.get(ev.event_name).names.push(en.name);
+      }
+    }
+    const body = [...byGroup.keys()].sort().map((g) => {
+      const grp = byGroup.get(g);
+      const eventsHtml = [...grp.events.keys()].sort().map((evName) => {
+        const e = grp.events.get(evName);
+        const names = [...e.names].sort((a, b) => a.localeCompare(b));
+        return `<div class="block">
+          <h2 style="font-size:13px;border:none;margin:12px 0 4px">${esc(evName)}
+            <span style="font-weight:normal;font-size:10px;color:#64748b"> (${esc(e.code)}) · ${names.length} entr${names.length === 1 ? 'y' : 'ies'}</span></h2>
+          <table><thead><tr><th style="width:34px">#</th><th>Name</th></tr></thead>
+          <tbody>${names.map((n, i) => `<tr><td>${i + 1}</td><td>${esc(n)}</td></tr>`).join('')}</tbody></table>
+        </div>`;
+      }).join('');
+      return `<div><h2 style="font-size:16px;background:#f1f5f9;padding:6px 10px">
+        ${esc(g)}${grp.label ? ` — ${esc(grp.label)}` : ''}</h2>${eventsHtml}</div>`;
     }).join('');
-    openPrint(year, 'Initial Lists — by Event & Age Group', body);
+    openPrint(year, 'Initial Lists — by Age Group & Event', body);
   }
 
   function printByParticipant() {
@@ -103,7 +117,7 @@ export default function Lists() {
       <div class="block">
         <h2>${esc(p.full_name)}
           <span style="font-weight:normal;font-size:11px;color:#64748b">
-            · CPR ${esc(p.cpr_number)} · ${esc(p.age_group_label || p.age_group_code || '')} · ${esc(p.school_name || '')}</span></h2>
+            · ${esc(p.age_group_label || p.age_group_code || '')}</span></h2>
         <table><thead><tr><th style="width:80px">Code</th><th>Event</th><th>Category</th></tr></thead>
         <tbody>${p.events.map((e) =>
           `<tr><td>${esc(e.event_code)}</td><td>${esc(e.event_name)}</td><td>${esc(e.category_name || '')}</td></tr>`).join('')}
@@ -119,12 +133,15 @@ export default function Lists() {
       <p style="font-size:12px">Participants: <b>${t.participants}</b> · Event entries: <b>${t.entries}</b> ·
         ${Object.entries(t.by_group).map(([g, n]) => `${esc(g)}: <b>${n}</b>`).join(' · ')}</p>
       <table><thead><tr>
-        <th style="width:28px">#</th><th>Name</th><th style="width:110px">CPR</th>
-        <th style="width:60px">Group</th><th>School</th><th style="width:50px">Events</th><th>Event codes</th></tr></thead>
+        <th style="width:28px">#</th><th style="width:200px">Name</th>
+        <th style="width:60px">Group</th><th style="width:44px">Events</th><th>Registered events</th></tr></thead>
       <tbody>${finalList.participants.map((p, i) =>
-        `<tr><td>${i + 1}</td><td>${esc(p.full_name)}</td><td>${esc(p.cpr_number)}</td>
-         <td>${esc(p.age_group_code || '')}</td><td>${esc(p.school_name || '')}</td>
-         <td>${p.event_count}</td><td>${esc(p.event_codes)}</td></tr>`).join('')}
+        `<tr><td>${i + 1}</td><td>${esc(p.full_name)}</td>
+         <td>${esc(p.age_group_code || '')}</td><td>${p.event_count}</td>
+         <td style="padding:0"><table style="margin:0;border:none">${(p.events || []).map((e) =>
+           `<tr><td style="border:none;border-bottom:1px solid #e2e8f0;width:70px">${esc(e.event_code)}</td>
+            <td style="border:none;border-bottom:1px solid #e2e8f0">${esc(e.event_name)}</td></tr>`).join('')}
+         </table></td></tr>`).join('')}
       </tbody></table>`;
     openPrint(year, 'FINAL LIST of Participants', body);
   }

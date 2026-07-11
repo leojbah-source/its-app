@@ -247,7 +247,9 @@ async function generateScheduleDraft(yearId, config, db) {
       if (!canPlaceOnDate(day.date, participantIds, dailyCounts)) continue;
 
       for (const block of day.blocks) {
-        const venueOrder = orderVenuesByClusterPreference(block.venues, day.date, event.category, categoryVenueUse);
+        // Optional per-event venue restriction (suitability/capacity — §venues)
+        const venueOrder = orderVenuesByClusterPreference(block.venues, day.date, event.category, categoryVenueUse)
+          .filter((v) => !event.allowed_venues || event.allowed_venues.includes(v));
 
         for (const venue of venueOrder) {
           const window = findPlacement({

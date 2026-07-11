@@ -49,41 +49,135 @@ function dateRange(start, end) {
   return out;
 }
 
+// ── Venues / facility setup ──────────────────────────────────────────────────
+const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+// GET /api/admin/schedule/venues
+router.get('/venues', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.json([]);
+    const { rows } = await pool.query(
+      `SELECT * FROM venues WHERE year_id = $1 ORDER BY sort_order, id`, [yc.id]);
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// PUT /api/admin/schedule/venues — replace-all upsert (max 4 venues)
+router.put('/venues', requireRole('SuperAdmin', 'Admin'), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const { venues = [] } = req.body;
+    if (venues.length > 4)
+      return res.status(400).json({ error: 'At most 4 venues can be defined' });
+    for (const v of venues) {
+      if (!v.name?.trim()) return res.status(400).json({ error: 'Each venue needs a name' });
+      for (const [day, h] of Object.entries(v.weekday_hours || {})) {
+        if (!WEEKDAYS.includes(day))
+          return res.status(400).json({ error: `Unknown weekday '${day}' (use sun..sat)` });
+        if (!/^\d{2}:\d{2}$/.test(h?.start || '') || !/^\d{2}:\d{2}$/.test(h?.end || ''))
+          return res.status(400).json({ error: `Venue ${v.name}: ${day} needs start/end as HH:MM` });
+      }
+    }
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+
+    await client.query('BEGIN');
+    const keep = [];
+    for (const [i, v] of venues.entries()) {
+      const { rows } = await client.query(
+        `INSERT INTO venues (year_id, name, has_stage, capacity, suitable_for, weekday_hours, notes, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (year_id, name) DO UPDATE SET
+           has_stage = EXCLUDED.has_stage, capacity = EXCLUDED.capacity,
+           suitable_for = EXCLUDED.suitable_for, weekday_hours = EXCLUDED.weekday_hours,
+           notes = EXCLUDED.notes, sort_order = EXCLUDED.sort_order
+         RETURNING id`,
+        [yc.id, v.name.trim(), v.has_stage !== false, v.capacity || null,
+         v.suitable_for || [], JSON.stringify(v.weekday_hours || {}), v.notes || null, i]);
+      keep.push(rows[0].id);
+    }
+    await client.query(
+      `DELETE FROM venues WHERE year_id = $1 AND NOT (id = ANY($2::int[]))`,
+      [yc.id, keep.length ? keep : [0]]);
+    await client.query('COMMIT');
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'UPDATE_VENUES', entity: 'venues', entityId: yc.id,
+      details: { venues: venues.map((v) => v.name) } });
+    const { rows } = await pool.query(
+      `SELECT * FROM venues WHERE year_id = $1 ORDER BY sort_order, id`, [yc.id]);
+    res.json(rows);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
+    next(err);
+  } finally { client.release(); }
+});
+
+/** Maps a category name to a suitability tag: dance/music/arts/literary. */
+function categoryTag(name) {
+  const n = (name || '').toLowerCase();
+  if (/natya|dance/.test(n)) return 'dance';
+  if (/sangeet|music|song/.test(n)) return 'music';
+  if (/kala|art|craft|draw|paint/.test(n)) return 'arts';
+  if (/sahitya|liter|poem|essay|story|spell/.test(n)) return 'literary';
+  return null; // add-on / other → any venue
+}
+
 // ── POST /api/admin/schedule/generate-draft ──────────────────────────────────
-// body: { venues: ["Main Stage","Hall B"],
-//         blocks: [{start:"09:00", end:"13:00"}, {start:"15:00", end:"20:00"}],
-//         dates?: ["2026-12-18", ...]   (defaults to the competition window)
+// body: { start_date?, end_date?   (defaults to the competition window)
 //         reporting_buffer_minutes?, minutes_per_participant_default?,
 //         setup_minutes? }
+// Venues, their availability (per-weekday hours), suitability and capacity
+// come from the venue setup (PUT /venues).
 router.post('/generate-draft', requireRole(...editRoles), async (req, res, next) => {
   try {
     const yc = await activeYear();
     if (!yc) return res.status(400).json({ error: 'No active year' });
 
-    const { venues = [], blocks = [], dates,
+    const { start_date, end_date,
             reporting_buffer_minutes = 30,
             minutes_per_participant_default = 5,
             setup_minutes = 10 } = req.body;
-    if (!venues.length) return res.status(400).json({ error: 'At least one venue is required' });
-    if (!blocks.length) return res.status(400).json({ error: 'At least one daily time block is required (e.g. 09:00–13:00)' });
-    for (const b of blocks) {
-      if (!/^\d{2}:\d{2}$/.test(b.start || '') || !/^\d{2}:\d{2}$/.test(b.end || ''))
-        return res.status(400).json({ error: 'Blocks need start/end as HH:MM' });
-    }
 
-    let days = dates;
-    if (!days?.length) {
-      if (!yc.event_start_date || !yc.event_end_date)
-        return res.status(400).json({ error: 'Set the competition start/end dates in Year Setup first (or pass dates)' });
-      days = dateRange(yc.event_start_date, yc.event_end_date);
+    const { rows: venueRows } = await pool.query(
+      `SELECT * FROM venues WHERE year_id = $1 ORDER BY sort_order, id`, [yc.id]);
+    if (!venueRows.length)
+      return res.status(400).json({ error: 'Define at least one venue in the facility setup first' });
+
+    const from = start_date || yc.event_start_date;
+    const to = end_date || yc.event_end_date;
+    if (!from || !to)
+      return res.status(400).json({ error: 'Set the competition start/end dates (Year Setup) or pass start_date/end_date' });
+    const days = dateRange(from, to);
+
+    // Per date: one block per available venue (its own hours that weekday)
+    const dailySlots = [];
+    for (const date of days) {
+      const weekday = WEEKDAYS[new Date(`${date}T12:00:00`).getDay()];
+      const blocks = [];
+      for (const v of venueRows) {
+        const h = (v.weekday_hours || {})[weekday];
+        if (h?.start && h?.end) blocks.push({ start: h.start, end: h.end, venues: [v.name] });
+      }
+      if (blocks.length) dailySlots.push({ date, blocks });
     }
+    if (!dailySlots.length)
+      return res.status(400).json({ error: 'No venue is available on any day in the window — check the venues\' weekday availability' });
 
     const config = {
       reportingBufferMinutes: Number(reporting_buffer_minutes) || 30,
-      dailySlots: days.map((date) => ({
-        date,
-        blocks: blocks.map((b) => ({ start: b.start, end: b.end, venues })),
-      })),
+      dailySlots,
+    };
+
+    // Suitability + capacity → allowed venues per event
+    const venueFor = (categoryName, participantCount, isStage) => {
+      const tag = categoryTag(categoryName);
+      return venueRows
+        .filter((v) => !tag || !v.suitable_for?.length || v.suitable_for.includes(tag))
+        .filter((v) => v.capacity == null || v.capacity >= participantCount)
+        .filter((v) => !isStage || v.has_stage)
+        .map((v) => v.name);
     };
 
     // Adapter between the scheduler service and the real schema
@@ -91,7 +185,7 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
       async getActiveEventsForYear(yearId) {
         const { rows } = await pool.query(
           `SELECT e.id AS event_id, COALESCE(c.name, 'Other') AS category,
-                  e.allotted_time_seconds,
+                  e.allotted_time_seconds, e.is_stage_event,
                   COUNT(r.id)::int AS participant_count
            FROM events e
            LEFT JOIN categories c ON c.id = e.category_id
@@ -102,6 +196,7 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
         return rows.map((r) => ({
           event_id: r.event_id,
           category: r.category,
+          allowed_venues: venueFor(r.category, r.participant_count, r.is_stage_event),
           duration_minutes: Math.max(
             20,
             Math.ceil((r.participant_count *
@@ -144,7 +239,7 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'GENERATE_DRAFT_SCHEDULE', entity: 'schedule', entityId: yc.id,
       details: { scheduled: draft.scheduled.length, unplaced: draft.unplaced.length,
-                 venues, days: days.length } });
+                 venues: venueRows.map((v) => v.name), days: days.length } });
 
     res.json({ scheduled: draft.scheduled.length, unplaced: draft.unplaced });
   } catch (err) { next(err); }

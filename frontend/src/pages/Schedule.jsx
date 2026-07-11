@@ -4,13 +4,13 @@
 // same-category venue clustering), review & adjust rows, then publish.
 
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Wand2, CheckCircle2, Save, Plus, Trash2 } from 'lucide-react';
+import { RefreshCw, Wand2, CheckCircle2, Save } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import { PageLoader, ErrorBanner } from '../components/ui/States';
 import { useAuth } from '../context/AuthContext';
-import { scheduleApi } from '../api/client';
+import { scheduleApi, venuesApi } from '../api/client';
 
 const inputCls = 'rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
 
@@ -65,10 +65,12 @@ export default function Schedule() {
   const [flash, setFlash] = useState('');
   const [unplaced, setUnplaced] = useState([]);
 
-  // Draft-generation inputs
+  // Draft-generation inputs (venues + availability come from the facility
+  // setup in Year Setup; here we only pick the window + buffer)
   const [showGen, setShowGen] = useState(false);
-  const [venues, setVenues] = useState('Main Stage');
-  const [blocks, setBlocks] = useState([{ start: '09:00', end: '13:00' }]);
+  const [venues, setVenues] = useState([]);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [buffer, setBuffer] = useState(30);
   const [generating, setGenerating] = useState(false);
 
@@ -76,7 +78,12 @@ export default function Schedule() {
     setLoading(true);
     setError('');
     try {
-      setRows(await scheduleApi.list(token));
+      const [rowsData, venueData] = await Promise.all([
+        scheduleApi.list(token),
+        venuesApi.list(token).catch(() => []),
+      ]);
+      setRows(rowsData);
+      setVenues(venueData);
     } catch (err) {
       setError(err.message || 'Failed to load schedule');
     } finally { setLoading(false); }
@@ -90,8 +97,8 @@ export default function Schedule() {
     setUnplaced([]);
     try {
       const r = await scheduleApi.generateDraft(token, {
-        venues: venues.split(',').map((v) => v.trim()).filter(Boolean),
-        blocks,
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
         reporting_buffer_minutes: Number(buffer) || 30,
       });
       setFlash(`Draft generated: ${r.scheduled} events placed${r.unplaced.length ? `, ${r.unplaced.length} could not be placed` : ''}.`);
@@ -143,49 +150,55 @@ export default function Schedule() {
         <Card className="mb-4">
           <div className="space-y-3">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">
-                Venues / stages (comma-separated)
-              </label>
-              <input value={venues} onChange={(e) => setVenues(e.target.value)}
-                placeholder="Main Stage, Hall B" className={`${inputCls} w-full`} />
+              <p className="text-xs font-medium text-slate-600 mb-1.5">
+                Venues &amp; availability (from Year Setup → Venues / facility setup)
+              </p>
+              {venues.length === 0 ? (
+                <p className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+                  No venues defined yet — set them up in Year Setup first.
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {venues.map((v) => (
+                    <li key={v.id} className="text-xs text-slate-600">
+                      <b>{v.name}</b>
+                      {v.has_stage ? ' · stage' : ' · no stage'}
+                      {v.capacity ? ` · cap ${v.capacity}` : ''}
+                      {v.suitable_for?.length ? ` · ${v.suitable_for.join('/')}` : ' · all events'}
+                      {' · '}
+                      {Object.entries(v.weekday_hours || {}).map(([d, h]) => `${d} ${h.start}–${h.end}`).join(', ') || 'no days set'}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">
-                Daily time blocks (applied to every competition day — dates come from Year Setup)
-              </label>
-              <div className="space-y-2">
-                {blocks.map((b, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <input type="time" value={b.start}
-                      onChange={(e) => setBlocks((l) => l.map((x, idx) => idx === i ? { ...x, start: e.target.value } : x))}
-                      className={inputCls} />
-                    <span className="text-slate-400 text-sm">to</span>
-                    <input type="time" value={b.end}
-                      onChange={(e) => setBlocks((l) => l.map((x, idx) => idx === i ? { ...x, end: e.target.value } : x))}
-                      className={inputCls} />
-                    {blocks.length > 1 && (
-                      <button onClick={() => setBlocks((l) => l.filter((_, idx) => idx !== i))}
-                        className="text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
-                    )}
-                  </div>
-                ))}
-                <button onClick={() => setBlocks((l) => [...l, { start: '15:00', end: '20:00' }])}
-                  className="text-xs font-medium text-navy-600 underline flex items-center gap-1">
-                  <Plus size={12} /> Add another block (e.g. evening session)
-                </button>
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  From (blank = Year Setup start date)
+                </label>
+                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  To (blank = Year Setup end date)
+                </label>
+                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Reporting buffer (min)
+                </label>
+                <input type="number" min={0} value={buffer}
+                  onChange={(e) => setBuffer(e.target.value)} className={`${inputCls} w-24`} />
               </div>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">
-                Reporting buffer (minutes before start)
-              </label>
-              <input type="number" min={0} value={buffer}
-                onChange={(e) => setBuffer(e.target.value)} className={`${inputCls} w-28`} />
-            </div>
             <p className="text-xs text-amber-600">
-              Generating replaces the current DRAFT rows (confirmed rows are kept).
+              Generating replaces the current DRAFT rows (confirmed rows are kept). Events are
+              only placed in venues that suit their category, have capacity, and are open that day.
             </p>
-            <Button variant="primary" icon={Wand2} loading={generating} onClick={generate}>
+            <Button variant="primary" icon={Wand2} loading={generating}
+              disabled={venues.length === 0} onClick={generate}>
               Generate draft schedule
             </Button>
           </div>

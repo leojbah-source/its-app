@@ -14,6 +14,7 @@ import { validateYearConfig } from './year-config/validate';
 import AgeGroupsCard from './year-config/AgeGroupsCard';
 import LimitsCard from './year-config/LimitsCard';
 import PaymentDeadlinesCard from './year-config/PaymentDeadlinesCard';
+import VenuesCard from './year-config/VenuesCard';
 import GradingCard from './year-config/GradingCard';
 import DivergenceCard from './year-config/DivergenceCard';
 import BrandingCard from './year-config/BrandingCard';
@@ -204,6 +205,7 @@ export default function YearConfig() {
             />
             <LimitsCard config={config} errors={errors} onChange={setConfig} />
             <PaymentDeadlinesCard config={config} errors={errors} onChange={setConfig} />
+            <VenuesCard />
             <GradingCard config={config} errors={errors} onChange={setConfig} />
             <DivergenceCard config={config} errors={errors} onChange={setConfig} />
             <BrandingCard config={config} onChange={setConfig} onUpload={handleUpload} uploadingField={uploadingField} />

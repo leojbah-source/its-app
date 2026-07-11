@@ -24,7 +24,7 @@ const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
 
 async function activeYear() {
   const { rows } = await pool.query(
-    `SELECT id, event_year_label, kca_logo_url, sponsor_logo_url, sponsor_name,
+    `SELECT id, event_year_label, kca_logo_url, its_logo_url, sponsor_logo_url, sponsor_name,
             initial_list_published, initial_list_published_at
      FROM year_config WHERE is_active = TRUE LIMIT 1`);
   return rows[0] || null;
@@ -130,7 +130,9 @@ router.get('/final', requireRole(...staffRoles), async (req, res, next) => {
       `SELECT p.id, p.full_name, p.cpr_number, p.gender,
               ag.code AS age_group_code, s.name AS school_name,
               COUNT(r.id)::int AS event_count,
-              string_agg(e.event_code, ', ' ORDER BY e.event_code) AS event_codes
+              string_agg(e.event_code, ', ' ORDER BY e.event_code) AS event_codes,
+              json_agg(json_build_object('event_code', e.event_code, 'event_name', e.event_name)
+                       ORDER BY e.event_code) AS events
        FROM participants p
        LEFT JOIN age_groups ag ON ag.id = p.age_group_id
        LEFT JOIN schools s ON s.id = p.school_id
