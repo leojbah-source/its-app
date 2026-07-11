@@ -5,30 +5,66 @@
 // member's DOB validated against the event's eligible age groups.
 
 import { useEffect, useState, useCallback } from 'react';
-import { Users, Plus, Trash2, Clock, CheckCircle2, Upload } from 'lucide-react';
+import { Users, Plus, Trash2, Clock, CheckCircle2, Upload, Search, Camera } from 'lucide-react';
 import { useParentAuth } from '../../context/ParentAuthContext';
 import { portalApi, API_BASE } from './registerApi';
 import RegisterLayout from './RegisterLayout';
+import CprScanner from './CprScanner';
+
+/** Purpose notice shown wherever teacher names are collected. */
+export const TEACHER_PURPOSE_NOTE =
+  'Teacher names are collected solely to decide the Best Dance Teacher and Best Music ' +
+  'Teacher awards for the category — they are not used for any other purpose.';
 
 const fmtBD = (v) => `BD ${Number(v || 0).toFixed(3)}`;
 const fmtDate = (d) =>
   new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
-const emptyMember = () => ({ full_name: '', dob: '', cpr_number: '', school_id: '' });
+const emptyMember = () => ({ full_name: '', dob: '', cpr_number: '', school_id: '', found: null, checking: false });
 
 const inputCls =
   'w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-400 bg-white';
 
 // ── Member rows editor (shared by create + add-later) ────────────────────────
-function MemberRows({ members, setMembers, schools, max }) {
-  const update = (i, k, v) =>
-    setMembers((list) => list.map((m, idx) => (idx === i ? { ...m, [k]: v } : m)));
+// CPR-first: enter the CPR and Check — if the child is already registered for
+// individual events, their details are taken from file and shown to confirm.
+// Otherwise the details can be typed, or the CPR card scanned per member.
+// Bulk option: all members' CPR copies can be uploaded as one PDF from the
+// team card after registering.
+function MemberRows({ members, setMembers, schools, max, token, firstIsCaptain = false }) {
+  const [scanRow, setScanRow] = useState(null);
+  const update = (i, patch) =>
+    setMembers((list) => list.map((m, idx) => (idx === i ? { ...m, ...patch } : m)));
+
+  async function checkCpr(i) {
+    const cpr = (members[i].cpr_number || '').trim();
+    if (!cpr) return;
+    update(i, { checking: true });
+    try {
+      const r = await portalApi.participantLookup(token, cpr);
+      if (r.found) {
+        update(i, {
+          checking: false, found: true,
+          full_name: r.participant.full_name,
+          dob: r.participant.dob ? String(r.participant.dob).slice(0, 10) : '',
+          school_id: r.participant.school_id || '',
+        });
+      } else {
+        update(i, { checking: false, found: false });
+      }
+    } catch {
+      update(i, { checking: false, found: false });
+    }
+  }
+
   return (
     <div className="space-y-3">
       {members.map((m, i) => (
         <div key={i} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">Member {i + 1}</span>
+            <span className={`text-xs font-semibold ${firstIsCaptain && i === 0 ? 'text-navy-700' : 'text-slate-500'}`}>
+              {firstIsCaptain && i === 0 ? 'Team Captain (Member 1)' : `Member ${i + 1}`}
+            </span>
             {members.length > 1 && (
               <button onClick={() => setMembers((l) => l.filter((_, idx) => idx !== i))}
                 className="text-slate-400 hover:text-red-500">
@@ -36,19 +72,60 @@ function MemberRows({ members, setMembers, schools, max }) {
               </button>
             )}
           </div>
-          <input placeholder="Full name (as on CPR)" value={m.full_name}
-            onChange={(e) => update(i, 'full_name', e.target.value)} className={inputCls} />
-          <div className="grid grid-cols-2 gap-2">
-            <input type="date" value={m.dob}
-              onChange={(e) => update(i, 'dob', e.target.value)} className={inputCls} />
+
+          {/* CPR first */}
+          <div className="flex gap-2">
             <input placeholder="CPR number" inputMode="numeric" value={m.cpr_number}
-              onChange={(e) => update(i, 'cpr_number', e.target.value)} className={inputCls} />
+              onChange={(e) => update(i, { cpr_number: e.target.value, found: null })}
+              className={inputCls} />
+            <button onClick={() => checkCpr(i)} disabled={m.checking || !m.cpr_number.trim()}
+              className="shrink-0 rounded-lg bg-navy-700 px-3 text-white text-xs font-semibold disabled:opacity-40 flex items-center gap-1">
+              <Search size={13} /> {m.checking ? '…' : 'Check'}
+            </button>
           </div>
-          <select value={m.school_id}
-            onChange={(e) => update(i, 'school_id', e.target.value)} className={inputCls}>
-            <option value="">School (optional)</option>
-            {schools.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+
+          {m.found === true && (
+            <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+              Already registered — details taken from file. Please confirm they are correct.
+            </p>
+          )}
+          {m.found === false && (
+            <p className="text-xs text-slate-500">
+              Not registered yet — type the details, scan the CPR card, or upload all members'
+              CPR copies as one PDF after the team is registered.
+            </p>
+          )}
+
+          {m.found !== null && (
+            <>
+              <input placeholder="Full name (as on CPR)" value={m.full_name}
+                onChange={(e) => update(i, { full_name: e.target.value })} className={inputCls} />
+              <div className="grid grid-cols-2 gap-2">
+                <input type="date" value={m.dob}
+                  onChange={(e) => update(i, { dob: e.target.value })} className={inputCls} />
+                <select value={m.school_id}
+                  onChange={(e) => update(i, { school_id: e.target.value })} className={inputCls}>
+                  <option value="">School (optional)</option>
+                  {schools.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              {m.found === false && (
+                <button onClick={() => setScanRow(scanRow === i ? null : i)}
+                  className="text-xs font-medium text-navy-600 underline flex items-center gap-1">
+                  <Camera size={12} /> {scanRow === i ? 'Hide scanner' : 'Scan CPR card instead'}
+                </button>
+              )}
+              {scanRow === i && (
+                <CprScanner token={token} onResult={(r) => {
+                  update(i, {
+                    cpr_number: r.cpr_number || m.cpr_number,
+                    full_name: r.full_name || m.full_name,
+                    dob: r.dob || m.dob,
+                  });
+                }} />
+              )}
+            </>
+          )}
         </div>
       ))}
       {members.length < max && (
@@ -211,7 +288,12 @@ function TeamCard({ token, team, schools, config, onChanged }) {
             <div className="rounded-lg bg-slate-50 border border-slate-200 divide-y divide-slate-100">
               {detail.members.map((m) => (
                 <div key={m.member_id} className="px-3 py-2 text-xs text-slate-600 flex justify-between">
-                  <span className="font-medium text-slate-700">{m.full_name}</span>
+                  <span className="font-medium text-slate-700">
+                    {m.full_name}
+                    {m.is_captain && (
+                      <span className="ml-1.5 rounded bg-navy-100 text-navy-700 px-1 py-0.5 text-[10px] font-semibold">CAPTAIN</span>
+                    )}
+                  </span>
                   <span className="font-mono text-slate-400">{m.cpr_number}</span>
                 </div>
               ))}
@@ -229,7 +311,7 @@ function TeamCard({ token, team, schools, config, onChanged }) {
               ) : (
                 <div className="space-y-2">
                   <MemberRows members={newMembers} setMembers={setNewMembers}
-                    schools={schools} max={team.size_max - team.members_count} />
+                    schools={schools} max={team.size_max - team.members_count} token={token} />
                   <button onClick={saveMembers} disabled={busy}
                     className="w-full rounded-lg bg-navy-700 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
                     {busy ? 'Saving…' : 'Save Members'}
@@ -287,6 +369,8 @@ export default function TeamRegister() {
   const [showForm, setShowForm] = useState(false);
   const [eventId, setEventId] = useState('');
   const [teamName, setTeamName] = useState('');
+  const [captainPhone, setCaptainPhone] = useState('');
+  const [teacherName, setTeacherName] = useState('');
   const [members, setMembers] = useState([emptyMember()]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -311,6 +395,7 @@ export default function TeamRegister() {
   const deadlinePassed = config?.team_reg_deadline
     ? new Date() > new Date(config.team_reg_deadline) : false;
   const selectedEvent = teamEvents.find((e) => e.id === Number(eventId));
+  const needsTeacher = /natya|dance|sangeet|music|song/i.test(selectedEvent?.category_name || '');
 
   async function handleCreate() {
     setError('');
@@ -321,10 +406,13 @@ export default function TeamRegister() {
     try {
       const r = await portalApi.teamCreate(token, {
         event_id: Number(eventId), team_name: teamName.trim(), members: valid,
+        captain_phone: captainPhone.trim() || undefined,
+        teacher_name: needsTeacher ? (teacherName.trim() || undefined) : undefined,
       });
       setCreated(r);
       setShowForm(false);
-      setEventId(''); setTeamName(''); setMembers([emptyMember()]);
+      setEventId(''); setTeamName(''); setCaptainPhone(''); setTeacherName('');
+      setMembers([emptyMember()]);
       load();
     } catch (err) { setError(err.message || 'Could not register the team.'); }
     finally { setBusy(false); }
@@ -408,9 +496,31 @@ export default function TeamRegister() {
 
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Members — at least the team leader now, the rest can be added later
+                  Captain's contact number
                 </label>
-                <MemberRows members={members} setMembers={setMembers} schools={schools} max={10} />
+                <input type="tel" value={captainPhone}
+                  onChange={(e) => setCaptainPhone(e.target.value)}
+                  placeholder="+973 3XXX XXXX" className={inputCls} />
+              </div>
+
+              {needsTeacher && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Teacher name (dance/song team events)
+                  </label>
+                  <input value={teacherName}
+                    onChange={(e) => setTeacherName(e.target.value)}
+                    placeholder="Teacher's name, or 'Not Applicable'" className={inputCls} />
+                  <p className="text-[11px] text-slate-400 mt-1">{TEACHER_PURPOSE_NOTE}</p>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Members — start with the Team Captain; the rest can be added later
+                </label>
+                <MemberRows members={members} setMembers={setMembers} schools={schools}
+                  max={10} token={token} firstIsCaptain />
               </div>
 
               {error && (

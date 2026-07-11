@@ -64,6 +64,20 @@ Applied so far:
 - `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
   per-age-group duration override; event-level value is the default)
 
+## Team member entry & captain (July 2026)
+- Team form is CPR-FIRST per member: Check → participantLookup; if already
+  registered the details come from file (parent confirms); else type, scan
+  per-row (CprScanner), or upload bulk CPR PDF post-registration.
+- Member 1 = Team Captain (team_members.is_captain, migration 012);
+  teams.captain_phone collected on the form; CAPTAIN tag in member lists.
+- Dance/song team events collect a teacher name → stored on the team's
+  registrations row (dance_teacher/music_teacher by category regex).
+- TEACHER_PURPOSE_NOTE (TeamRegister export) shown wherever teacher names
+  are accepted (team form + ParticipantDetail): names are used ONLY for the
+  Best Dance/Music Teacher awards.
+- FIX: drawer onUpdated() with no args crashed handleRegUpdated
+  (updated.id on undefined → blank page). Now refreshes the list instead.
+
 ## Verification visibility on the registrations list (July 2026)
 - List rows now include admin_verified_status and computed payment_status
   ('verified' if any confirmed payment, 'pending' if any pending, else

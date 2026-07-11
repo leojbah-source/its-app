@@ -87,6 +87,12 @@ export default function Registrations() {
 
   // ── After editing a registration, update it in local state ───────────────
   function handleRegUpdated(updated) {
+    // Called with a registration row (legacy edit) OR with nothing after
+    // drawer actions (verify/payment/events) — then just refresh the list.
+    if (!updated || updated.id == null) {
+      loadRegistrations();
+      return;
+    }
     setRegistrations((prev) =>
       prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r)),
     );

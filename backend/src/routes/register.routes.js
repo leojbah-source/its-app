@@ -1080,10 +1080,11 @@ router.post('/team', authenticate, async (req, res, next) => {
   try {
     await client.query('BEGIN');
 
-    const { event_id, team_name, school_id, members = [], participant_ids = [] } = req.body;
+    const { event_id, team_name, school_id, members = [], participant_ids = [],
+            captain_phone, teacher_name } = req.body;
     if (!event_id || !team_name?.trim() || (members.length === 0 && participant_ids.length === 0)) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'event_id, team_name and at least one member are required' });
+      return res.status(400).json({ error: 'event_id, team_name and at least one member (the Team Captain) are required' });
     }
 
     const cfg = await getActiveYear(client);
@@ -1096,8 +1097,9 @@ router.post('/team', authenticate, async (req, res, next) => {
     const { rows: evRows } = await client.query(
       `SELECT e.id, e.category_id, e.event_kind, e.fee_amount, e.member_fee_amount,
               e.min_participants_per_team, e.max_participants_per_team,
-              yc.team_size_min, yc.team_size_max
+              yc.team_size_min, yc.team_size_max, c.name AS category_name
        FROM events e JOIN year_config yc ON yc.id = e.year_id
+       LEFT JOIN categories c ON c.id = e.category_id
        WHERE e.id = $1 AND e.event_kind = 'team' AND e.is_cancelled = FALSE`,
       [event_id],
     );
@@ -1118,16 +1120,16 @@ router.post('/team', authenticate, async (req, res, next) => {
     const teamFee = eventFee(ev, memberActive);
 
     const { rows: teamRows } = await client.query(
-      `INSERT INTO teams (year_id, event_id, team_name, school_id, fee_amount, created_by, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,NOW()) RETURNING *`,
-      [cfg.id, event_id, team_name.trim(), school_id || null, teamFee, req.user.id],
+      `INSERT INTO teams (year_id, event_id, team_name, school_id, fee_amount, captain_phone, created_by, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW()) RETURNING *`,
+      [cfg.id, event_id, team_name.trim(), school_id || null, teamFee, captain_phone || null, req.user.id],
     );
     const team = { ...teamRows[0] };
 
-    // Add members (details) with DOB-vs-event validation
+    // Add members (details) with DOB-vs-event validation; member 1 = captain
     const memberResults = [];
     let firstAgeGroupId = null;
-    for (const m of members) {
+    for (const [idx, m] of members.entries()) {
       if (!m.full_name || !m.dob || !m.cpr_number) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'Each member needs full_name, dob and cpr_number' });
@@ -1135,6 +1137,11 @@ router.post('/team', authenticate, async (req, res, next) => {
       const elig = await dobEligibleForEvent(client, event_id, m.dob);
       if (!firstAgeGroupId && elig.ok) firstAgeGroupId = elig.age_group_id;
       const r = await addMemberToTeam(client, { ...team, year_id: cfg.id, event_id }, m, req.user.id);
+      if (idx === 0 && !r.duplicate) {
+        await client.query(
+          `UPDATE team_members SET is_captain = TRUE WHERE team_id = $1 AND participant_id = $2`,
+          [team.id, r.participant_id]);
+      }
       memberResults.push(r);
     }
     for (const pid of participant_ids) {
@@ -1153,12 +1160,18 @@ router.post('/team', authenticate, async (req, res, next) => {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'This team event has no eligible age groups configured' });
     }
+    // Teacher name (dance/song team events only): stored on the team's
+    // registration row; collected solely for the Best Teacher awards.
+    const catName = ev.category_name || '';
+    const danceTeacher = /natya|dance/i.test(catName) && teacher_name?.trim() ? teacher_name.trim() : null;
+    const musicTeacher = /sangeet|music|song/i.test(catName) && teacher_name?.trim() ? teacher_name.trim() : null;
     await client.query(
       `INSERT INTO registrations
          (year_id, team_id, event_id, age_group_id, category_id,
-          status, registered_by, registered_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,'registered',$6,NOW(),NOW())`,
-      [cfg.id, team.id, event_id, regAgeGroupId, ev.category_id, req.user.id],
+          dance_teacher, music_teacher, status, registered_by, registered_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'registered',$8,NOW(),NOW())`,
+      [cfg.id, team.id, event_id, regAgeGroupId, ev.category_id,
+       danceTeacher, musicTeacher, req.user.id],
     );
 
     await client.query('COMMIT');
@@ -1212,7 +1225,7 @@ router.get('/team/:id', authenticate, async (req, res, next) => {
   try {
     const team = await loadOwnTeam(pool, req.params.id, req.user);
     const { rows: members } = await pool.query(
-      `SELECT tm.id AS member_id, p.id AS participant_id, p.full_name, p.dob,
+      `SELECT tm.id AS member_id, tm.is_captain, p.id AS participant_id, p.full_name, p.dob,
               p.cpr_number, s.name AS school_name
        FROM team_members tm
        JOIN participants p ON p.id = tm.participant_id

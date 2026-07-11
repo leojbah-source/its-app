@@ -610,13 +610,19 @@ export default function ParticipantDetail() {
             {teacherDeadlinePassed ? (
               <Alert variant="muted">Teacher name submission is closed.</Alert>
             ) : (
-              <p className="text-xs text-slate-500 mb-3">
+              <>
+              <p className="text-xs text-slate-500 mb-2">
                 Teacher names are needed only for <strong>Dance (Natya)</strong> and{' '}
                 <strong>Music (Sangeet)</strong> events. Enter a name and tap{' '}
                 <strong>Save</strong> — or use <strong>"Apply to all"</strong> if the same
                 teacher prepared your child for every event in that category. If your child
                 is self-taught or taught by a parent, write "Not Applicable".
               </p>
+              <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mb-3">
+                Note: teacher names are collected solely to decide the Best Dance Teacher and
+                Best Music Teacher awards — they are not used for any other purpose.
+              </p>
+              </>
             )}
 
             {teacherEvents.length === 0 ? (
