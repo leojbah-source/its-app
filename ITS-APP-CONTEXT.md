@@ -64,6 +64,25 @@ Applied so far:
 - `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
   per-age-group duration override; event-level value is the default)
 
+## Lists & Schedule (July 2026)
+- Lists (routes/admin.lists.routes.js, /api/admin/lists/*): by-event (entries
+  grouped by age group), by-participant (with parent + signature line),
+  final (roster + totals), publish-initial (stamps
+  year_config.initial_list_published). Admin page /admin/lists prints via a
+  popup window with year label + KCA/sponsor logos (openPrint()).
+- Schedule (routes/admin.schedule.routes.js, /api/admin/schedule/*): the OLD
+  endpoints in admin.config.routes were broken (wrong import name, wrong
+  call signature, non-existent columns) and are removed. generate-draft
+  builds a db adapter for services/scheduler.generateScheduleDraft
+  (duration = participants × allotted_time + setup, min 20 min; constraints:
+  no double-booking, ≤2 events/day/participant, category clustering);
+  draft rows replace previous drafts; GET returns event_date via to_char
+  (pg DATE + toISOString shifts a day in +03 — always format dates locally,
+  see localISO()); PUT /:id adjusts rows (audited, generated_by_scheduler
+  → FALSE); publish flips draft→confirmed (audited). Admin page
+  /admin/schedule: venues + daily blocks + buffer inputs, unplaced report,
+  per-row adjust, publish. Sidebar: Lists + Schedule now active.
+
 ## Team member entry & captain (July 2026)
 - Team form is CPR-FIRST per member: Check → participantLookup; if already
   registered the details come from file (parent confirms); else type, scan

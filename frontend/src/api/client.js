@@ -178,6 +178,20 @@ export const teamsApi = {
   members: (token, teamId) => request(`/api/admin/teams/${teamId}/members`, { token }),
 };
 
+export const listsApi = {
+  byEvent: (token) => request('/api/admin/lists/by-event', { token }),
+  byParticipant: (token) => request('/api/admin/lists/by-participant', { token }),
+  final: (token) => request('/api/admin/lists/final', { token }),
+  publishInitial: (token) => request('/api/admin/lists/publish-initial', { method: 'POST', token, body: {} }),
+};
+
+export const scheduleApi = {
+  list: (token) => request('/api/admin/schedule', { token }),
+  generateDraft: (token, body) => request('/api/admin/schedule/generate-draft', { method: 'POST', token, body }),
+  update: (token, id, body) => request(`/api/admin/schedule/${id}`, { method: 'PUT', token, body }),
+  publish: (token) => request('/api/admin/schedule/publish', { method: 'POST', token, body: {} }),
+};
+
 // ── Schools lookup ───────────────────────────────────────────────────────────
 export const schoolsApi = {
   list: (token) => request('/api/admin/schools', { token }),

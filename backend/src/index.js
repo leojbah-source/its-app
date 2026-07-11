@@ -16,6 +16,8 @@ const adminTiebreakerRoutes = require('./routes/admin.tiebreaker.routes');
 const adminAwardsRoutes = require('./routes/admin.awards.routes');
 const adminFinanceRoutes = require('./routes/admin.finance.routes');
 const adminPaymentsRoutes = require('./routes/admin.payments.routes');
+const adminListsRoutes = require('./routes/admin.lists.routes');
+const adminScheduleRoutes = require('./routes/admin.schedule.routes');
 const adminReportsRoutes = require('./routes/admin.reports.routes');
 const judgeRoutes = require('./routes/judge.routes');
 const registerRoutes = require('./routes/register.routes');
@@ -58,6 +60,8 @@ app.use('/api/admin/chest', adminChestRoutes);
 app.use('/api/admin/tiebreaker', adminTiebreakerRoutes);
 app.use('/api/admin/awards', adminAwardsRoutes);
 app.use('/api/admin/finance', adminFinanceRoutes);
+app.use('/api/admin/lists', adminListsRoutes);
+app.use('/api/admin/schedule', adminScheduleRoutes);
 app.use('/api/admin/reports', adminReportsRoutes);
 
 // --- Judge ---

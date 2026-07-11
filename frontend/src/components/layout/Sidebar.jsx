@@ -8,14 +8,16 @@ import {
   Trophy,
   Wallet,
   Sparkles,
+  ClipboardList,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
   { to: '/admin/config/year', label: 'Year Setup', icon: Settings, active: true },
   { to: '/admin/events', label: 'Events', icon: ListChecks, active: true },
   { to: '/admin/registrations', label: 'Registrations', icon: Users, active: true },
+  { to: '/admin/lists', label: 'Lists', icon: ClipboardList, active: true },
   { label: 'Judges', icon: Gavel, active: false },
-  { label: 'Schedule', icon: CalendarClock, active: false },
+  { to: '/admin/schedule', label: 'Schedule', icon: CalendarClock, active: true },
   { label: 'Awards', icon: Trophy, active: false, badge: 'Chairman' },
   { label: 'Finance', icon: Wallet, active: false },
 ];

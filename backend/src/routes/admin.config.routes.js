@@ -3,7 +3,6 @@ const express = require('express');
 const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
-const { generateDraftSchedule } = require('../services/scheduler');
 
 const router = express.Router();
 router.use(authenticate);
@@ -293,41 +292,9 @@ router.post('/init-year', requireRole('SuperAdmin', 'Admin'), async (req, res, n
   } catch (err) { next(err); }
 });
 
-// POST /api/admin/schedule/generate-draft
-router.post('/schedule/generate-draft', requireRole('SuperAdmin', 'Admin', 'Coordinator'), async (req, res, next) => {
-  try {
-    const { year_id } = req.body;
-    if (!year_id) return res.status(400).json({ error: 'year_id is required' });
-    const result = await generateDraftSchedule(year_id);
-    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'GENERATE_DRAFT_SCHEDULE', entity: 'schedule', entityId: year_id });
-    res.json(result);
-  } catch (err) { next(err); }
-});
+// (Schedule endpoints moved to routes/admin.schedule.routes.js — the old
+//  versions here used non-existent columns and a wrong service import.)
 
-// GET /api/admin/schedule/draft/:year_id
-router.get('/schedule/draft/:year_id', requireRole('SuperAdmin', 'Admin', 'Coordinator', 'Chairman'), async (req, res, next) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT s.*, e.event_name, e.category_id FROM schedule s
-       JOIN events e ON e.id = s.event_id
-       WHERE s.year_config_id = $1 ORDER BY s.slot_order`,
-      [req.params.year_id]
-    );
-    res.json(rows);
-  } catch (err) { next(err); }
-});
-
-// POST /api/admin/schedule/publish/:year_id
-router.post('/schedule/publish/:year_id', requireRole('SuperAdmin', 'Admin', 'Chairman'), async (req, res, next) => {
-  try {
-    const { rows } = await pool.query(
-      `UPDATE schedule SET is_published = TRUE WHERE year_config_id = $1 AND is_published = FALSE RETURNING event_id`,
-      [req.params.year_id]
-    );
-    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'PUBLISH_SCHEDULE', entity: 'schedule', entityId: req.params.year_id });
-    res.json({ publishedEvents: rows.length });
-  } catch (err) { next(err); }
-});
 // POST /api/admin/config/upload
 router.post('/config/upload', requireRole('SuperAdmin', 'Admin'), upload.single('file'), async (req, res, next) => {
   try {

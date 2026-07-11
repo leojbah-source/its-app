@@ -9,6 +9,8 @@ import Login from './pages/Login';
 import YearConfig from './pages/YearConfig';
 import Events from './pages/Events';
 import Registrations from './pages/Registrations';
+import Lists from './pages/Lists';
+import Schedule from './pages/Schedule';
 
 // Parent registration portal pages
 import Landing from './pages/register/Landing';
@@ -46,6 +48,14 @@ export default function App() {
               <Route
                 path="/admin/registrations"
                 element={<ProtectedRoute><Registrations /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/lists"
+                element={<ProtectedRoute><Lists /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/schedule"
+                element={<ProtectedRoute><Schedule /></ProtectedRoute>}
               />
               <Route path="/admin" element={<Navigate to="/admin/config/year" replace />} />
 
