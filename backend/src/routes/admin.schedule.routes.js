@@ -138,7 +138,9 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
     const { start_date, end_date,
             reporting_buffer_minutes = 30,
             minutes_per_participant_default = 5,
-            setup_minutes = 10 } = req.body;
+            setup_minutes = 10,
+            max_groups_per_session = 3 } = req.body;
+    const maxGroups = Math.min(3, Math.max(1, Number(max_groups_per_session) || 3));
 
     const { rows: venueRows } = await pool.query(
       `SELECT * FROM venues WHERE year_id = $1 ORDER BY sort_order, id`, [yc.id]);
@@ -184,61 +186,126 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
     };
 
     /**
-     * Event duration:
-     *  - STAGE events perform sequentially: entries × per-participant time.
-     *  - NON-STAGE events (drawing, writing…) work SIMULTANEOUSLY: one
-     *    sitting of the allotted time (default 60 min), split into several
-     *    consecutive sessions when entries exceed the best allowed venue's
-     *    capacity.
+     * Duration of ONE session for `count` entries:
+     *  - STAGE events perform sequentially: count × per-participant time.
+     *  - NON-STAGE events work SIMULTANEOUSLY: one sitting of the allotted
+     *    time (default 60 min), split into consecutive sittings when count
+     *    exceeds the best allowed venue's capacity.
      */
-    const durationFor = (r, allowed) => {
+    const durationFor = (r, allowed, count) => {
       if (r.is_stage_event) {
         const perMin = r.allotted_time_seconds
           ? r.allotted_time_seconds / 60 : Number(minutes_per_participant_default);
-        return Math.max(20, Math.ceil(r.participant_count * perMin) + Number(setup_minutes));
+        return Math.max(20, Math.ceil(count * perMin) + Number(setup_minutes));
       }
       const caps = venueRows
         .filter((v) => allowed.includes(v.name))
         .map((v) => (v.capacity == null ? Infinity : v.capacity));
       const bestCap = caps.length ? Math.max(...caps) : Infinity;
-      const sessions = bestCap === Infinity ? 1 : Math.max(1, Math.ceil(r.participant_count / bestCap));
+      const sessions = bestCap === Infinity ? 1 : Math.max(1, Math.ceil(count / bestCap));
       const perSession = r.allotted_time_seconds ? Math.ceil(r.allotted_time_seconds / 60) : 60;
       return Math.max(20, sessions * perSession + Number(setup_minutes));
     };
 
+    const blockMinutesOf = (h) => {
+      const [sh, sm] = h.start.split(':').map(Number);
+      const [eh, em] = h.end.split(':').map(Number);
+      return (eh * 60 + em) - (sh * 60 + sm);
+    };
+    const longestSessionFor = (allowed) => {
+      let best = 0;
+      for (const v of venueRows) {
+        if (!allowed.includes(v.name)) continue;
+        for (const h of Object.values(v.weekday_hours || {}))
+          best = Math.max(best, blockMinutesOf(h));
+      }
+      return best;
+    };
+
     // Adapter between the scheduler service and the real schema
     const db = {
+      // SCHEDULING UNITS = event × age-group BATCH (max ${maxGroups}
+      // consecutive groups combined, and only while the batch still fits the
+      // longest available session — judges handle 2–3 groups in one sitting).
+      // Unit ids are synthetic '<eventId>|<G1,G2>' strings; participants and
+      // saved rows are mapped back through them.
       async getActiveEventsForYear(yearId) {
         const { rows } = await pool.query(
           `SELECT e.id AS event_id, COALESCE(c.name, 'Other') AS category,
                   e.allotted_time_seconds, e.is_stage_event,
-                  COUNT(r.id)::int AS participant_count
+                  ag.code AS ag_code, ag.sort_order AS ag_sort,
+                  COUNT(r.id)::int AS entries
            FROM events e
            LEFT JOIN categories c ON c.id = e.category_id
            JOIN registrations r ON r.event_id = e.id
              AND r.status NOT IN ('withdrawn','swapped')
+           LEFT JOIN age_groups ag ON ag.id = r.age_group_id
            WHERE e.year_id = $1 AND e.is_cancelled = FALSE
-           GROUP BY e.id, c.name`, [yearId]);
-        return rows.map((r) => {
-          const allowed = venueFor(r.category, r.is_stage_event);
-          return {
-            event_id: r.event_id,
-            category: r.category,
-            allowed_venues: allowed,
-            participant_count: r.participant_count,
-            is_stage_event: r.is_stage_event,
-            duration_minutes: durationFor(r, allowed),
+           GROUP BY e.id, c.name, ag.code, ag.sort_order
+           ORDER BY e.id, ag.sort_order`, [yearId]);
+
+        // group rows per event, then batch consecutive age groups
+        const perEvent = new Map();
+        for (const r of rows) {
+          if (!perEvent.has(r.event_id)) perEvent.set(r.event_id, { meta: r, groups: [] });
+          perEvent.get(r.event_id).groups.push({ code: r.ag_code || '—', entries: r.entries });
+        }
+
+        const units = [];
+        for (const { meta, groups } of perEvent.values()) {
+          const allowed = venueFor(meta.category, meta.is_stage_event);
+          const fitLimit = longestSessionFor(allowed) || Infinity;
+          let batch = [];
+          const flush = () => {
+            if (!batch.length) return;
+            const count = batch.reduce((t, g) => t + g.entries, 0);
+            const codes = batch.map((g) => g.code).join(', ');
+            units.push({
+              event_id: `${meta.event_id}|${codes}`,
+              real_event_id: meta.event_id,
+              age_groups: codes,
+              category: meta.category,
+              allowed_venues: allowed,
+              participant_count: count,
+              is_stage_event: meta.is_stage_event,
+              duration_minutes: durationFor(meta, allowed, count),
+            });
+            batch = [];
           };
-        });
+          for (const g of groups) {
+            const tryCount = batch.reduce((t, x) => t + x.entries, 0) + g.entries;
+            const tryDur = durationFor(meta, allowed, tryCount);
+            if (batch.length && (batch.length >= maxGroups || tryDur > fitLimit)) flush();
+            batch.push(g);
+            // a single group that alone exceeds the limit still forms a unit
+            if (durationFor(meta, allowed, batch.reduce((t, x) => t + x.entries, 0)) > fitLimit
+                && batch.length === 1) flush();
+          }
+          flush();
+        }
+        return units;
       },
       async getEventParticipants(yearId) {
+        // participants keyed by the synthetic UNIT id (event + their group)
         const { rows } = await pool.query(
-          `SELECT r.event_id, COALESCE(r.participant_id, tm.participant_id) AS participant_id
+          `SELECT r.event_id, ag.code AS ag_code,
+                  COALESCE(r.participant_id, tm.participant_id) AS participant_id
            FROM registrations r
            LEFT JOIN team_members tm ON tm.team_id = r.team_id
+           LEFT JOIN age_groups ag ON ag.id = r.age_group_id
            WHERE r.year_id = $1 AND r.status NOT IN ('withdrawn','swapped')
              AND COALESCE(r.participant_id, tm.participant_id) IS NOT NULL`, [yearId]);
-        return rows;
+        const units = await this.getActiveEventsForYear(yearId);
+        const unitFor = new Map(); // `${eventId}:${code}` → unit id
+        for (const u of units)
+          for (const code of u.age_groups.split(', '))
+            unitFor.set(`${u.real_event_id}:${code}`, u.event_id);
+        return rows
+          .map((r) => ({
+            event_id: unitFor.get(`${r.event_id}:${r.ag_code || '—'}`),
+            participant_id: r.participant_id,
+          }))
+          .filter((r) => r.event_id);
       },
       async saveScheduleDraft(yearId, draft) {
         const client = await pool.connect();
@@ -246,11 +313,12 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
           await client.query('BEGIN');
           await client.query(`DELETE FROM schedule WHERE year_id = $1 AND status = 'draft'`, [yearId]);
           for (const s of draft.scheduled) {
+            const [realId, groups] = String(s.event_id).split('|');
             await client.query(
               `INSERT INTO schedule (year_id, event_id, event_date, start_time, end_time, venue,
-                                     status, generated_by_scheduler)
-               VALUES ($1,$2,$3,$4,$5,$6,'draft',TRUE)`,
-              [yearId, s.event_id, s.date, s.start_time, s.end_time, s.venue]);
+                                     age_groups, status, generated_by_scheduler)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',TRUE)`,
+              [yearId, Number(realId), s.date, s.start_time, s.end_time, s.venue, groups || null]);
           }
           await client.query('COMMIT');
         } catch (e) {
@@ -260,8 +328,8 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
       },
     };
 
-    const events = await db.getActiveEventsForYear(yc.id);
-    const eventById = new Map(events.map((e) => [e.event_id, e]));
+    const units = await db.getActiveEventsForYear(yc.id);
+    const eventById = new Map(units.map((e) => [e.event_id, e]));
     const { rows: nameRows } = await pool.query(
       `SELECT id, event_code, event_name FROM events WHERE year_id = $1`, [yc.id]);
     const names = new Map(nameRows.map((n) => [n.id, n]));
@@ -273,17 +341,12 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
       const v = venueRows.find((x) => x.name === name);
       return v && Object.keys(v.weekday_hours || {}).length > 0;
     };
-    const blockMinutes = (h) => {
-      const [sh, sm] = h.start.split(':').map(Number);
-      const [eh, em] = h.end.split(':').map(Number);
-      return (eh * 60 + em) - (sh * 60 + sm);
-    };
     const longestBlockFor = (allowed) => {
       let best = 0, bestVenue = null;
       for (const v of venueRows) {
         if (!allowed.includes(v.name)) continue;
         for (const h of Object.values(v.weekday_hours || {})) {
-          const m = blockMinutes(h);
+          const m = blockMinutesOf(h);
           if (m > best) { best = m; bestVenue = v.name; }
         }
       }
@@ -292,7 +355,7 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
 
     const unplaced = draft.unplaced.map((u) => {
       const ev = eventById.get(u.event_id);
-      const nm = names.get(u.event_id) || {};
+      const nm = names.get(ev?.real_event_id ?? u.event_id) || {};
       let reason;
       if (!ev || !ev.allowed_venues.length) {
         reason = 'No suitable venue (check category suitability / stage requirement in the venue setup)';
@@ -308,7 +371,9 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
           reason = 'No conflict-free slot left in the window (participants clash or sessions full) — add days/venues';
         }
       }
-      return { event_id: u.event_id, event_code: nm.event_code, event_name: nm.event_name,
+      return { event_id: ev?.real_event_id ?? u.event_id,
+               event_code: nm.event_code,
+               event_name: nm.event_name + (ev?.age_groups ? ` [${ev.age_groups}]` : ''),
                entries: ev?.participant_count ?? null, needed_minutes: ev?.duration_minutes ?? null,
                reason };
     });
@@ -330,10 +395,12 @@ router.get('/', requireRole(...staffRoles), async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT s.id, to_char(s.event_date, 'YYYY-MM-DD') AS event_date,
               s.start_time, s.end_time, s.venue, s.status, s.generated_by_scheduler,
-              s.event_id, s.time_slot_id,
+              s.event_id, s.time_slot_id, s.age_groups,
               e.event_code, e.event_name, e.event_kind, c.name AS category_name,
               (SELECT COUNT(*)::int FROM registrations r
-               WHERE r.event_id = e.id AND r.status NOT IN ('withdrawn','swapped')) AS entries
+               LEFT JOIN age_groups ag2 ON ag2.id = r.age_group_id
+               WHERE r.event_id = e.id AND r.status NOT IN ('withdrawn','swapped')
+                 AND (s.age_groups IS NULL OR ag2.code = ANY(string_to_array(s.age_groups, ', ')))) AS entries
        FROM schedule s
        JOIN events e ON e.id = s.event_id
        LEFT JOIN categories c ON c.id = e.category_id

@@ -64,6 +64,17 @@ Applied so far:
 - `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
   per-age-group duration override; event-level value is the default)
 
+## Age-group-wise scheduling units (July 2026)
+- Scheduling unit = event × AGE-GROUP BATCH (migration 014:
+  schedule.age_groups label 'G1, G2'). generate-draft splits each event per
+  age group and greedy-combines CONSECUTIVE groups up to
+  max_groups_per_session (1–3, default 3, UI select) while the batch still
+  fits the longest available session — judges take 2–3 groups per sitting.
+  Unit ids are synthetic '<eventId>|<codes>' strings mapped back in
+  saveScheduleDraft; per-row entries counts reflect the batch's groups.
+  Full-dataset check: 78 sessions, 0 unplaced (previously the whole-event
+  model couldn't place large events at all).
+
 ## Scheduler duration model & diagnostics (July 2026)
 - STAGE events (is_stage_event) are sequential: entries × per-participant
   allotted time + setup. NON-STAGE events (arts/literary) run

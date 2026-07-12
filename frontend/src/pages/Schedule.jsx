@@ -72,6 +72,7 @@ export default function Schedule() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [buffer, setBuffer] = useState(30);
+  const [maxGroups, setMaxGroups] = useState(3);
   const [generating, setGenerating] = useState(false);
 
   const load = useCallback(async () => {
@@ -100,6 +101,7 @@ export default function Schedule() {
         start_date: startDate || undefined,
         end_date: endDate || undefined,
         reporting_buffer_minutes: Number(buffer) || 30,
+        max_groups_per_session: Number(maxGroups) || 3,
       });
       setFlash(`Draft generated: ${r.scheduled} events placed${r.unplaced.length ? `, ${r.unplaced.length} could not be placed` : ''}.`);
       setUnplaced(r.unplaced || []);
@@ -200,6 +202,16 @@ export default function Schedule() {
                 <input type="number" min={0} value={buffer}
                   onChange={(e) => setBuffer(e.target.value)} className={`${inputCls} w-24`} />
               </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Max age groups combined per session
+                </label>
+                <select value={maxGroups} onChange={(e) => setMaxGroups(e.target.value)} className={inputCls}>
+                  <option value={1}>1 (each group separate)</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3 (judge-efficient)</option>
+                </select>
+              </div>
             </div>
             <p className="text-xs text-amber-600">
               Generating replaces the current DRAFT rows (confirmed rows are kept). Events are
@@ -274,6 +286,11 @@ export default function Schedule() {
                             <td className="px-3 py-2">
                               <span className="font-mono text-xs text-navy-700 mr-1.5">{r.event_code}</span>
                               <span className="font-medium text-slate-800">{r.event_name}</span>
+                              {r.age_groups && (
+                                <span className="ml-1.5 rounded bg-gold-100 text-gold-700 px-1.5 py-0.5 text-[10px] font-semibold">
+                                  {r.age_groups}
+                                </span>
+                              )}
                             </td>
                             <td className="px-3 py-2 text-xs text-slate-500">{r.category_name || '—'}</td>
                             <td className="px-3 py-2"><Badge tone="navy">{r.entries}</Badge></td>
