@@ -159,16 +159,24 @@ export default function Schedule() {
                 </p>
               ) : (
                 <ul className="space-y-1">
-                  {venues.map((v) => (
-                    <li key={v.id} className="text-xs text-slate-600">
-                      <b>{v.name}</b>
-                      {v.has_stage ? ' · stage' : ' · no stage'}
-                      {v.capacity ? ` · cap ${v.capacity}` : ''}
-                      {v.suitable_for?.length ? ` · ${v.suitable_for.join('/')}` : ' · all events'}
-                      {' · '}
-                      {Object.entries(v.weekday_hours || {}).map(([d, h]) => `${d} ${h.start}–${h.end}`).join(', ') || 'no days set'}
-                    </li>
-                  ))}
+                  {venues.map((v) => {
+                    const dayStr = Object.entries(v.weekday_hours || {})
+                      .map(([d, h]) => `${d} ${h.start}–${h.end}`).join(', ');
+                    return (
+                      <li key={v.id} className="text-xs text-slate-600">
+                        <b>{v.name}</b>
+                        {v.has_stage ? ' · stage' : ' · no stage'}
+                        {v.capacity ? ` · cap ${v.capacity}` : ''}
+                        {v.suitable_for?.length ? ` · ${v.suitable_for.join('/')}` : ' · all events'}
+                        {' · '}
+                        {dayStr || (
+                          <span className="text-amber-600 font-semibold">
+                            NO DAYS SET — this venue will never be used! Set its availability in Year Setup.
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
@@ -210,13 +218,21 @@ export default function Schedule() {
           <p className="text-sm font-semibold text-red-700 mb-2">
             {unplaced.length} event(s) could not be placed:
           </p>
-          <ul className="text-xs text-red-600 list-disc pl-5 space-y-0.5">
+          <ul className="text-xs text-red-700 space-y-1.5">
             {unplaced.map((u, i) => (
-              <li key={i}>Event #{u.event_id}{u.reason ? ` — ${u.reason}` : ''}</li>
+              <li key={i} className="border-l-2 border-red-200 pl-2">
+                <span className="font-semibold">
+                  {u.event_code ? `${u.event_code} — ${u.event_name}` : `Event #${u.event_id}`}
+                </span>
+                {u.entries != null && (
+                  <span className="text-red-500"> ({u.entries} entries{u.needed_minutes ? `, ~${u.needed_minutes} min needed` : ''})</span>
+                )}
+                <p className="text-red-600 font-normal">{u.reason}</p>
+              </li>
             ))}
           </ul>
           <p className="text-xs text-slate-500 mt-2">
-            Add venues, longer blocks or more days, then regenerate.
+            Fix the venue availability/hours in Year Setup or widen the date window, then regenerate.
           </p>
         </Card>
       )}

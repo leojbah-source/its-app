@@ -170,14 +170,40 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
       dailySlots,
     };
 
-    // Suitability + capacity → allowed venues per event
-    const venueFor = (categoryName, participantCount, isStage) => {
+    // Suitability + capacity → allowed venues per event.
+    // NOTE: capacity only excludes a venue for STAGE events (audience seats
+    // irrelevant); for simultaneous events (arts/literary) capacity instead
+    // determines how many SESSIONS are needed, so low-capacity venues stay
+    // allowed.
+    const venueFor = (categoryName, isStage) => {
       const tag = categoryTag(categoryName);
       return venueRows
         .filter((v) => !tag || !v.suitable_for?.length || v.suitable_for.includes(tag))
-        .filter((v) => v.capacity == null || v.capacity >= participantCount)
         .filter((v) => !isStage || v.has_stage)
         .map((v) => v.name);
+    };
+
+    /**
+     * Event duration:
+     *  - STAGE events perform sequentially: entries × per-participant time.
+     *  - NON-STAGE events (drawing, writing…) work SIMULTANEOUSLY: one
+     *    sitting of the allotted time (default 60 min), split into several
+     *    consecutive sessions when entries exceed the best allowed venue's
+     *    capacity.
+     */
+    const durationFor = (r, allowed) => {
+      if (r.is_stage_event) {
+        const perMin = r.allotted_time_seconds
+          ? r.allotted_time_seconds / 60 : Number(minutes_per_participant_default);
+        return Math.max(20, Math.ceil(r.participant_count * perMin) + Number(setup_minutes));
+      }
+      const caps = venueRows
+        .filter((v) => allowed.includes(v.name))
+        .map((v) => (v.capacity == null ? Infinity : v.capacity));
+      const bestCap = caps.length ? Math.max(...caps) : Infinity;
+      const sessions = bestCap === Infinity ? 1 : Math.max(1, Math.ceil(r.participant_count / bestCap));
+      const perSession = r.allotted_time_seconds ? Math.ceil(r.allotted_time_seconds / 60) : 60;
+      return Math.max(20, sessions * perSession + Number(setup_minutes));
     };
 
     // Adapter between the scheduler service and the real schema
@@ -193,17 +219,17 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
              AND r.status NOT IN ('withdrawn','swapped')
            WHERE e.year_id = $1 AND e.is_cancelled = FALSE
            GROUP BY e.id, c.name`, [yearId]);
-        return rows.map((r) => ({
-          event_id: r.event_id,
-          category: r.category,
-          allowed_venues: venueFor(r.category, r.participant_count, r.is_stage_event),
-          duration_minutes: Math.max(
-            20,
-            Math.ceil((r.participant_count *
-              (r.allotted_time_seconds ? r.allotted_time_seconds / 60
-                                       : Number(minutes_per_participant_default)))) +
-              Number(setup_minutes)),
-        }));
+        return rows.map((r) => {
+          const allowed = venueFor(r.category, r.is_stage_event);
+          return {
+            event_id: r.event_id,
+            category: r.category,
+            allowed_venues: allowed,
+            participant_count: r.participant_count,
+            is_stage_event: r.is_stage_event,
+            duration_minutes: durationFor(r, allowed),
+          };
+        });
       },
       async getEventParticipants(yearId) {
         const { rows } = await pool.query(
@@ -234,14 +260,65 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
       },
     };
 
+    const events = await db.getActiveEventsForYear(yc.id);
+    const eventById = new Map(events.map((e) => [e.event_id, e]));
+    const { rows: nameRows } = await pool.query(
+      `SELECT id, event_code, event_name FROM events WHERE year_id = $1`, [yc.id]);
+    const names = new Map(nameRows.map((n) => [n.id, n]));
+
     const draft = await generateScheduleDraft(yc.id, config, db);
+
+    // Human diagnostics: WHY couldn't each event be placed?
+    const venueHasDays = (name) => {
+      const v = venueRows.find((x) => x.name === name);
+      return v && Object.keys(v.weekday_hours || {}).length > 0;
+    };
+    const blockMinutes = (h) => {
+      const [sh, sm] = h.start.split(':').map(Number);
+      const [eh, em] = h.end.split(':').map(Number);
+      return (eh * 60 + em) - (sh * 60 + sm);
+    };
+    const longestBlockFor = (allowed) => {
+      let best = 0, bestVenue = null;
+      for (const v of venueRows) {
+        if (!allowed.includes(v.name)) continue;
+        for (const h of Object.values(v.weekday_hours || {})) {
+          const m = blockMinutes(h);
+          if (m > best) { best = m; bestVenue = v.name; }
+        }
+      }
+      return { best, bestVenue };
+    };
+
+    const unplaced = draft.unplaced.map((u) => {
+      const ev = eventById.get(u.event_id);
+      const nm = names.get(u.event_id) || {};
+      let reason;
+      if (!ev || !ev.allowed_venues.length) {
+        reason = 'No suitable venue (check category suitability / stage requirement in the venue setup)';
+      } else if (!ev.allowed_venues.some(venueHasDays)) {
+        reason = `Suitable venue(s) ${ev.allowed_venues.join(', ')} have NO availability days configured`;
+      } else {
+        const { best, bestVenue } = longestBlockFor(ev.allowed_venues);
+        if (ev.duration_minutes > best) {
+          reason = `Needs ~${ev.duration_minutes} min (${ev.participant_count} entries, ` +
+            `${ev.is_stage_event ? 'sequential stage performances' : 'simultaneous sessions'}) ` +
+            `but the longest available session is ${best} min at ${bestVenue} — extend hours, add days or venues`;
+        } else {
+          reason = 'No conflict-free slot left in the window (participants clash or sessions full) — add days/venues';
+        }
+      }
+      return { event_id: u.event_id, event_code: nm.event_code, event_name: nm.event_name,
+               entries: ev?.participant_count ?? null, needed_minutes: ev?.duration_minutes ?? null,
+               reason };
+    });
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'GENERATE_DRAFT_SCHEDULE', entity: 'schedule', entityId: yc.id,
-      details: { scheduled: draft.scheduled.length, unplaced: draft.unplaced.length,
+      details: { scheduled: draft.scheduled.length, unplaced: unplaced.length,
                  venues: venueRows.map((v) => v.name), days: days.length } });
 
-    res.json({ scheduled: draft.scheduled.length, unplaced: draft.unplaced });
+    res.json({ scheduled: draft.scheduled.length, unplaced });
   } catch (err) { next(err); }
 });
 

@@ -64,6 +64,21 @@ Applied so far:
 - `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
   per-age-group duration override; event-level value is the default)
 
+## Scheduler duration model & diagnostics (July 2026)
+- STAGE events (is_stage_event) are sequential: entries × per-participant
+  allotted time + setup. NON-STAGE events (arts/literary) run
+  SIMULTANEOUSLY: sessions = ceil(entries / best allowed venue capacity),
+  duration = sessions × allotted (default 60 min) + setup. Capacity no
+  longer excludes venues for non-stage events — it drives session count.
+- generate-draft returns unplaced[] enriched with event_code/name/entries/
+  needed_minutes and a human reason: no suitable venue / suitable venues
+  have NO availability days / needs ~N min vs longest session M min at
+  venue X / no conflict-free slot. Schedule page renders these; venue
+  summary shows an amber 'NO DAYS SET — will never be used' warning.
+- Verified with the full 2025 dataset (1,697 regs): all 53 events place
+  when venues have weekend hours; Mon/Wed-evenings-only setup explains
+  each failure specifically.
+
 ## Venues & report formats (July 2026)
 - venues table (migration 013, max 4 enforced): has_stage, capacity
   (NULL = unlimited), suitable_for {dance,music,arts,literary} (empty = all),
