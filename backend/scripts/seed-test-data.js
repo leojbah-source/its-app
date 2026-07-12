@@ -171,19 +171,32 @@ const ddmmyyyy = (s) => {
   const droppedDetail = [];
 
   for (const [cpr, p] of byCpr) {
-    const { rows: ins } = await client.query(
-      `INSERT INTO participants
-         (year_id, cpr_number, full_name, dob, gender, school_id,
-          guardian_name, guardian_phone, cpr_scan_url, photo_url,
-          cpr_verified_method, created_by, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'manual',$11,NOW(),NOW())
-       ON CONFLICT (year_id, cpr_number) DO UPDATE SET full_name = EXCLUDED.full_name
-       RETURNING id, age_group_id`,
-      [yearId, cpr, p.name, p.dob, p.gender, schoolIds[p.school] || null,
-       p.parent || null, p.whatsapp || p.contact,
-       `https://placeholder.kcabah.com/cpr/${cpr}.jpg`,
-       `https://placeholder.kcabah.com/photo/${cpr}.jpg`,
-       parentIds[p.contact]]);
+    // The DB trigger fn_assign_age_group RAISES when the DOB fits no
+    // configured age group — skip such participants entirely (reported),
+    // instead of aborting the whole seed.
+    let ins;
+    try {
+      ({ rows: ins } = await client.query(
+        `INSERT INTO participants
+           (year_id, cpr_number, full_name, dob, gender, school_id,
+            guardian_name, guardian_phone, cpr_scan_url, photo_url,
+            cpr_verified_method, created_by, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'manual',$11,NOW(),NOW())
+         ON CONFLICT (year_id, cpr_number) DO UPDATE SET full_name = EXCLUDED.full_name
+         RETURNING id, age_group_id`,
+        [yearId, cpr, p.name, p.dob, p.gender, schoolIds[p.school] || null,
+         p.parent || null, p.whatsapp || p.contact,
+         `https://placeholder.kcabah.com/cpr/${cpr}.jpg`,
+         `https://placeholder.kcabah.com/photo/${cpr}.jpg`,
+         parentIds[p.contact]]));
+    } catch (e) {
+      if (/no age group configured/i.test(e.message)) {
+        noGroup++;
+        droppedDetail.push(`${p.name}: DOB ${p.dob} fits no configured age group — participant skipped`);
+        continue;
+      }
+      throw e;
+    }
     const pid = ins[0].id;
     const agId = ins[0].age_group_id;   // re-derived by trigger from DOB
     created++;
@@ -221,7 +234,8 @@ const ddmmyyyy = (s) => {
   }
 
   console.log('\n===== SEED SUMMARY =====');
-  console.log(`Participants created: ${created} (${noGroup} with no matching age group)`);
+  console.log(`Participants created: ${created}`);
+  if (noGroup) console.log(`Participants SKIPPED (DOB outside all configured age groups): ${noGroup} — widen the DOB ranges in Year Setup if these children should be included, then re-run.`);
   console.log(`Registrations created: ${regs}`);
   console.log(`Dropped — event not in new age group: ${droppedAge}`);
   console.log(`Dropped — gender split: ${droppedGender}`);
