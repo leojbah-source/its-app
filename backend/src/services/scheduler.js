@@ -239,11 +239,71 @@ async function generateScheduleDraft(yearId, config, db) {
   const scheduled = [];
   const unplaced = [];
 
+  // Table-events pass: "table" events (drawing, spelling, handwriting, clay
+  // modelling...) run for all age groups at once. Place them FIRST, back-to-
+  // back, each on its own venue within the shared blocks, so several tables run
+  // in parallel (concurrent) and cluster at the front rather than being
+  // scattered by the greedy fill. They book venues like any other event.
+  const placedTableUnitIds = new Set();
+  const tableUnits = queue.filter((e) => e.table_event);
+  if (tableUnits.length) {
+    tableUnits.sort((a, b) => b.duration_minutes - a.duration_minutes
+      || String(a.event_id).localeCompare(String(b.event_id)));
+    for (const event of tableUnits) {
+      const participantIds = participantsByEvent[event.event_id] || [];
+      let placed = null;
+      for (const day of dailySlots) {
+        if (event.not_before && day.date < event.not_before) continue;
+        if (!canPlaceOnDate(day.date, participantIds, dailyCounts)) continue;
+        for (const block of day.blocks) {
+          // Spread table events WIDE: prefer the venue with the least booked
+          // time that day so tables run in parallel at a shared start time,
+          // rather than stacking back-to-back in one venue.
+          const busyMinutes = (venue) => (venueBookings[day.date]?.[venue] || [])
+            .reduce((t, b) => t + (b.end - b.start), 0);
+          const venueOrder = block.venues
+            .filter((v) => !event.allowed_venues || event.allowed_venues.includes(v))
+            .map((venue, idx) => ({ venue, idx, busy: busyMinutes(venue) }))
+            .sort((a, b) => a.busy - b.busy || a.idx - b.idx)
+            .map((v) => v.venue);
+          for (const venue of venueOrder) {
+            const window = findPlacement({
+              date: day.date, block, venue,
+              durationMinutes: event.duration_minutes,
+              venueBookings, participantIds, participantBookings,
+            });
+            if (window) {
+              placed = commitPlacement({
+                event, date: day.date, venue, start: window.start, end: window.end,
+                reportingBufferMinutes, venueBookings, participantBookings,
+                dailyCounts, categoryVenueUse, participantIds,
+              });
+              break;
+            }
+          }
+          if (placed) break;
+        }
+        if (placed) break;
+      }
+      if (placed) { scheduled.push(placed); placedTableUnitIds.add(event.event_id); }
+      else {
+        unplaced.push({
+          event_id: event.event_id, name: event.name, category: event.category,
+          duration_minutes: event.duration_minutes,
+          reason: 'NO_CONFLICT_FREE_SLOT_IN_CONFIGURED_WINDOW',
+        });
+      }
+    }
+  }
+
   for (const event of queue) {
+    if (placedTableUnitIds.has(event.event_id) || event.table_event) continue;
     const participantIds = participantsByEvent[event.event_id] || [];
     let placed = null;
 
     for (const day of dailySlots) {
+      // Category "not before" date: e.g. dance events only late in the window.
+      if (event.not_before && day.date < event.not_before) continue;
       if (!canPlaceOnDate(day.date, participantIds, dailyCounts)) continue;
 
       for (const block of day.blocks) {

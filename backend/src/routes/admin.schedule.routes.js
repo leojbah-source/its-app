@@ -252,15 +252,19 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
         const { rows } = await pool.query(
           `SELECT e.id AS event_id, COALESCE(c.name, 'Other') AS category,
                   e.allotted_time_seconds, e.is_stage_event,
+                  e.keep_groups_together, e.requires_tables,
+                  pv.name AS preferred_venue,
+                  c.not_before_date,
                   ag.code AS ag_code, ag.sort_order AS ag_sort,
                   COUNT(r.id)::int AS entries
            FROM events e
            LEFT JOIN categories c ON c.id = e.category_id
+           LEFT JOIN venues pv ON pv.id = e.preferred_venue_id
            JOIN registrations r ON r.event_id = e.id
              AND r.status NOT IN ('withdrawn','swapped')
            LEFT JOIN age_groups ag ON ag.id = r.age_group_id
            WHERE e.year_id = $1 AND e.is_cancelled = FALSE
-           GROUP BY e.id, c.name, ag.code, ag.sort_order
+           GROUP BY e.id, c.name, c.not_before_date, pv.name, ag.code, ag.sort_order
            ORDER BY e.id, ag.sort_order`, [yearId]);
 
         // group rows per event, then batch consecutive age groups
@@ -270,47 +274,88 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
           perEvent.get(r.event_id).groups.push({ code: r.ag_code || '—', entries: r.entries });
         }
 
+        // Order allowed venues so a soft-pinned preferred venue is tried first
+        // (the service falls back to the rest if it can't fit — reported).
+        const orderByPreference = (allowed, preferred) => {
+          if (!preferred || !allowed.includes(preferred)) return allowed;
+          return [preferred, ...allowed.filter((v) => v !== preferred)];
+        };
+        // localISO for the not_before_date (avoid +03 toISOString day shift)
+        const notBeforeISO = (d) => (d ? new Date(d).toLocaleDateString('en-CA') : null);
+
         const units = [];
         for (const { meta, groups } of perEvent.values()) {
-          const allowed = venueFor(meta.category, meta.is_stage_event);
-          // Combining age groups is only worthwhile when the COMBINED sitting
-          // fits a block that's actually common in the schedule (median), not a
-          // rare all-day outlier. A single group need only fit the LONGEST block
-          // to be placeable at all; if even that fails it's genuinely too big and
-          // the diagnostics report explains it — we never force-fit.
+          const baseAllowed = venueFor(meta.category, meta.is_stage_event);
+          const allowed = orderByPreference(baseAllowed, meta.preferred_venue);
+          const notBefore = notBeforeISO(meta.not_before_date);
+
+          // Fields shared by every unit this event produces.
+          const common = {
+            real_event_id: meta.event_id,
+            category: meta.category,
+            allowed_venues: allowed,
+            is_stage_event: meta.is_stage_event,
+            preferred_venue: meta.preferred_venue || null,
+            table_event: !!meta.requires_tables,
+            not_before: notBefore,          // service must not place before this
+          };
+
+          // (A) KEEP-TOGETHER — all age groups run as ONE continuous block in
+          // one venue (ramp/setup reuse). Overrides the split limit entirely.
+          if (meta.keep_groups_together) {
+            const count = groups.reduce((t, g) => t + g.entries, 0);
+            const codes = groups.map((g) => g.code).join(', ');
+            units.push({
+              ...common,
+              event_id: `${meta.event_id}|${codes}`,
+              age_groups: codes,
+              participant_count: count,
+              duration_minutes: durationFor(meta, allowed, count),
+              keep_together: true,
+            });
+            continue;
+          }
+
+          // (B) TABLE EVENT — one seated sitting for ALL age groups together
+          // (they write/draw simultaneously; the concurrent-table pass then
+          // spreads them across venues at a shared start time).
+          if (meta.requires_tables) {
+            const count = groups.reduce((t, g) => t + g.entries, 0);
+            const codes = groups.map((g) => g.code).join(', ');
+            units.push({
+              ...common,
+              event_id: `${meta.event_id}|${codes}`,
+              age_groups: codes,
+              participant_count: count,
+              duration_minutes: durationFor(meta, allowed, count),
+            });
+            continue;
+          }
+
+          // (C) DEFAULT — split per age group, combine consecutive groups only
+          // while the combined sitting fits a TYPICAL (median) block.
           const combineLimit = typicalSessionFor(allowed) || Infinity;
-          const placeLimit = longestSessionFor(allowed) || Infinity;
           let batch = [];
           const flush = () => {
             if (!batch.length) return;
             const count = batch.reduce((t, g) => t + g.entries, 0);
             const codes = batch.map((g) => g.code).join(', ');
             units.push({
+              ...common,
               event_id: `${meta.event_id}|${codes}`,
-              real_event_id: meta.event_id,
               age_groups: codes,
-              category: meta.category,
-              allowed_venues: allowed,
               participant_count: count,
-              is_stage_event: meta.is_stage_event,
               duration_minutes: durationFor(meta, allowed, count),
             });
             batch = [];
           };
           for (const g of groups) {
-            // Would adding g to the current batch keep it within a typical block
-            // AND within the max-groups cap? If not, close the batch first so g
-            // starts (or stays in) its own session. This makes over-long combos
-            // auto-split to one group per session.
             if (batch.length) {
               const tryCount = batch.reduce((t, x) => t + x.entries, 0) + g.entries;
               const tryDur = durationFor(meta, allowed, tryCount);
               if (batch.length >= maxGroups || tryDur > combineLimit) flush();
             }
             batch.push(g);
-            // If g on its own already exceeds a typical block, don't try to grow
-            // the batch further — emit it now as a single-group session (it will
-            // still be placed if it fits the longest block; otherwise reported).
             const soloDur = durationFor(meta, allowed, g.entries);
             if (batch.length === 1 && soloDur > combineLimit) flush();
           }
