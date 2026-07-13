@@ -212,14 +212,33 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
       const [eh, em] = h.end.split(':').map(Number);
       return (eh * 60 + em) - (sh * 60 + sm);
     };
-    const longestSessionFor = (allowed) => {
-      let best = 0;
+    // All available block lengths (minutes) across the allowed venues' weekday
+    // hours — one entry per configured weekday per venue.
+    const blockLengthsFor = (allowed) => {
+      const lens = [];
       for (const v of venueRows) {
         if (!allowed.includes(v.name)) continue;
-        for (const h of Object.values(v.weekday_hours || {}))
-          best = Math.max(best, blockMinutesOf(h));
+        for (const h of Object.values(v.weekday_hours || {})) {
+          const m = blockMinutesOf(h);
+          if (m > 0) lens.push(m);
+        }
       }
-      return best;
+      return lens;
+    };
+    // Longest block anywhere — used to decide whether a SINGLE group can ever
+    // fit at all. Never used to justify clubbing multiple groups.
+    const longestSessionFor = (allowed) => {
+      const lens = blockLengthsFor(allowed);
+      return lens.length ? Math.max(...lens) : 0;
+    };
+    // Typical (median) block — the target a COMBINED batch must fit. Prevents
+    // clubbing 2–3 groups just because one rare all-day block exists; combos
+    // only form when they fit a block that's actually common across the schedule.
+    const typicalSessionFor = (allowed) => {
+      const lens = blockLengthsFor(allowed).sort((a, b) => a - b);
+      if (!lens.length) return 0;
+      const mid = Math.floor(lens.length / 2);
+      return lens.length % 2 ? lens[mid] : Math.min(lens[mid - 1], lens[mid]);
     };
 
     // Adapter between the scheduler service and the real schema
@@ -254,7 +273,13 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
         const units = [];
         for (const { meta, groups } of perEvent.values()) {
           const allowed = venueFor(meta.category, meta.is_stage_event);
-          const fitLimit = longestSessionFor(allowed) || Infinity;
+          // Combining age groups is only worthwhile when the COMBINED sitting
+          // fits a block that's actually common in the schedule (median), not a
+          // rare all-day outlier. A single group need only fit the LONGEST block
+          // to be placeable at all; if even that fails it's genuinely too big and
+          // the diagnostics report explains it — we never force-fit.
+          const combineLimit = typicalSessionFor(allowed) || Infinity;
+          const placeLimit = longestSessionFor(allowed) || Infinity;
           let batch = [];
           const flush = () => {
             if (!batch.length) return;
@@ -273,13 +298,21 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
             batch = [];
           };
           for (const g of groups) {
-            const tryCount = batch.reduce((t, x) => t + x.entries, 0) + g.entries;
-            const tryDur = durationFor(meta, allowed, tryCount);
-            if (batch.length && (batch.length >= maxGroups || tryDur > fitLimit)) flush();
+            // Would adding g to the current batch keep it within a typical block
+            // AND within the max-groups cap? If not, close the batch first so g
+            // starts (or stays in) its own session. This makes over-long combos
+            // auto-split to one group per session.
+            if (batch.length) {
+              const tryCount = batch.reduce((t, x) => t + x.entries, 0) + g.entries;
+              const tryDur = durationFor(meta, allowed, tryCount);
+              if (batch.length >= maxGroups || tryDur > combineLimit) flush();
+            }
             batch.push(g);
-            // a single group that alone exceeds the limit still forms a unit
-            if (durationFor(meta, allowed, batch.reduce((t, x) => t + x.entries, 0)) > fitLimit
-                && batch.length === 1) flush();
+            // If g on its own already exceeds a typical block, don't try to grow
+            // the batch further — emit it now as a single-group session (it will
+            // still be placed if it fits the longest block; otherwise reported).
+            const soloDur = durationFor(meta, allowed, g.entries);
+            if (batch.length === 1 && soloDur > combineLimit) flush();
           }
           flush();
         }
