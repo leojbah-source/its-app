@@ -63,6 +63,40 @@ router.get('/venues', requireRole(...staffRoles), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /api/admin/schedule/category-dates — per-category earliest ("not before")
+// schedule date, e.g. dance late in the window so kids get more practice time.
+router.get('/category-dates', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.json([]);
+    const { rows } = await pool.query(
+      `SELECT id, code, name, to_char(not_before_date, 'YYYY-MM-DD') AS not_before_date
+       FROM categories WHERE year_id = $1 ORDER BY sort_order, id`, [yc.id]);
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// PUT /api/admin/schedule/category-dates — body: { dates: { <categoryId>: 'YYYY-MM-DD'|null } }
+router.put('/category-dates', requireRole('SuperAdmin', 'Admin', 'Coordinator'), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+    const dates = req.body?.dates || {};
+    for (const [id, val] of Object.entries(dates)) {
+      const d = val && /^\d{4}-\d{2}-\d{2}$/.test(val) ? val : null;
+      await pool.query(
+        `UPDATE categories SET not_before_date = $1 WHERE id = $2 AND year_id = $3`,
+        [d, Number(id), yc.id]);
+    }
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'SET_CATEGORY_DATES', entity: 'categories', entityId: yc.id, details: { dates } });
+    const { rows } = await pool.query(
+      `SELECT id, code, name, to_char(not_before_date, 'YYYY-MM-DD') AS not_before_date
+       FROM categories WHERE year_id = $1 ORDER BY sort_order, id`, [yc.id]);
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
 // PUT /api/admin/schedule/venues — replace-all upsert (max 4 venues)
 router.put('/venues', requireRole('SuperAdmin', 'Admin'), async (req, res, next) => {
   const client = await pool.connect();

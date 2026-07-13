@@ -6,7 +6,7 @@ import Button from '../components/ui/Button';
 import { PageLoader, ErrorBanner } from '../components/ui/States';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { eventsApi, categoriesApi } from '../api/client';
+import { eventsApi, categoriesApi, venuesApi } from '../api/client';
 import EventsTable from './events/EventsTable';
 import EventEditDrawer from './events/EventEditDrawer';
 import CancelEventDialog from './events/CancelEventDialog';
@@ -25,6 +25,7 @@ export default function Events() {
   const [loadError, setLoadError] = useState(null);
 
   const [categories, setCategories] = useState([]);
+  const [venues, setVenues] = useState([]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
@@ -52,6 +53,7 @@ export default function Events() {
 
   useEffect(() => {
     categoriesApi.list(token).then(setCategories).catch(() => {});
+    venuesApi.list(token).then(setVenues).catch(() => {});
   }, [token]);
 
   const openCreate = () => {
@@ -184,6 +186,7 @@ export default function Events() {
         event={editingEvent}
         saving={saving}
         categories={categories}
+        venues={venues}
         onClose={() => setDrawerOpen(false)}
         onSave={handleSave}
       />

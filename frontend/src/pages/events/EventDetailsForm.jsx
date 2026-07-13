@@ -1,7 +1,7 @@
 import { Input, Select, Textarea } from '../../components/ui/FormField';
 import { AGE_GROUP_CODES, GENDER_SPLITS } from './constants';
 
-export default function EventDetailsForm({ event, onChange, errors, categories = [] }) {
+export default function EventDetailsForm({ event, onChange, errors, categories = [], venues = [] }) {
   const toggleAgeGroup = (code) => {
     const has = event.age_groups.includes(code);
     const next = has ? event.age_groups.filter((g) => g !== code) : [...event.age_groups, code];
@@ -188,6 +188,59 @@ export default function EventDetailsForm({ event, onChange, errors, categories =
         <label htmlFor="is_stage_event" className="text-sm font-medium text-navy-800">
           Stage event (requires stage/auditorium)
         </label>
+      </div>
+
+      {/* ── Scheduling controls (auto-schedule draft) ───────────────────── */}
+      <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Scheduling
+        </p>
+
+        <Select
+          label="Preferred venue"
+          hint="Scheduler tries this venue first; falls back if it can’t fit."
+          value={event.preferred_venue_id ?? ''}
+          onChange={(e) =>
+            onChange({ ...event, preferred_venue_id: e.target.value === '' ? null : Number(e.target.value) })
+          }
+        >
+          <option value="">No preference (auto)</option>
+          {venues.map((v) => (
+            <option key={v.id} value={v.id}>{v.name}</option>
+          ))}
+        </Select>
+
+        <div className="flex items-center gap-3">
+          <input
+            id="keep_groups_together"
+            type="checkbox"
+            checked={!!event.keep_groups_together}
+            onChange={(e) => onChange({ ...event, keep_groups_together: e.target.checked })}
+            className="h-4 w-4 rounded border-slate-300"
+          />
+          <label htmlFor="keep_groups_together" className="text-sm font-medium text-navy-800">
+            Keep all age groups together
+            <span className="block text-xs font-normal text-slate-500">
+              One continuous block in one venue (e.g. Fashion Show ramp reuse).
+            </span>
+          </label>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <input
+            id="requires_tables"
+            type="checkbox"
+            checked={!!event.requires_tables}
+            onChange={(e) => onChange({ ...event, requires_tables: e.target.checked })}
+            className="h-4 w-4 rounded border-slate-300"
+          />
+          <label htmlFor="requires_tables" className="text-sm font-medium text-navy-800">
+            Table event
+            <span className="block text-xs font-normal text-slate-500">
+              All age groups run at once across venues (drawing, spelling, handwriting, clay…).
+            </span>
+          </label>
+        </div>
       </div>
     </div>
   );

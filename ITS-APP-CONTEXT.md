@@ -64,6 +64,46 @@ Applied so far:
 - `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
   per-age-group duration override; event-level value is the default)
 
+## Scheduling controls — per-event & per-category (July 2026)
+Migration 015 (015_scheduling_controls.sql) adds:
+- events.preferred_venue_id (FK venues, ON DELETE SET NULL) — SOFT pin: the
+  scheduler orders allowed_venues to try this venue first, falls back to other
+  suitable venues if it can't fit. e.g. Fashion Show / Fancy Dress -> VKL Hall.
+- events.keep_groups_together (bool) — all age groups scheduled as ONE
+  continuous block in one venue; OVERRIDES the age-group split limit (ramp/
+  setup reuse). Emitted as a single unit in getActiveEventsForYear (branch A).
+- events.requires_tables (bool) — TABLE event (drawing, spelling, handwriting,
+  clay modelling...). All age groups in one seated unit (branch B), and the
+  scheduler service runs a TABLE-EVENTS PRE-PASS: table units placed FIRST,
+  each on the LEAST-BUSY venue in the block so they run in parallel (concurrent
+  tables) at a shared start, clustered at the front of the day; main greedy
+  loop then skips table units. Spread-wide venue pick lives in the pre-pass.
+- categories.not_before_date (date) — earliest date a category's events may be
+  scheduled (dance late for practice time). Scheduler gates: `if
+  (event.not_before && day.date < event.not_before) continue;` in BOTH the
+  table pre-pass and the main loop. Units carry not_before from c.not_before_date.
+
+Wiring:
+- getActiveEventsForYear query now selects keep_groups_together, requires_tables,
+  pv.name AS preferred_venue, c.not_before_date; orderByPreference() puts the
+  pinned venue first; every unit carries {preferred_venue, table_event,
+  not_before, keep_together}.
+- Backend routes: admin.events POST/PUT carry preferred_venue_id (CASE-based so
+  clearing works), keep_groups_together, requires_tables (boolOrNull so
+  unchecking saves). GET uses e.* so columns return automatically.
+  admin.schedule GET/PUT /category-dates set categories.not_before_date
+  ({ dates: { <catId>: 'YYYY-MM-DD'|null } }), audited SET_CATEGORY_DATES.
+- Frontend: EventDetailsForm gains a "Scheduling" block — Preferred venue
+  <Select> (needs `venues` prop) + Keep-groups-together + Table-event
+  checkboxes. Venues loaded in Events.jsx (venuesApi.list) and passed via
+  EventEditDrawer. Schedule.jsx generate panel: "Earliest date per category"
+  date inputs (catDates state, scheduleApi.categoryDates/saveCategoryDates);
+  dates are saved just before generate-draft runs.
+- Verified: scheduler service unit-tested in isolation (6/6) — not_before
+  gating, table pre-pass concurrency (different venues, same start), baseline.
+  All changed frontend files parse via esbuild (Vite build can't run in the
+  Linux sandbox: node_modules has Windows-only rolldown native binary).
+
 ## Age-group-wise scheduling units (July 2026)
 - Scheduling unit = event × AGE-GROUP BATCH (migration 014:
   schedule.age_groups label 'G1, G2'). generate-draft splits each event per
@@ -74,6 +114,31 @@ Applied so far:
   saveScheduleDraft; per-row entries counts reflect the batch's groups.
   Full-dataset check: 78 sessions, 0 unplaced (previously the whole-event
   model couldn't place large events at all).
+
+### Over-clubbing fix (July 2026)
+- BUG: batching used fitLimit = longestSessionFor(allowed) — the single
+  longest block ANY suitable venue offers. If one venue had a rare all-day
+  block (e.g. Fri 10:00–20:00 = 600 min), 2–3 groups were clubbed into one
+  oversized session that then couldn't fit the SHORT blocks available on most
+  days. Symptom: ~7 events wrongly combined age groups instead of running each
+  group individually to fit the timings.
+- FIX (admin.schedule.routes.js getActiveEventsForYear):
+  * blockLengthsFor(allowed) → all available block lengths.
+  * typicalSessionFor(allowed) = MEDIAN block → the limit a COMBINED batch must
+    fit (combineLimit). Groups are only clubbed while the combined sitting fits
+    a block that's common in the schedule, not a rare outlier.
+  * longestSessionFor(allowed) = MAX block → placeLimit, used only to judge
+    whether a SINGLE group can be placed at all (never to justify clubbing).
+  * Batcher auto-splits: when adding the next group would exceed combineLimit
+    (or hit max_groups), the batch flushes so that group starts its own
+    session → over-long combos become one-group-per-session automatically.
+  Verified in isolation: with 90-min typical / 600-min longest blocks, small
+  events still club (G1–G3 + G4–G5) while large events split to one group each,
+  and a single oversized group stays placeable (fits the longest block) rather
+  than being falsely reported unplaced.
+- NOTE: the working copy of admin.schedule.routes.js had also been left
+  TRUNCATED mid-file (PUT /:id + publish routes cut off) from a prior
+  interrupted session — restored from HEAD; backend now parses.
 
 ## Scheduler duration model & diagnostics (July 2026)
 - STAGE events (is_stage_event) are sequential: entries × per-participant
@@ -424,35 +489,4 @@ Always filter by `year_id` when querying categories or age_groups.
 
 ---
 
-## Other Tables (in schema, routes exist, UI mostly pending)
-`judges, judge_assignments, scores, schedule, chest_assignments,
-event_time_slots, event_swap_requests, notices, tiebreaker_marks,
-tiebreaker_unlocks, timer_assignments, event_results, membership_verifications`
-
-Views: `v_group_championship, v_judge_scoring_board, v_judges_public, v_school_award_totals`
-
----
-
-## What's Done
-- [x] Auth (login, JWT, roles: SuperAdmin, Admin, Coordinator, Chairman, Viewer)
-- [x] Year Setup (year_config CRUD, age groups, branding logos, grade/rank config)
-- [x] Events (CRUD, criteria, age groups, categories)
-- [x] Registrations (parent portal + admin dashboard)
-- [x] Fees & payments backend (fee calc w/ member rate, parent payment submission,
-      admin confirm/reject, refunds w/ mandatory reason, refunds report CSV)
-- [x] Finance ledger backend (income/expenses/expense-heads + migration 001)
-- [x] Membership verify route fixed (correct verifyMembership signature; sets
-      participants.membership_status: active|pending|none)
-
-## What's Done (cont.)
-- [x] Parent payment UI (PaymentSection.jsx: live fee table, balance, payment
-      submission w/ proof upload via POST /api/register/upload)
-
-## What's Next
-- [ ] Admin UI: Payments & Refunds, Judges, Schedule, Awards, Finance, Chest numbers
-- [ ] Set per-event fees in Events admin page (fee_amount / member_fee_amount)
-- [ ] Judging module: REWRITE admin.judging.routes.js against real schema (see WARNING),
-      filter is_void, then judge mobile scoring UI
-- [ ] Addendum 1: /api/timer/* + admin timing/DQ routes, Timer stopwatch UI,
-      Timing & DQ admin tab, judge DQ banner, PWA DQ display
-- [ ] PWA (Step 6)
+#

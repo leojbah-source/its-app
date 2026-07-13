@@ -73,18 +73,21 @@ export default function Schedule() {
   const [endDate, setEndDate] = useState('');
   const [buffer, setBuffer] = useState(30);
   const [maxGroups, setMaxGroups] = useState(3);
+  const [catDates, setCatDates] = useState([]);  // [{id,code,name,not_before_date}]
   const [generating, setGenerating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [rowsData, venueData] = await Promise.all([
+      const [rowsData, venueData, catData] = await Promise.all([
         scheduleApi.list(token),
         venuesApi.list(token).catch(() => []),
+        scheduleApi.categoryDates(token).catch(() => []),
       ]);
       setRows(rowsData);
       setVenues(venueData);
+      setCatDates(catData);
     } catch (err) {
       setError(err.message || 'Failed to load schedule');
     } finally { setLoading(false); }
@@ -97,6 +100,10 @@ export default function Schedule() {
     setFlash('');
     setUnplaced([]);
     try {
+      // Save the per-category earliest dates first so the draft honours them.
+      const dateMap = {};
+      for (const c of catDates) dateMap[c.id] = c.not_before_date || null;
+      await scheduleApi.saveCategoryDates(token, dateMap).catch(() => {});
       const r = await scheduleApi.generateDraft(token, {
         start_date: startDate || undefined,
         end_date: endDate || undefined,
@@ -213,6 +220,32 @@ export default function Schedule() {
                 </select>
               </div>
             </div>
+
+            {catDates.length > 0 && (
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold text-slate-600 mb-2">
+                  Earliest date per category (optional) — e.g. schedule dance late so kids get more practice time
+                </p>
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                  {catDates.map((c) => (
+                    <div key={c.id}>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">{c.name}</label>
+                      <input
+                        type="date"
+                        value={c.not_before_date || ''}
+                        onChange={(e) =>
+                          setCatDates((prev) =>
+                            prev.map((x) => (x.id === c.id ? { ...x, not_before_date: e.target.value || null } : x))
+                          )
+                        }
+                        className={inputCls}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <p className="text-xs text-amber-600">
               Generating replaces the current DRAFT rows (confirmed rows are kept). Events are
               only placed in venues that suit their category, have capacity, and are open that day.

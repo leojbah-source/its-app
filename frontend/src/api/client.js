@@ -195,6 +195,8 @@ export const scheduleApi = {
   generateDraft: (token, body) => request('/api/admin/schedule/generate-draft', { method: 'POST', token, body }),
   update: (token, id, body) => request(`/api/admin/schedule/${id}`, { method: 'PUT', token, body }),
   publish: (token) => request('/api/admin/schedule/publish', { method: 'POST', token, body: {} }),
+  categoryDates: (token) => request('/api/admin/schedule/category-dates', { token }),
+  saveCategoryDates: (token, dates) => request('/api/admin/schedule/category-dates', { method: 'PUT', token, body: { dates } }),
 };
 
 // ── Schools lookup ───────────────────────────────────────────────────────────

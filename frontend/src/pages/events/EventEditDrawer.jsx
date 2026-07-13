@@ -15,7 +15,7 @@ const BASE_TABS = [
   { key: 'criteria', label: 'Criteria' },
 ];
 
-export default function EventEditDrawer({ open, event, saving, categories = [], onClose, onSave }) {
+export default function EventEditDrawer({ open, event, saving, categories = [], venues = [], onClose, onSave }) {
   const [draft, setDraft] = useState(blankEvent());
   const [tab, setTab] = useState('details');
   const [attemptedSave, setAttemptedSave] = useState(false);
@@ -107,6 +107,7 @@ export default function EventEditDrawer({ open, event, saving, categories = [], 
             onChange={setDraft}
             errors={attemptedSave ? errors : {}}
             categories={categories}
+            venues={venues}
           />
         )}
         {tab === 'criteria' && (
