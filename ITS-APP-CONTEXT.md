@@ -373,6 +373,39 @@ exact names, and both have CHECK constraints requiring a reason when set.
 Still to build: /api/timer/* routes, admin timing & DQ endpoints, Timer UI
 (full-screen stopwatch), Timing & DQ admin tab, judge DQ banner, PWA DQ display.
 
+## Judges module — foundation slice DONE (July 2026)
+Rewrote admin.judges.routes.js (was schema-mismatched: used j.name, ja.status,
+ja.year_id, otp on wrong table) against the REAL schema and built the admin
+Judges page. No migration needed — all columns already existed.
+- Backend admin.judges.routes.js (mounted /api/admin/judges):
+  GET / (list + assignment_count; contact fields phone/whatsapp/email ONLY for
+  SuperAdmin/Chairman per rule #11, others get has_contact bool),
+  GET /blacklist-report, GET /:id/full (contact, audited VIEW_JUDGE_CONTACT),
+  GET /:id/assignments, POST / (full_name required), PUT /:id, DELETE /:id
+  (refuses if judge has assignments — blacklist instead), POST /:id/blacklist
+  (reason required, sets blacklisted_by + blacklist_date=CURRENT_DATE),
+  POST /:id/unblacklist, POST /:id/send-otp (manual at briefing rule #12 —
+  createOtp+sendWhatsApp, stamps judges.otp_sent_at/otp_sent_by),
+  POST /assign (judge_assignments: judge_id/event_id/time_slot_id/assigned_by;
+  blacklisted judge needs chairman_confirmed=true; 23505 → already assigned;
+  returns event_judge_count + 3-per-event note), DELETE /assign/:assignmentId
+  (refuses if scores exist for it), GET /event/:eventId (judges on an event).
+- Role sets: manageRoles=[SuperAdmin,Chairman] (create/edit/blacklist/delete),
+  assignRoles adds Admin+Coordinator (assign/OTP), staffRoles read.
+- FIX auth.routes.js verify-otp: SELECT id, name → full_name (judges has no
+  `name` column); token judge label now judge.full_name.
+- Frontend: judgesApi in client.js; new src/pages/Judges.jsx (table + Drawer
+  add/edit + ConfirmDialog blacklist/delete + inline AssignPanel per judge with
+  event dropdown from eventsApi.list). Route /admin/judges in App.jsx; Sidebar
+  "Judges" flipped active. Contact column shows "restricted" when has_contact
+  but fields omitted for the role.
+- Verified: backend node -c + module load OK; all frontend files parse via
+  esbuild (Vite build still can't run in sandbox — Windows-only rolldown binary).
+- STILL PENDING (later slices): judge.routes.js (judge scoring flow) and
+  admin.judging.routes.js (calculation/divergence/results) remain schema-
+  mismatched and must be rewritten before the scoring + results UIs. No judge
+  mobile scoring UI yet.
+
 ## WARNING — admin.judging.routes.js is schema-mismatched
 It queries s.judge_id / s.score / s.assignment_id / `criteria` table /
 year_config.grade_config — NONE of these exist. Real names: scores.judge_assignment_id,

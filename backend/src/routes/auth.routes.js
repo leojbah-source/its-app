@@ -65,12 +65,12 @@ router.post('/verify-otp', async (req, res, next) => {
     const valid = await verifyOtp(phone, otp);
     if (!valid) return res.status(401).json({ error: 'Invalid or expired OTP' });
 
-    const { rows } = await pool.query(`SELECT id, name, is_blacklisted FROM judges WHERE phone = $1`, [phone]);
+    const { rows } = await pool.query(`SELECT id, full_name, is_blacklisted FROM judges WHERE phone = $1`, [phone]);
     const judge = rows[0];
     if (!judge) return res.status(404).json({ error: 'Judge not found' });
 
     const token = signToken({ id: judge.id, judgeId: judge.id, role: 'Judge', type: 'judge', phone });
-    res.json({ token, judge: { id: judge.id, name: judge.name, isBlacklisted: judge.is_blacklisted } });
+    res.json({ token, judge: { id: judge.id, name: judge.full_name, isBlacklisted: judge.is_blacklisted } });
   } catch (err) {
     next(err);
   }

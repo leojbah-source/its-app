@@ -204,4 +204,21 @@ export const schoolsApi = {
   list: (token) => request('/api/admin/schools', { token }),
 };
 
+export const judgesApi = {
+  list: (token) => request('/api/admin/judges', { token }),
+  full: (token, id) => request(`/api/admin/judges/${id}/full`, { token }),
+  create: (token, body) => request('/api/admin/judges', { method: 'POST', token, body }),
+  update: (token, id, body) => request(`/api/admin/judges/${id}`, { method: 'PUT', token, body }),
+  remove: (token, id) => request(`/api/admin/judges/${id}`, { method: 'DELETE', token }),
+  blacklist: (token, id, reason) => request(`/api/admin/judges/${id}/blacklist`, { method: 'POST', token, body: { reason } }),
+  unblacklist: (token, id) => request(`/api/admin/judges/${id}/unblacklist`, { method: 'POST', token, body: {} }),
+  sendOtp: (token, id) => request(`/api/admin/judges/${id}/send-otp`, { method: 'POST', token, body: {} }),
+  assignments: (token, id) => request(`/api/admin/judges/${id}/assignments`, { token }),
+  eventJudges: (token, eventId) => request(`/api/admin/judges/event/${eventId}`, { token }),
+  scheduleEvents: (token) => request('/api/admin/judges/schedule-events', { token }),
+  assign: (token, body) => request('/api/admin/judges/assign', { method: 'POST', token, body }),
+  unassign: (token, assignmentId) => request(`/api/admin/judges/assign/${assignmentId}`, { method: 'DELETE', token }),
+  blacklistReport: (token) => request('/api/admin/judges/blacklist-report', { token }),
+};
+
 export { ApiError };

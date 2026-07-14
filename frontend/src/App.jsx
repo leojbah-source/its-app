@@ -11,6 +11,7 @@ import Events from './pages/Events';
 import Registrations from './pages/Registrations';
 import Lists from './pages/Lists';
 import Schedule from './pages/Schedule';
+import Judges from './pages/Judges';
 
 // Parent registration portal pages
 import Landing from './pages/register/Landing';
@@ -56,6 +57,10 @@ export default function App() {
               <Route
                 path="/admin/schedule"
                 element={<ProtectedRoute><Schedule /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/judges"
+                element={<ProtectedRoute><Judges /></ProtectedRoute>}
               />
               <Route path="/admin" element={<Navigate to="/admin/config/year" replace />} />
 
