@@ -1,6 +1,14 @@
 // src/routes/judge.routes.js  (mounted at /api/judge)
-// Rule #5: judges see CHEST NUMBERS ONLY, never participant names.
-// Rule #6: live ranking is visible only to the scoring judge as they enter scores.
+// Judge-facing scoring. Rule #5: judges see CHEST NUMBERS ONLY, never names.
+// Bare scoring for now — no criteria-confirmation gate, no live ranking yet.
+//
+// Real schema (verified):
+//   scores(id, judge_assignment_id, registration_id, criterion_id, score_value,
+//     entered_by, entered_at, updated_at,
+//     UNIQUE(judge_assignment_id, registration_id, criterion_id))
+//   event_criteria(id, event_id, criterion_name, max_score, sequence_order)
+//   v_judge_scoring_board(registration_id, event_id, time_slot_id, chest_number)
+//     — attended participants only; the ONLY thing a judge screen may read.
 const express = require('express');
 const pool = require('../db');
 const { authenticate, requireType } = require('../middleware/auth');
@@ -9,155 +17,100 @@ const { logAudit } = require('../utils/audit');
 const router = express.Router();
 router.use(authenticate, requireType('judge'));
 
-// Helper: confirms the assignment belongs to the authenticated judge
 async function loadOwnAssignment(assignmentId, judgeId) {
   const { rows } = await pool.query(
-    `SELECT * FROM judge_assignments WHERE id = $1 AND judge_id = $2`,
-    [assignmentId, judgeId]
-  );
+    `SELECT id, judge_id, event_id, time_slot_id FROM judge_assignments
+     WHERE id = $1 AND judge_id = $2`, [assignmentId, judgeId]);
   return rows[0] || null;
 }
 
-// GET /api/judge/events  -- this judge's assigned events
+// ── GET /api/judge/events — this judge's assigned events + progress ──────────
 router.get('/events', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ja.id AS assignment_id, ja.status, e.id AS event_id, e.name, e.category, e.age_group
-       FROM judge_assignments ja JOIN events e ON e.id = ja.event_id
-       WHERE ja.judge_id = $1 ORDER BY e.id`,
-      [req.user.judgeId]
-    );
+      `SELECT ja.id AS assignment_id, e.id AS event_id, e.event_code, e.event_name,
+              c.name AS category_name,
+              (SELECT COUNT(*)::int FROM v_judge_scoring_board b WHERE b.event_id = e.id) AS participant_count,
+              (SELECT COUNT(DISTINCT s.registration_id)::int FROM scores s
+               WHERE s.judge_assignment_id = ja.id) AS scored_count
+       FROM judge_assignments ja
+       JOIN events e ON e.id = ja.event_id
+       LEFT JOIN categories c ON c.id = e.category_id
+       WHERE ja.judge_id = $1
+       ORDER BY e.event_code`, [req.user.judgeId]);
     res.json(rows);
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
-// GET /api/judge/briefing/:assignment_id
-router.get('/briefing/:assignment_id', async (req, res, next) => {
-  try {
-    const assignment = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
-    if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
-
-    const { rows: eventRows } = await pool.query(`SELECT * FROM events WHERE id = $1`, [assignment.event_id]);
-    const { rows: criteriaRows } = await pool.query(
-      `SELECT id, name, max_score, sort_order FROM criteria WHERE event_id = $1 ORDER BY sort_order`,
-      [assignment.event_id]
-    );
-    res.json({ event: eventRows[0], criteria: criteriaRows });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// GET /api/judge/sheet/:assignment_id  -- CHEST # ONLY (rule #5)
+// ── GET /api/judge/sheet/:assignment_id — criteria + chest list + my scores ──
 router.get('/sheet/:assignment_id', async (req, res, next) => {
   try {
-    const assignment = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
-    if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
+    const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
+    if (!asg) return res.status(404).json({ error: 'Assignment not found' });
 
-    const { rows: criteriaRows } = await pool.query(
-      `SELECT id, name, max_score FROM criteria WHERE event_id = $1 ORDER BY sort_order`,
-      [assignment.event_id]
-    );
-    const { rows: chestRows } = await pool.query(
-      `SELECT cn.registration_id, cn.chest_number FROM chest_numbers cn
-       WHERE cn.event_id = $1 ORDER BY cn.chest_number`,
-      [assignment.event_id]
-    );
+    const { rows: ev } = await pool.query(
+      `SELECT e.id, e.event_code, e.event_name, c.name AS category_name
+       FROM events e LEFT JOIN categories c ON c.id = e.category_id WHERE e.id = $1`, [asg.event_id]);
+    const { rows: criteria } = await pool.query(
+      `SELECT id, criterion_name AS label, max_score, sequence_order
+       FROM event_criteria WHERE event_id = $1 ORDER BY sequence_order, id`, [asg.event_id]);
+    // CHEST NUMBERS ONLY — never participants/registrations directly (rule #5).
+    const { rows: participants } = await pool.query(
+      `SELECT registration_id, chest_number FROM v_judge_scoring_board
+       WHERE event_id = $1 ORDER BY chest_number`, [asg.event_id]);
+    const { rows: scores } = await pool.query(
+      `SELECT registration_id, criterion_id, score_value FROM scores
+       WHERE judge_assignment_id = $1`, [asg.id]);
 
-    res.json({
-      assignmentId: assignment.id,
-      criteria: criteriaRows,
-      // Deliberately exposes chest_number only - no child_name, no school, no other PII.
-      participants: chestRows.map((c) => ({ registrationRef: c.registration_id, chestNumber: c.chest_number })),
-    });
-  } catch (err) {
-    next(err);
-  }
+    res.json({ assignment_id: asg.id, event: ev[0] || null, criteria, participants, scores });
+  } catch (err) { next(err); }
 });
 
-// POST /api/judge/scores/:assignment_id
+// ── POST /api/judge/scores/:assignment_id — save/update scores ───────────────
+// body: { scores: [{ registration_id, criterion_id, score_value }] }
 router.post('/scores/:assignment_id', async (req, res, next) => {
+  const client = await pool.connect();
   try {
-    const assignment = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
-    if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
-    if (!assignment.criteria_confirmed_at) {
-      return res.status(403).json({ error: 'Criteria must be confirmed by the Admin before scoring' });
+    const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
+    if (!asg) return res.status(404).json({ error: 'Assignment not found' });
+    const list = req.body?.scores;
+    if (!Array.isArray(list) || !list.length) return res.status(400).json({ error: 'scores array is required' });
+
+    // Valid criteria (id → max) and valid chest-board registrations for this event.
+    const { rows: crit } = await client.query(
+      `SELECT id, max_score FROM event_criteria WHERE event_id = $1`, [asg.event_id]);
+    const maxByCrit = new Map(crit.map((c) => [c.id, Number(c.max_score)]));
+    const { rows: board } = await client.query(
+      `SELECT registration_id FROM v_judge_scoring_board WHERE event_id = $1`, [asg.event_id]);
+    const validRegs = new Set(board.map((b) => b.registration_id));
+
+    for (const s of list) {
+      if (!maxByCrit.has(s.criterion_id)) return res.status(400).json({ error: `Criterion ${s.criterion_id} is not part of this event` });
+      if (!validRegs.has(s.registration_id)) return res.status(400).json({ error: `Chest/registration ${s.registration_id} is not on this event's scoring board` });
+      const v = Number(s.score_value);
+      if (Number.isNaN(v) || v < 0 || v > maxByCrit.get(s.criterion_id))
+        return res.status(400).json({ error: `Score for criterion ${s.criterion_id} must be between 0 and ${maxByCrit.get(s.criterion_id)}` });
     }
 
-    const { scores } = req.body; // [{ registration_id, criterion_id, score }]
-    if (!Array.isArray(scores) || scores.length === 0) {
-      return res.status(400).json({ error: 'scores array is required' });
+    await client.query('BEGIN');
+    let saved = 0;
+    for (const s of list) {
+      await client.query(
+        `INSERT INTO scores (judge_assignment_id, registration_id, criterion_id, score_value, entered_by, updated_at)
+         VALUES ($1,$2,$3,$4,$5, NOW())
+         ON CONFLICT (judge_assignment_id, registration_id, criterion_id)
+           DO UPDATE SET score_value = EXCLUDED.score_value, entered_by = EXCLUDED.entered_by, updated_at = NOW()`,
+        [asg.id, s.registration_id, s.criterion_id, Number(s.score_value), req.user.judgeId]);
+      saved++;
     }
-
-    const saved = [];
-    for (const s of scores) {
-      const { rows: critRows } = await pool.query(`SELECT max_score FROM criteria WHERE id = $1`, [s.criterion_id]);
-      if (!critRows[0]) continue;
-      if (s.score < 0 || s.score > critRows[0].max_score) {
-        return res.status(400).json({ error: `Score for criterion ${s.criterion_id} must be between 0 and ${critRows[0].max_score}` });
-      }
-      const { rows } = await pool.query(
-        `INSERT INTO scores (assignment_id, judge_id, registration_id, criterion_id, score, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5, NOW(), NOW())
-         ON CONFLICT (assignment_id, registration_id, criterion_id) DO UPDATE
-           SET score = EXCLUDED.score, updated_at = NOW()
-         RETURNING *`,
-        [assignment.id, req.user.judgeId, s.registration_id, s.criterion_id, s.score]
-      );
-      saved.push(rows[0]);
-    }
-    res.status(201).json(saved);
+    await client.query('COMMIT');
+    await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge',
+      action: 'ENTER_SCORES', entity: 'scores', entityId: asg.id, details: { saved } });
+    res.status(201).json({ saved });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
     next(err);
-  }
-});
-
-// GET /api/judge/live-ranking/:assignment_id  -- this judge's current rankings only (rule #6)
-router.get('/live-ranking/:assignment_id', async (req, res, next) => {
-  try {
-    const assignment = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
-    if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
-
-    const { rows } = await pool.query(
-      `SELECT s.registration_id, cn.chest_number, SUM(s.score) AS total_score
-       FROM scores s
-       JOIN chest_numbers cn ON cn.registration_id = s.registration_id AND cn.event_id = $1
-       WHERE s.assignment_id = $2 AND s.judge_id = $3
-       GROUP BY s.registration_id, cn.chest_number
-       ORDER BY total_score DESC`,
-      [assignment.event_id, assignment.id, req.user.judgeId]
-    );
-    res.json(rows);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// POST /api/judge/scores/:id/revision-response  -- {accepts: bool, statement: string}
-router.post('/scores/:id/revision-response', async (req, res, next) => {
-  try {
-    const { accepts, statement } = req.body;
-    if (typeof accepts !== 'boolean') return res.status(400).json({ error: 'accepts (boolean) is required' });
-
-    if (accepts === false) {
-      if (!statement) return res.status(400).json({ error: 'statement is required when refusing a revision' });
-      await pool.query(
-        `INSERT INTO judge_flags (assignment_id, judge_id, statement, created_at)
-         VALUES ($1,$2,$3, NOW())`,
-        [req.params.id, req.user.judgeId, statement]
-      );
-      // notify Chairman per Master Context rule #9
-      await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge', action: 'REFUSE_REVISION', entity: 'judge_flags', entityId: req.params.id, details: { statement } });
-      return res.json({ message: 'Refusal recorded; Chairman has been notified' });
-    }
-
-    await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge', action: 'ACCEPT_REVISION', entity: 'scores', entityId: req.params.id });
-    res.json({ message: 'Revision accepted' });
-  } catch (err) {
-    next(err);
-  }
+  } finally { client.release(); }
 });
 
 module.exports = router;

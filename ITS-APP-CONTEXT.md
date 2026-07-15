@@ -373,6 +373,41 @@ exact names, and both have CHECK constraints requiring a reason when set.
 Still to build: /api/timer/* routes, admin timing & DQ endpoints, Timer UI
 (full-screen stopwatch), Timing & DQ admin tab, judge DQ banner, PWA DQ display.
 
+## Scoring chain backend — chest, attendance, judge scoring (July 2026)
+Rewrote the day-of + judge-scoring backend against the REAL schema (all three
+were schema-broken). No migration. Bare scoring for now (NO criteria-confirm
+gate, NO live ranking — deferred).
+- admin.chest.routes.js (was using non-existent chest_numbers/mode/assigned_by/
+  children/time_slots/attendance table). Now uses chest_assignments
+  (chest_number, allocation_mode 'auto'|'timeslot'|'manual', allocated_by/at,
+  UNIQUE(event_id,chest_number), registration_id UNIQUE) and event_time_slots.
+  ATTENDANCE folded in: no attendance table — uses registrations.status enum
+  ('attended'|'absent') + attendance_marked_by/at. Endpoints:
+  GET /:event_id/roster (each entry: name, age_group, status, chest_number),
+  GET /:event_id (chest list), POST /:event_id/attendance {registration_id,
+  present}, POST /:event_id/assign-auto (random chests to attended w/o chest),
+  POST /:event_id/assign-timeslot (lot draw per event_time_slot, continuous
+  numbering), PUT /manual/:reg_id (Chairman/SuperAdmin, 23505→409),
+  DELETE /:event_id (clear, Chairman/SuperAdmin). markRoles = SA/Admin/Coord/
+  Chairman. year_id pulled from the event for the NOT-NULL column.
+- judge.routes.js (was using scores.score/judge_id/assignment_id, criteria/
+  chest_numbers tables, criteria_confirmed_at). Now: requireType('judge'),
+  GET /events (assigned events + participant_count from v_judge_scoring_board +
+  scored_count), GET /sheet/:assignment_id (event, criteria from event_criteria
+  as {id,label,max_score}, participants CHEST-ONLY from v_judge_scoring_board,
+  this judge's existing scores), POST /scores/:assignment_id (validates
+  criterion∈event + reg∈board + 0..max, upserts scores by
+  (judge_assignment_id,registration_id,criterion_id), txn). CHAIN: mark
+  attendance → assign chests → v_judge_scoring_board populates → judge sheet.
+- STILL BROKEN (not this slice, same class of bug — chest_numbers / s.score /
+  s.assignment_id / s.judge_id): admin.judging.routes.js (scoring calc/
+  divergence/results), admin.results.routes.js, admin.reports.routes.js,
+  admin.tiebreaker.routes.js, services/ranking.js, and auth.routes.js:91
+  (`FROM children` parent-login path). Fix when those modules are built.
+- Verified: all three rewritten files node -c + module load OK.
+- TODO next: frontend — admin attendance/chest day-of UI + judge mobile scoring
+  UI (OTP login → events → chest sheet → enter scores).
+
 ## Judging section restructure (July 2026)
 Judging is now its own nav GROUP restricted to Chairman + SuperAdmin (separate
 access level). The Event-judges table was removed from the Schedule page (too
