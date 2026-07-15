@@ -20,9 +20,10 @@ const { sendWhatsApp } = require('../utils/notify');
 const router = express.Router();
 router.use(authenticate);
 
-const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
-const manageRoles = ['SuperAdmin', 'Chairman'];            // create/edit/blacklist
-const assignRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
+// Judging section is restricted to Chairman + SuperAdmin (separate access level).
+const staffRoles = ['SuperAdmin', 'Chairman'];
+const manageRoles = ['SuperAdmin', 'Chairman'];
+const assignRoles = ['SuperAdmin', 'Chairman'];
 const canSeeContact = (role) => role === 'SuperAdmin' || role === 'Chairman';
 
 const n = (v) => (v === '' || v === undefined || v === null ? null : v);
@@ -290,6 +291,86 @@ router.get('/schedule-events', requireRole(...staffRoles), async (req, res, next
        GROUP BY e.id, e.event_code, e.event_name, c.name
        ORDER BY MIN(s.event_date), e.event_code`, [yc[0].id]);
     res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/admin/judges/candidates/:eventId — judges for an event (strict) ─
+// Only judges whose `expertise` includes the event's category code.
+router.get('/candidates/:eventId', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const { rows: ev } = await pool.query(
+      `SELECT c.code AS category_code, c.name AS category_name
+       FROM events e LEFT JOIN categories c ON c.id = e.category_id WHERE e.id = $1`,
+      [req.params.eventId]);
+    if (!ev[0]) return res.status(404).json({ error: 'Event not found' });
+    const code = ev[0].category_code;
+    const { rows } = await pool.query(
+      `SELECT j.id, j.full_name, j.is_blacklisted, (j.phone IS NOT NULL) AS has_phone,
+              EXISTS (SELECT 1 FROM judge_assignments ja
+                      WHERE ja.judge_id = j.id AND ja.event_id = $2) AS assigned
+       FROM judges j
+       WHERE $1 = ANY (j.expertise)
+       ORDER BY j.full_name`, [code, req.params.eventId]);
+    res.json({ category_code: code, category_name: ev[0].category_name, candidates: rows });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/admin/judges/event-assignments — scheduled events + their judges ─
+// One row per event in the schedule, EARLIEST DATE FIRST, with the assigned
+// judges. Drives the Event-Judges table on the Schedule page.
+router.get('/event-assignments', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const { rows: yc } = await pool.query(`SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    if (!yc[0]) return res.json([]);
+    const { rows: events } = await pool.query(
+      `SELECT e.id AS event_id, e.event_code, e.event_name,
+              c.code AS category_code, c.name AS category_name,
+              to_char(MIN(s.event_date), 'YYYY-MM-DD') AS earliest_date,
+              to_char(MIN(s.start_time), 'HH24:MI') AS first_start,
+              COUNT(DISTINCT s.id)::int AS session_count,
+              string_agg(DISTINCT NULLIF(s.venue, ''), ', ') AS venues,
+              string_agg(DISTINCT NULLIF(s.age_groups, ''), ' | ') AS age_groups,
+              bool_or(s.status = 'confirmed') AS published,
+              (SELECT COUNT(*)::int FROM registrations r
+               WHERE r.event_id = e.id AND r.status NOT IN ('withdrawn','swapped')) AS entries
+       FROM schedule s
+       JOIN events e ON e.id = s.event_id
+       LEFT JOIN categories c ON c.id = e.category_id
+       WHERE s.year_id = $1
+       GROUP BY e.id, e.event_code, e.event_name, c.code, c.name
+       ORDER BY MIN(s.event_date), e.event_code`, [yc[0].id]);
+    const ids = events.map((e) => e.event_id);
+    const byEvent = {};
+    if (ids.length) {
+      const { rows: asg } = await pool.query(
+        `SELECT ja.id AS assignment_id, ja.event_id, j.id AS judge_id, j.full_name,
+                j.is_blacklisted, (j.phone IS NOT NULL) AS has_phone
+         FROM judge_assignments ja JOIN judges j ON j.id = ja.judge_id
+         WHERE ja.event_id = ANY($1) ORDER BY j.full_name`, [ids]);
+      for (const a of asg) (byEvent[a.event_id] ??= []).push(a);
+    }
+    res.json(events.map((e) => ({ ...e, judges: byEvent[e.event_id] || [] })));
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/judges/event/:eventId/send-otps — OTP all assigned judges ─
+router.post('/event/:eventId/send-otps', requireRole(...assignRoles), async (req, res, next) => {
+  try {
+    const { rows: judges } = await pool.query(
+      `SELECT j.id, j.full_name, j.phone FROM judge_assignments ja
+       JOIN judges j ON j.id = ja.judge_id WHERE ja.event_id = $1`, [req.params.eventId]);
+    if (!judges.length) return res.status(400).json({ error: 'No judges assigned to this event yet' });
+    let sent = 0; const skipped = [];
+    for (const j of judges) {
+      if (!j.phone) { skipped.push(j.full_name); continue; }
+      const code = await createOtp(j.phone);
+      await sendWhatsApp(j.phone, `Your KCA ITS judge login OTP is ${code}.`).catch(() => null);
+      await pool.query(`UPDATE judges SET otp_sent_at = NOW(), otp_sent_by = $1 WHERE id = $2`, [req.user.id, j.id]);
+      sent += 1;
+    }
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'SEND_EVENT_OTPS', entity: 'events', entityId: req.params.eventId, details: { sent, skipped } });
+    res.json({ sent, skipped, total: judges.length });
   } catch (err) { next(err); }
 });
 

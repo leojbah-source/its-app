@@ -12,6 +12,7 @@ import Registrations from './pages/Registrations';
 import Lists from './pages/Lists';
 import Schedule from './pages/Schedule';
 import Judges from './pages/Judges';
+import Assignment from './pages/judging/Assignment';
 
 // Parent registration portal pages
 import Landing from './pages/register/Landing';
@@ -59,9 +60,14 @@ export default function App() {
                 element={<ProtectedRoute><Schedule /></ProtectedRoute>}
               />
               <Route
-                path="/admin/judges"
-                element={<ProtectedRoute><Judges /></ProtectedRoute>}
+                path="/admin/judging/judges"
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><Judges /></ProtectedRoute>}
               />
+              <Route
+                path="/admin/judging/assignment"
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><Assignment /></ProtectedRoute>}
+              />
+              <Route path="/admin/judges" element={<Navigate to="/admin/judging/judges" replace />} />
               <Route path="/admin" element={<Navigate to="/admin/config/year" replace />} />
 
               {/* ── Parent registration portal ───────────────────────────── */}

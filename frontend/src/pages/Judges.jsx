@@ -1,10 +1,10 @@
 // src/pages/Judges.jsx
-// Judges management: profiles (brief + detailed/MC bio, fields of expertise),
-// blacklist (rule #10), manual OTP at briefing (rule #12), and assigning ~3
-// judges per event off the published schedule (earliest date first). Contact
-// fields render only for SuperAdmin/Chairman (rule #11).
+// Judge PROFILES only — create/edit, brief + detailed (MC) bios, fields of
+// expertise, blacklist (rule #10). Event assignment and briefing OTPs now live
+// on the Schedule page (event level), where 3 judges are picked per event from
+// those whose expertise matches the event's category.
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Plus, Gavel, Ban, ShieldCheck, KeyRound, Trash2, UserPlus, X, Save } from 'lucide-react';
+import { RefreshCw, Plus, Gavel, Ban, ShieldCheck, Trash2, Save } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -18,75 +18,6 @@ import { judgesApi, categoriesApi } from '../api/client';
 const MANAGE_ROLES = ['SuperAdmin', 'Chairman'];
 const blank = () => ({ full_name: '', bio: '', detailed_bio: '', expertise: [], phone: '', whatsapp: '', email: '' });
 
-function AssignPanel({ judge, schedEvents, token, canManage, onChanged }) {
-  const [rows, setRows] = useState([]);
-  const [eventId, setEventId] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
-
-  const load = useCallback(async () => {
-    try { setRows(await judgesApi.assignments(token, judge.id)); } catch { /* ignore */ }
-  }, [token, judge.id]);
-  useEffect(() => { load(); }, [load]);
-
-  async function assign() {
-    if (!eventId) return;
-    setBusy(true); setMsg('');
-    try {
-      const r = await judgesApi.assign(token, { judge_id: judge.id, event_id: Number(eventId) });
-      setMsg(r.note || 'Assigned.'); setEventId(''); await load(); onChanged();
-    } catch (err) {
-      if (err.data?.requiresChairmanConfirmation) {
-        if (!canManage) setMsg('Judge is blacklisted — only Chairman/SuperAdmin can assign.');
-        else if (window.confirm(`${err.data.warning}\n\nConfirm assignment?`)) {
-          try {
-            const r = await judgesApi.assign(token, { judge_id: judge.id, event_id: Number(eventId), chairman_confirmed: true });
-            setMsg(r.note || 'Assigned.'); setEventId(''); await load(); onChanged();
-          } catch (e2) { setMsg(e2.message); }
-        }
-      } else setMsg(err.message);
-    } finally { setBusy(false); }
-  }
-
-  async function remove(assignmentId) {
-    try { await judgesApi.unassign(token, assignmentId); await load(); onChanged(); }
-    catch (err) { setMsg(err.message); }
-  }
-
-  const assignedEventIds = new Set(rows.map((r) => r.event_id));
-  const options = schedEvents.filter((e) => !assignedEventIds.has(e.event_id));
-
-  return (
-    <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-3">
-      <p className="mb-2 text-xs font-semibold text-slate-600">Event assignments ({rows.length})</p>
-      <div className="mb-2 flex flex-wrap gap-1.5">
-        {rows.length === 0 && <span className="text-xs text-slate-400">No events yet.</span>}
-        {rows.map((r) => (
-          <span key={r.assignment_id} className="inline-flex items-center gap-1 rounded-full bg-white border border-slate-200 px-2 py-0.5 text-xs">
-            {r.event_code} · {r.event_name}
-            <button onClick={() => remove(r.assignment_id)} className="text-slate-400 hover:text-red-600" title="Unassign"><X size={12} /></button>
-          </span>
-        ))}
-      </div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <select value={eventId} onChange={(e) => setEventId(e.target.value)}
-          className="rounded-md border border-slate-300 px-2 py-1.5 text-sm max-w-md">
-          <option value="">
-            {schedEvents.length ? 'Add from schedule (earliest first)…' : 'No schedule yet — generate/publish it first'}
-          </option>
-          {options.map((e) => (
-            <option key={e.event_id} value={e.event_id}>
-              {e.earliest_date} · {e.event_code} · {e.event_name}{e.published ? '' : ' (draft)'}
-            </option>
-          ))}
-        </select>
-        <Button size="sm" variant="outline" icon={UserPlus} loading={busy} disabled={!eventId} onClick={assign}>Assign</Button>
-        {msg && <span className="text-xs text-slate-600">{msg}</span>}
-      </div>
-    </div>
-  );
-}
-
 function ExpertisePicker({ categories, value, onChange }) {
   const toggle = (code) => {
     const has = value.includes(code);
@@ -95,7 +26,7 @@ function ExpertisePicker({ categories, value, onChange }) {
   return (
     <div>
       <label className="mb-1 block text-sm font-medium text-navy-800">Fields of expertise</label>
-      <p className="mb-2 text-xs text-slate-500">Categories this judge can adjudicate — used to find judges for an event later.</p>
+      <p className="mb-2 text-xs text-slate-500">Categories this judge can adjudicate — event assignment shows only judges whose expertise matches the event's category.</p>
       <div className="flex flex-wrap gap-1.5">
         {categories.map((c) => {
           const on = value.includes(c.code);
@@ -118,12 +49,10 @@ export default function Judges() {
   const canManage = MANAGE_ROLES.includes(user?.role);
 
   const [judges, setJudges] = useState([]);
-  const [schedEvents, setSchedEvents] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [flash, setFlash] = useState('');
-  const [expanded, setExpanded] = useState(null);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [draft, setDraft] = useState(blank());
@@ -139,12 +68,11 @@ export default function Judges() {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [j, se, cats] = await Promise.all([
+      const [j, cats] = await Promise.all([
         judgesApi.list(token),
-        judgesApi.scheduleEvents(token).catch(() => []),
         categoriesApi.list(token).catch(() => []),
       ]);
-      setJudges(j); setSchedEvents(se); setCategories(cats);
+      setJudges(j); setCategories(cats);
     } catch (err) { setError(err.message || 'Failed to load judges'); }
     finally { setLoading(false); }
   }, [token]);
@@ -182,13 +110,9 @@ export default function Judges() {
     try { await judgesApi.remove(token, del.id); setDel(null); setFlash('Judge deleted.'); load(); }
     catch (err) { setDel(null); setFlash(err.message); }
   }
-  async function sendOtp(j) {
-    try { await judgesApi.sendOtp(token, j.id); setFlash(`OTP sent to ${j.full_name}.`); load(); }
-    catch (err) { setFlash(err.message); }
-  }
 
   return (
-    <AdminLayout title="Judges" subtitle="Profiles, expertise, briefing OTPs, and event assignments — 3 judges per event.">
+    <AdminLayout title="Judges" subtitle="Judge profiles and fields of expertise. Assign judges to events (and send briefing OTPs) from the Schedule page.">
       <div className="mb-4 flex items-center justify-between gap-2">
         <div className="text-sm text-slate-500">{judges.length} judge(s)</div>
         <div className="flex gap-2">
@@ -202,7 +126,7 @@ export default function Judges() {
       {loading ? <PageLoader label="Loading judges…" />
         : error ? <ErrorBanner message={error} onRetry={load} />
         : judges.length === 0 ? (
-          <Card><EmptyState icon={Gavel} title="No judges yet" description={canManage ? 'Add your first judge to begin assigning them to events.' : 'No judges have been added yet.'} /></Card>
+          <Card><EmptyState icon={Gavel} title="No judges yet" description={canManage ? 'Add your first judge, then assign them to events from the Schedule page.' : 'No judges have been added yet.'} /></Card>
         ) : (
           <Card className="overflow-hidden p-0">
             <table className="w-full text-sm">
@@ -211,65 +135,47 @@ export default function Judges() {
                   <th className="px-4 py-2">Judge</th>
                   <th className="px-4 py-2">Expertise</th>
                   <th className="px-4 py-2">Contact</th>
-                  <th className="px-4 py-2">Events</th>
                   <th className="px-4 py-2">Status</th>
                   <th className="px-4 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {judges.map((j) => (
-                  <>
-                    <tr key={j.id} className="align-top">
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-navy-800">{j.full_name}</div>
-                        {j.bio && <div className="text-xs text-slate-500 max-w-xs">{j.bio}</div>}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {(j.expertise || []).length === 0 && <span className="text-xs text-slate-400">—</span>}
-                          {(j.expertise || []).map((code) => (
-                            <span key={code} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">{catName(code)}</span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-slate-600">
-                        {j.phone || j.whatsapp || j.email ? (
-                          <>
-                            {j.phone && <div>{j.phone}</div>}
-                            {j.email && <div>{j.email}</div>}
-                          </>
-                        ) : j.has_contact ? <span className="text-slate-400 italic">restricted</span>
-                          : <span className="text-slate-400">—</span>}
-                      </td>
-                      <td className="px-4 py-3">
-                        <button onClick={() => setExpanded(expanded === j.id ? null : j.id)}
-                          className="text-xs font-medium text-navy-600 underline">
-                          {j.assignment_count} event(s)
-                        </button>
-                      </td>
-                      <td className="px-4 py-3">
-                        {j.is_blacklisted ? <Badge tone="danger">Blacklisted</Badge> : <Badge tone="success">Active</Badge>}
-                        {j.otp_sent_at && <div className="mt-1 text-[10px] text-slate-400">OTP sent</div>}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap items-center justify-end gap-1.5">
-                          <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => sendOtp(j)} title="Send login OTP">OTP</Button>
-                          {canManage && <Button size="sm" variant="ghost" onClick={() => openEdit(j)}>Edit</Button>}
-                          {canManage && (j.is_blacklisted
-                            ? <Button size="sm" variant="ghost" icon={ShieldCheck} onClick={() => unblacklist(j)}>Unblock</Button>
-                            : <Button size="sm" variant="ghost" icon={Ban} onClick={() => { setBlk(j); setBlkReason(''); }}>Blacklist</Button>)}
-                          {canManage && <Button size="sm" variant="ghost" icon={Trash2} onClick={() => setDel(j)} title="Delete" />}
-                        </div>
-                      </td>
-                    </tr>
-                    {expanded === j.id && (
-                      <tr key={`${j.id}-exp`}>
-                        <td colSpan={6} className="px-4 pb-3">
-                          <AssignPanel judge={j} schedEvents={schedEvents} token={token} canManage={canManage} onChanged={load} />
-                        </td>
-                      </tr>
-                    )}
-                  </>
+                  <tr key={j.id} className="align-top">
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-navy-800">{j.full_name}</div>
+                      {j.bio && <div className="text-xs text-slate-500 max-w-xs">{j.bio}</div>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {(j.expertise || []).length === 0 && <span className="text-xs text-slate-400">—</span>}
+                        {(j.expertise || []).map((code) => (
+                          <span key={code} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">{catName(code)}</span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-600">
+                      {j.phone || j.whatsapp || j.email ? (
+                        <>
+                          {j.phone && <div>{j.phone}</div>}
+                          {j.email && <div>{j.email}</div>}
+                        </>
+                      ) : j.has_contact ? <span className="text-slate-400 italic">restricted</span>
+                        : <span className="text-slate-400">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {j.is_blacklisted ? <Badge tone="danger">Blacklisted</Badge> : <Badge tone="success">Active</Badge>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        {canManage && <Button size="sm" variant="ghost" onClick={() => openEdit(j)}>Edit</Button>}
+                        {canManage && (j.is_blacklisted
+                          ? <Button size="sm" variant="ghost" icon={ShieldCheck} onClick={() => unblacklist(j)}>Unblock</Button>
+                          : <Button size="sm" variant="ghost" icon={Ban} onClick={() => { setBlk(j); setBlkReason(''); }}>Blacklist</Button>)}
+                        {canManage && <Button size="sm" variant="ghost" icon={Trash2} onClick={() => setDel(j)} title="Delete" />}
+                      </div>
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -288,7 +194,7 @@ export default function Judges() {
           <Textarea label="Brief bio" hint="Short blurb for public judge lists." value={draft.bio} onChange={(e) => setDraft({ ...draft, bio: e.target.value })} />
           <Textarea label="Detailed bio (MC introduction)" hint="Read aloud by the MCs to introduce the judge; the MC script pulls this for the 3 judges on an event." value={draft.detailed_bio} onChange={(e) => setDraft({ ...draft, detailed_bio: e.target.value })} />
           <ExpertisePicker categories={categories} value={draft.expertise} onChange={(expertise) => setDraft({ ...draft, expertise })} />
-          <Input label="Phone" hint="Used for the briefing login OTP." value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} />
+          <Input label="Phone" hint="Used for the briefing login OTP (sent from the Schedule page)." value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} />
           <Input label="WhatsApp" value={draft.whatsapp} onChange={(e) => setDraft({ ...draft, whatsapp: e.target.value })} />
           <Input label="Email" type="email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} />
         </div>

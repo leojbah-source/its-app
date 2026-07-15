@@ -373,6 +373,61 @@ exact names, and both have CHECK constraints requiring a reason when set.
 Still to build: /api/timer/* routes, admin timing & DQ endpoints, Timer UI
 (full-screen stopwatch), Timing & DQ admin tab, judge DQ banner, PWA DQ display.
 
+## Judging section restructure (July 2026)
+Judging is now its own nav GROUP restricted to Chairman + SuperAdmin (separate
+access level). The Event-judges table was removed from the Schedule page (too
+long with 100+ events) and became a dedicated page.
+- Sidebar.jsx: expandable "Judging" group (NavGroup, default open) — children
+  Judges (/admin/judging/judges), Event assignment (/admin/judging/assignment),
+  Results (Soon). Group hidden unless user.role is SuperAdmin/Chairman.
+- App.jsx: routes /admin/judging/judges + /admin/judging/assignment both
+  <ProtectedRoute allowedRoles={['SuperAdmin','Chairman']}> (ProtectedRoute
+  already supports allowedRoles). /admin/judges → redirect to the new judges
+  route. Removed <EventJudges> from Schedule.jsx.
+- Backend admin.judges.routes.js: staffRoles/assignRoles tightened to
+  ['SuperAdmin','Chairman'] — the whole judges API is now Chairman/SuperAdmin.
+- Assignment page (src/pages/judging/Assignment.jsx) = per-EVENT rows with
+  SUMMARY columns: Date | Time (first_start +N sessions) | Venue(s) | Event
+  (+category, N/3 badge) | Ages | Entries | Judge 1/2/3 | Assign + OTP.
+  /event-assignments query extended: to_char(MIN(start_time)) first_start,
+  COUNT(DISTINCT s.id) session_count, string_agg(DISTINCT venue) venues,
+  string_agg(DISTINCT age_groups,' | ') age_groups, and a subquery entries
+  = registrations for the event (excl. withdrawn/swapped). Same 3 judges cover
+  all of an event's sessions (per-event model kept; no schema change).
+- ORPHANED: src/pages/schedule/EventJudges.jsx is no longer imported (its logic
+  moved into judging/Assignment.jsx). Could not delete from the sandbox (mount
+  blocks rm) — remove with `git rm frontend/src/pages/schedule/EventJudges.jsx`.
+- Verified: all changed files parse (esbuild) + backend module loads.
+
+## Event-level judge assignment (July 2026)
+Moved judge ASSIGNMENT out of the Judges page and onto the Schedule page
+(assignment is per event; profiles stay on the Judges page). No migration.
+- Backend admin.judges.routes.js added:
+  * GET /candidates/:eventId — judges whose expertise includes the event's
+    category code (STRICT), each with assigned/has_phone/is_blacklisted flags.
+  * GET /event-assignments — one row per scheduled event, earliest date first,
+    each with its assigned judges [{assignment_id, judge_id, full_name,
+    has_phone, is_blacklisted}] (two queries merged in JS to avoid the
+    schedule×assignment cross-product). Carries category_code/name + published.
+  * POST /event/:eventId/send-otps — OTP ALL assigned judges at once
+    (createOtp+sendWhatsApp, stamps otp_sent_at/by), returns {sent, skipped,
+    total}; skipped = judges with no phone.
+  (assign/unassign/:id endpoints unchanged and reused.)
+- Frontend:
+  * Judges.jsx SLIMMED to profiles-only — removed the AssignPanel, Events
+    column, expand, per-judge OTP button, and scheduleEvents load. Now:
+    Judge | Expertise | Contact | Status | Edit/Blacklist/Delete.
+  * NEW src/pages/schedule/EventJudges.jsx — table (one row per event, earliest
+    first): Date | Event | Category | Judge 1/2/3 | Assign + OTP. Assign opens a
+    ConfirmDialog listing strict expertise-match candidates (checkboxes; merges
+    in any already-assigned off-category judge so it can be removed); Save diffs
+    selected vs current → assign new / unassign dropped (handles blacklist
+    chairman_confirmed via window.confirm). OTP button sends the event's
+    briefing OTPs. Rendered on Schedule.jsx below the schedule grid.
+  * client.js judgesApi: candidates, eventAssignments, sendEventOtps added;
+    scheduleEvents kept but no longer used by the Judges page.
+- Verified: backend node -c + module load; all frontend files parse via esbuild.
+
 ## Judges module — foundation slice DONE (July 2026)
 Rewrote admin.judges.routes.js (was schema-mismatched: used j.name, ja.status,
 ja.year_id, otp on wrong table) against the REAL schema and built the admin
