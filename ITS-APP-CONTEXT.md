@@ -373,6 +373,49 @@ exact names, and both have CHECK constraints requiring a reason when set.
 Still to build: /api/timer/* routes, admin timing & DQ endpoints, Timer UI
 (full-screen stopwatch), Timing & DQ admin tab, judge DQ banner, PWA DQ display.
 
+## Judge scoring — weightage fix, event focus, grid (July 2026)
+Fixes + rework after first judge-portal test:
+- WEIGHTAGE BUG: trg_event_criteria_check is FOR EACH ROW and sums ALL of the
+  event's criteria (raises if >100). Updating criteria one-by-one tripped it on
+  an intermediate sum (e.g. 110). FIX: judge.routes /criteria now updates all
+  criteria in ONE statement (UPDATE event_criteria FROM (VALUES ...) v) so the
+  AFTER-EACH-ROW trigger sees the final total = 100.
+- EVENT FOCUS (migration 018): judges.active_event_id. send-otps sets it to the
+  event for each judge; GET /api/judge/events filters to that event when set
+  (JOIN judges, WHERE active_event_id IS NULL OR e.id = active_event_id). So a
+  judge only sees the event they were OTP'd for — can't open the wrong one.
+  Overwritten by the next event's OTP send; NULL = all assigned.
+- SCORING UI REBUILT (JudgeApp.jsx): focused flow event → pick ONE group (cards)
+  → full-screen scoresheet with a big "Now scoring: EVENT · Group Gx" banner
+  (no side-by-side groups → no mix-ups). GRID = chest rows × criteria columns
+  (C1..Cn, sorted by sequence_order, max in header) + live TOTAL + live RANK
+  (rule #6, this judge only; standard competition ranking, only chests with
+  total>0). Scores AUTO-SAVE on cell blur (per-cell POST). Sticky chest column,
+  horizontal scroll → works on mobile/tablet. Weightage panel unchanged
+  (single judge sets, locks once scoring starts).
+- Verified: backend node -c + load; JudgeApp parses.
+- MIGRATION 018 must be applied before this works (active_event_id column).
+
+## OTP delivery — wa.me links + dev echo (July 2026)
+On localhost the WhatsApp API isn't configured (WHATSAPP_API_BASE_URL unset), so
+sendWhatsApp() skipped silently — OTPs were generated/stored but never delivered.
+- utils/notify.js: sendWhatsApp() now always returns { delivered, link, skipped }
+  where link = waLink(phone, msg) = https://wa.me/<intl-digits>?text=<encoded>.
+  When no provider is configured it returns delivered:false + the click-to-chat
+  link (real WhatsApp, no account needed). Green API / WA Business still send
+  automatically when configured. waLink exported.
+- admin.judges send-otp (single) + event/:id/send-otps return the wa.me link(s):
+  send-otps → { total, delivered, skipped, links:[{name,phone,url,delivered}],
+  dev_codes:[{name,code}] }. dev = OTP_DEV_ECHO==='true' || NODE_ENV!=='production'
+  → includes the actual OTP code for local testing (never in production).
+- Frontend Assignment.jsx: the per-event OTP button opens a modal listing each
+  judge with an "Open WhatsApp" link (green, target _blank) + the dev code +
+  "no phone" list. Admin taps to send each judge their OTP via their own WhatsApp.
+- TESTING: click OTP on Event assignment → modal shows codes (localhost) → log in
+  at /judge/login with the judge's phone + that code. For real delivery set
+  WHATSAPP_PROVIDER=green-api + WHATSAPP_API_BASE_URL/INSTANCE_ID/API_KEY in .env.
+- Verified: notify + judges route node -c + load; Assignment parses.
+
 ## Judge scoring portal — backend + UI (July 2026)
 Full judge scoring flow. Bare scoring (no live ranking yet); weightages agreed
 on the day; per-group, chest-only (rule #5). No migration.

@@ -20,6 +20,7 @@ export default function Assignment() {
   const [error, setError] = useState('');
   const [flash, setFlash] = useState('');
   const [sendingId, setSendingId] = useState(null);
+  const [otpInfo, setOtpInfo] = useState(null);
 
   const [modalEvent, setModalEvent] = useState(null);
   const [candidates, setCandidates] = useState([]);
@@ -83,8 +84,7 @@ export default function Assignment() {
     setSendingId(ev.event_id); setFlash('');
     try {
       const r = await judgesApi.sendEventOtps(token, ev.event_id);
-      const skip = r.skipped?.length ? ` (${r.skipped.length} without phone: ${r.skipped.join(', ')})` : '';
-      setFlash(`Sent ${r.sent} OTP(s) for ${ev.event_code} · ${ev.event_name}${skip}.`);
+      setOtpInfo({ event: `${ev.event_code} · ${ev.event_name}`, ...r });
     } catch (err) { setFlash(err.message); }
     finally { setSendingId(null); }
   }
@@ -191,6 +191,42 @@ export default function Assignment() {
         <p className="mt-2 text-xs text-slate-500">{selected.size} selected · 3 per event recommended.</p>
         {modalErr && <p className="mt-1 text-xs text-red-600">{modalErr}</p>}
       </ConfirmDialog>
+
+      {otpInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOtpInfo(null)}>
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-navy-900">Judge OTPs — {otpInfo.event}</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              {otpInfo.delivered > 0 ? `${otpInfo.delivered} sent via WhatsApp automatically. ` : 'WhatsApp API not configured. '}
+              Tap “Open WhatsApp” to send each judge their OTP.
+            </p>
+            <div className="mt-3 divide-y divide-slate-100 rounded-md border border-slate-200">
+              {(otpInfo.links || []).map((l) => {
+                const code = (otpInfo.dev_codes || []).find((d) => d.name === l.name)?.code;
+                return (
+                  <div key={l.phone} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                    <div>
+                      <div className="font-medium text-slate-800">{l.name}</div>
+                      <div className="text-xs text-slate-500">{l.phone}{code ? ` · code ${code}` : ''}{l.delivered ? ' · sent ✓' : ''}</div>
+                    </div>
+                    {l.url && (
+                      <a href={l.url} target="_blank" rel="noreferrer"
+                        className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700">Open WhatsApp</a>
+                    )}
+                  </div>
+                );
+              })}
+              {(!otpInfo.links || otpInfo.links.length === 0) && <p className="px-3 py-3 text-xs text-slate-400">No judges with a phone number.</p>}
+            </div>
+            {otpInfo.skipped?.length > 0 && (
+              <p className="mt-2 text-xs text-amber-600">No phone on file: {otpInfo.skipped.join(', ')}</p>
+            )}
+            <div className="mt-4 text-right">
+              <button onClick={() => setOtpInfo(null)} className="rounded-md border border-slate-300 px-4 py-1.5 text-sm">Done</button>
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
 }

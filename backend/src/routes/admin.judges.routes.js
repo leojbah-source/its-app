@@ -186,13 +186,14 @@ router.post('/:id/send-otp', requireRole(...assignRoles), async (req, res, next)
     if (!rows[0].phone) return res.status(400).json({ error: 'Judge has no phone number on file' });
 
     const code = await createOtp(rows[0].phone);
-    await sendWhatsApp(rows[0].phone, `Your KCA ITS judge login OTP is ${code}.`).catch(() => null);
+    const r = await sendWhatsApp(rows[0].phone, `KCA ITS — your judge login OTP is ${code}.`);
     await pool.query(
       `UPDATE judges SET otp_sent_at = NOW(), otp_sent_by = $1 WHERE id = $2`,
       [req.user.id, req.params.id]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'SEND_JUDGE_OTP', entity: 'judges', entityId: req.params.id });
-    res.json({ message: 'OTP sent to judge' });
+    const dev = process.env.OTP_DEV_ECHO === 'true' || process.env.NODE_ENV !== 'production';
+    res.json({ message: r.delivered ? 'OTP sent to judge' : 'WhatsApp not configured — use the link to send', link: r.link, ...(dev ? { code } : {}) });
   } catch (err) { next(err); }
 });
 
@@ -360,17 +361,20 @@ router.post('/event/:eventId/send-otps', requireRole(...assignRoles), async (req
       `SELECT j.id, j.full_name, j.phone FROM judge_assignments ja
        JOIN judges j ON j.id = ja.judge_id WHERE ja.event_id = $1`, [req.params.eventId]);
     if (!judges.length) return res.status(400).json({ error: 'No judges assigned to this event yet' });
-    let sent = 0; const skipped = [];
+    const dev = process.env.OTP_DEV_ECHO === 'true' || process.env.NODE_ENV !== 'production';
+    let delivered = 0; const skipped = []; const links = []; const devCodes = [];
     for (const j of judges) {
       if (!j.phone) { skipped.push(j.full_name); continue; }
       const code = await createOtp(j.phone);
-      await sendWhatsApp(j.phone, `Your KCA ITS judge login OTP is ${code}.`).catch(() => null);
-      await pool.query(`UPDATE judges SET otp_sent_at = NOW(), otp_sent_by = $1 WHERE id = $2`, [req.user.id, j.id]);
-      sent += 1;
+      const r = await sendWhatsApp(j.phone, `KCA ITS — your judge login OTP is ${code}. Log in with phone ${j.phone}.`);
+      if (r.delivered) delivered += 1;
+      links.push({ name: j.full_name, phone: j.phone, url: r.link, delivered: !!r.delivered });
+      if (dev) devCodes.push({ name: j.full_name, code });
+      await pool.query(`UPDATE judges SET otp_sent_at = NOW(), otp_sent_by = $1, active_event_id = $3 WHERE id = $2`, [req.user.id, j.id, req.params.eventId]);
     }
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
-      action: 'SEND_EVENT_OTPS', entity: 'events', entityId: req.params.eventId, details: { sent, skipped } });
-    res.json({ sent, skipped, total: judges.length });
+      action: 'SEND_EVENT_OTPS', entity: 'events', entityId: req.params.eventId, details: { delivered, skipped } });
+    res.json({ total: judges.length, delivered, skipped, links, ...(dev ? { dev_codes: devCodes } : {}) });
   } catch (err) { next(err); }
 });
 
