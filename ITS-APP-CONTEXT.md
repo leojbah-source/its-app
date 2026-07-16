@@ -373,6 +373,78 @@ exact names, and both have CHECK constraints requiring a reason when set.
 Still to build: /api/timer/* routes, admin timing & DQ endpoints, Timer UI
 (full-screen stopwatch), Timing & DQ admin tab, judge DQ banner, PWA DQ display.
 
+## Event Day: chest lock + group reset + dramatized draw (July 2026)
+Refinements after the per-group rework (an event is ALWAYS group-level — e.g.
+Clay Modelling G4 vs G2 are separate contests):
+- CHEST LOCK once judging starts: admin.chest.routes.js gains groupLocked(
+  eventId, ageGroupId) = EXISTS score for a registration in that (event,group).
+  assign-auto / assign-timeslot / manual / clear return 409 when locked; the
+  /groups endpoint now returns a `locked` boolean per group. (Forward-compatible:
+  locks the moment the judge scoring UI starts writing scores.)
+- GROUP RESET: EventDay loadRoster now setRoster([]) immediately on group switch
+  so the previous group's present/absent never lingers. (Attendance is stored
+  per registration/group already; the seed data pre-marks everyone 'attended',
+  which looked like carry-over — real regs start 'registered'.)
+- DRAMATIZED DRAW: after assigning chests, a full-screen DrawOverlay reveals each
+  participant one at a time (big chest number + name, ~1.2s each, scale/fade via
+  BigReveal), with a running list of already-drawn and a Skip/Done button —
+  projector-friendly for the kids. Reveal list built from the assign response
+  (chest_number) + names from the current roster.
+- Locked groups show a lock icon on the group chip + a "Locked — judging started"
+  badge; all chest actions (assign/timeslot/clear/manual edit) hide when locked.
+- Verified: chest route node -c + load; EventDay parses (esbuild).
+
+## Event Day per-group rework + migration 017 (July 2026)
+Chest numbers restart at 1 for EACH age group (groups run one after another,
+numbers don't carry forward). Migration 017 (017_chest_per_group.sql):
+chest_assignments gains age_group_id (FK, backfilled from registrations); the
+UNIQUE(event_id, chest_number) is replaced by UNIQUE(event_id, age_group_id,
+chest_number) so two groups can both have chest #1.
+- Backend admin.chest.routes.js now GROUP-scoped:
+  GET /:event_id/groups (each age group with total/attended/with_chest),
+  GET /:event_id/roster?age_group_id=, POST /assign-auto & /assign-timeslot
+  take {age_group_id} and number from MAX within (event,group)+1 (restart at 1),
+  PUT /manual/:reg_id derives age_group_id from the registration,
+  DELETE /:event_id?age_group_id= clears a group (or all). All inserts set
+  age_group_id.
+- Frontend EventDay.jsx rebuilt: DAY picker (default today, datalist of
+  scheduled dates) → EVENT on that day (venue/time shown; NO category) → age
+  GROUP chips (with counts) → roster for that group. Attendance Present/Absent
+  updates roster state IN PLACE (no refetch → no scroll jump, fixing the
+  jump-to-top bug on large lists); ABSENT rows show the name red + struck
+  through. Assign/clear are per group. Summary badges computed from local
+  roster so "Assign chests (N)" is live.
+- client.js chestApi: groups() added; roster/assignAuto/assignTimeslot/clear now
+  take ageGroupId.
+- Verified: chest route node -c + load; EventDay + client parse via esbuild.
+- MIGRATION 017 must be applied (node scripts/run-migrations.js) before this
+  works — otherwise assign fails on the missing age_group_id column.
+
+## Event Day admin screen + day-of workflow (July 2026)
+User's day-of sequence: MC ready (MC script: event + 3 judges' detailed_bio
+intros + criteria + timing) → admin marks attendance → chests assigned → judges
+get briefing sheet (criteria + agree weightages totalling 100, C1 highest) →
+judges open scoring screen via OTP → 3 judges agree criteria weightages on the
+day → contest begins. Reference formats in uploads: "MC Script.pdf" (2025
+template) and "Judges briefing-2024.xlsx".
+- BUILT this slice: Event Day admin screen (src/pages/EventDay.jsx, route
+  /admin/event-day, nav "Event Day" — NOT under the Chairman-only Judging
+  group; it's operations, visible to all staff, backend enforces markRoles).
+  Pick a scheduled event (derived from scheduleApi.list) → roster (chestApi
+  .roster) → mark Present/Absent per row (POST attendance) → Assign chests
+  (auto) or By time-slot; Clear chests + manual chest edit (Chairman/SA).
+  Summary badges: entries/present/absent/chests/awaiting. chestApi added to
+  client.js (roster/list/markAttendance/assignAuto/assignTimeslot/manual/clear).
+- DECISIONS for the rest of the day-of flow:
+  * Weightages: judges AGREE/ADJUST on the day (start from event_criteria
+    config, panel can change max_score + C1/C2 sequence_order at briefing;
+    needs an edit endpoint + audit — to build in the scoring/briefing slice).
+  * MC script: build generation using the extracted 2025 template (auto-fill
+    event details, judge intros from detailed_bio, criteria, timing, sponsors).
+- STILL TODO (day-of frontend): judge mobile scoring UI (OTP login → events →
+  chest sheet → agree weightages → enter scores), MC script generation, judges
+  briefing sheet generation.
+
 ## Scoring chain backend — chest, attendance, judge scoring (July 2026)
 Rewrote the day-of + judge-scoring backend against the REAL schema (all three
 were schema-broken). No migration. Bare scoring for now (NO criteria-confirm

@@ -200,6 +200,22 @@ export const scheduleApi = {
 };
 
 // ── Schools lookup ───────────────────────────────────────────────────────────
+export const chestApi = {
+  groups: (token, eventId) => request(`/api/admin/chest/${eventId}/groups`, { token }),
+  roster: (token, eventId, ageGroupId) =>
+    request(`/api/admin/chest/${eventId}/roster${ageGroupId ? `?age_group_id=${ageGroupId}` : ''}`, { token }),
+  markAttendance: (token, eventId, registration_id, present) =>
+    request(`/api/admin/chest/${eventId}/attendance`, { method: 'POST', token, body: { registration_id, present } }),
+  assignAuto: (token, eventId, age_group_id) =>
+    request(`/api/admin/chest/${eventId}/assign-auto`, { method: 'POST', token, body: { age_group_id } }),
+  assignTimeslot: (token, eventId, age_group_id) =>
+    request(`/api/admin/chest/${eventId}/assign-timeslot`, { method: 'POST', token, body: { age_group_id } }),
+  manual: (token, regId, event_id, chest_number) =>
+    request(`/api/admin/chest/manual/${regId}`, { method: 'PUT', token, body: { event_id, chest_number } }),
+  clear: (token, eventId, ageGroupId) =>
+    request(`/api/admin/chest/${eventId}${ageGroupId ? `?age_group_id=${ageGroupId}` : ''}`, { method: 'DELETE', token }),
+};
+
 export const schoolsApi = {
   list: (token) => request('/api/admin/schools', { token }),
 };
