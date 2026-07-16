@@ -137,8 +137,9 @@ export default function EventDay() {
     finally { setBusy(false); }
   }
   async function clearChests() {
-    if (!window.confirm(`Clear chest numbers for ${selectedGroupCode}? (Use before re-drawing this group.)`)) return;
-    try { const r = await chestApi.clear(token, eventId, groupId); setFlash(`Cleared ${r.removed}.`); loadRoster(); reloadGroups(); }
+    const reason = window.prompt(`Clear chest numbers for ${selectedGroupCode}? This is a Chairman action — enter a reason:`, '');
+    if (reason == null || !reason.trim()) return;
+    try { const r = await chestApi.clear(token, eventId, groupId, reason.trim()); setFlash(`Cleared ${r.removed} chest number(s).`); loadRoster(); reloadGroups(); }
     catch (err) { setFlash(err.message); }
   }
   async function setManual(reg) {
@@ -154,6 +155,7 @@ export default function EventDay() {
     absent: roster.filter((r) => r.status === 'absent').length,
     withChest: roster.filter((r) => r.chest_number != null).length,
     awaiting: roster.filter((r) => r.status === 'attended' && r.chest_number == null).length,
+    unmarked: roster.filter((r) => r.status === 'registered').length,
   }), [roster]);
 
   const sel = 'rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
@@ -214,12 +216,14 @@ export default function EventDay() {
             <div className="flex-1" />
             {canMark && !locked && (
               <>
-                <Button variant="primary" icon={Hash} loading={busy} disabled={counts.awaiting === 0}
-                  onClick={() => assign('auto')} title="Random chest numbers for attendees in this group">
+                <Button variant="primary" icon={Hash} loading={busy} disabled={counts.unmarked > 0 || counts.awaiting === 0}
+                  onClick={() => assign('auto')}
+                  title={counts.unmarked > 0 ? 'Mark all participants present/absent first' : 'Random chest numbers for attendees in this group'}>
                   Assign chests ({counts.awaiting})
                 </Button>
-                <Button variant="outline" icon={Hash} loading={busy} disabled={counts.awaiting === 0}
-                  onClick={() => assign('timeslot')} title="Lot draw per time-slot, within this group">
+                <Button variant="outline" icon={Hash} loading={busy} disabled={counts.unmarked > 0 || counts.awaiting === 0}
+                  onClick={() => assign('timeslot')}
+                  title={counts.unmarked > 0 ? 'Mark all participants present/absent first' : 'Lot draw per time-slot, within this group'}>
                   By time-slot
                 </Button>
               </>
@@ -227,6 +231,12 @@ export default function EventDay() {
             {canManual && !locked && counts.withChest > 0 && <Button variant="ghost" icon={Trash2} onClick={clearChests}>Clear chests</Button>}
             <Button variant="outline" icon={RefreshCw} onClick={loadRoster}>Refresh</Button>
           </div>
+
+          {!locked && counts.unmarked > 0 && (
+            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              {counts.unmarked} participant(s) not yet marked — mark everyone present or absent to enable chest assignment.
+            </div>
+          )}
 
           <Card className="p-0 overflow-hidden">
             {loading ? <div className="p-6"><PageLoader label="Loading roster…" /></div>

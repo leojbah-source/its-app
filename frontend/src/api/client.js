@@ -64,6 +64,20 @@ function qs(params = {}) {
 export const authApi = {
   login: (email, password) =>
     request('/api/auth/login', { method: 'POST', body: { email, password } }),
+  sendOtp: (phone) => request('/api/auth/send-otp', { method: 'POST', body: { phone } }),
+  verifyOtp: (phone, otp) => request('/api/auth/verify-otp', { method: 'POST', body: { phone, otp } }),
+};
+
+// Judge-facing (token = judge). Chest numbers only; scoped per age group.
+export const judgeApi = {
+  events: (token) => request('/api/judge/events', { token }),
+  groups: (token, assignmentId) => request(`/api/judge/events/${assignmentId}/groups`, { token }),
+  sheet: (token, assignmentId, ageGroupId) =>
+    request(`/api/judge/sheet/${assignmentId}?age_group_id=${ageGroupId}`, { token }),
+  setCriteria: (token, assignmentId, criteria) =>
+    request(`/api/judge/criteria/${assignmentId}`, { method: 'POST', token, body: { criteria } }),
+  saveScores: (token, assignmentId, scores) =>
+    request(`/api/judge/scores/${assignmentId}`, { method: 'POST', token, body: { scores } }),
 };
 
 export const yearConfigApi = {
@@ -212,8 +226,8 @@ export const chestApi = {
     request(`/api/admin/chest/${eventId}/assign-timeslot`, { method: 'POST', token, body: { age_group_id } }),
   manual: (token, regId, event_id, chest_number) =>
     request(`/api/admin/chest/manual/${regId}`, { method: 'PUT', token, body: { event_id, chest_number } }),
-  clear: (token, eventId, ageGroupId) =>
-    request(`/api/admin/chest/${eventId}${ageGroupId ? `?age_group_id=${ageGroupId}` : ''}`, { method: 'DELETE', token }),
+  clear: (token, eventId, ageGroupId, reason) =>
+    request(`/api/admin/chest/${eventId}${ageGroupId ? `?age_group_id=${ageGroupId}` : ''}`, { method: 'DELETE', token, body: { reason } }),
 };
 
 export const schoolsApi = {

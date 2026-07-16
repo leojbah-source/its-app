@@ -35,6 +35,13 @@ async function groupLocked(eventId, ageGroupId) {
      ) AS locked`, [eventId, ageGroupId]);
   return rows[0].locked;
 }
+// Count entries in the group still awaiting an attendance decision.
+async function groupUnmarked(eventId, ageGroupId) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM registrations
+     WHERE event_id = $1 AND age_group_id = $2 AND status = 'registered'`, [eventId, ageGroupId]);
+  return rows[0].c;
+}
 const grp = (v) => (v === '' || v === undefined || v === null ? null : Number(v));
 
 // ── GET /api/admin/chest/:event_id/groups — age groups for the event ─────────
@@ -107,6 +114,8 @@ router.post('/:event_id/assign-auto', requireRole(...markRoles), async (req, res
     if (!yearId) return res.status(404).json({ error: 'Event not found' });
     if (await groupLocked(req.params.event_id, ag))
       return res.status(409).json({ error: 'Chest numbers are locked — judging has started for this group.' });
+    if (await groupUnmarked(req.params.event_id, ag) > 0)
+      return res.status(409).json({ error: 'Mark every participant present or absent before assigning chest numbers.' });
 
     const { rows: pending } = await pool.query(
       `SELECT r.id AS registration_id, r.time_slot_id FROM registrations r
@@ -144,6 +153,8 @@ router.post('/:event_id/assign-timeslot', requireRole(...markRoles), async (req,
     if (!yearId) return res.status(404).json({ error: 'Event not found' });
     if (await groupLocked(req.params.event_id, ag))
       return res.status(409).json({ error: 'Chest numbers are locked — judging has started for this group.' });
+    if (await groupUnmarked(req.params.event_id, ag) > 0)
+      return res.status(409).json({ error: 'Mark every participant present or absent before assigning chest numbers.' });
     const { rows: slots } = await pool.query(
       `SELECT id FROM event_time_slots WHERE event_id = $1 ORDER BY sort_order, id`, [req.params.event_id]);
     if (!slots.length) return res.status(400).json({ error: 'No time slots configured for this event' });
@@ -208,13 +219,15 @@ router.put('/manual/:reg_id', requireRole('Chairman', 'SuperAdmin'), async (req,
 router.delete('/:event_id', requireRole('Chairman', 'SuperAdmin'), async (req, res, next) => {
   try {
     const ag = grp(req.query.age_group_id);
+    const reason = (req.body?.reason || '').trim();
+    if (!reason) return res.status(400).json({ error: 'A reason is required to clear chest numbers.' });
     if (await groupLocked(req.params.event_id, ag))
       return res.status(409).json({ error: 'Chest numbers are locked — judging has started.' });
     const { rowCount } = await pool.query(
       `DELETE FROM chest_assignments WHERE event_id = $1 AND ($2::int IS NULL OR age_group_id = $2)`,
       [req.params.event_id, ag]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
-      action: 'CLEAR_CHESTS', entity: 'chest_assignments', entityId: req.params.event_id, details: { age_group_id: ag, removed: rowCount } });
+      action: 'CLEAR_CHESTS', entity: 'chest_assignments', entityId: req.params.event_id, details: { age_group_id: ag, removed: rowCount, reason } });
     res.json({ removed: rowCount });
   } catch (err) { next(err); }
 });

@@ -373,6 +373,47 @@ exact names, and both have CHECK constraints requiring a reason when set.
 Still to build: /api/timer/* routes, admin timing & DQ endpoints, Timer UI
 (full-screen stopwatch), Timing & DQ admin tab, judge DQ banner, PWA DQ display.
 
+## Judge scoring portal — backend + UI (July 2026)
+Full judge scoring flow. Bare scoring (no live ranking yet); weightages agreed
+on the day; per-group, chest-only (rule #5). No migration.
+- judge.routes.js (rewritten, group-scoped): GET /events (assigned events +
+  criteria_count/total), GET /events/:assignment_id/groups (age groups that have
+  CHEST-ASSIGNED attendees, with participant_count + this judge's scored_count),
+  GET /sheet/:assignment_id?age_group_id= (event, criteria w/ weightages,
+  weightages_locked = any score exists for event, CHEST-ONLY participants for
+  that group via registrations+chest_assignments+attended, my scores),
+  POST /criteria/:assignment_id (agree weightages: validates ids∈event, each>0,
+  sum=100; UPDATE event_criteria max_score+sequence_order; 409 once scoring
+  started), POST /scores/:assignment_id (validates criterion∈event, reg is
+  attended+has chest, 0..max; upserts). eventScored() helper gates weightages.
+- Frontend judge portal (separate sessionStorage auth, token type 'judge'):
+  * JudgeAuthContext (its_judge_token/info); authApi.sendOtp/verifyOtp added
+    (/api/auth/send-otp|verify-otp — admin sends OTP incl. WhatsApp, judge enters
+    it). judgeApi client: events/groups/sheet/setCriteria/saveScores.
+  * pages/judge/JudgeLogin.jsx (phone + OTP, optional self "Send OTP"),
+    pages/judge/JudgeApp.jsx (events list → EventDetail: group chips →
+    GroupSheet). GroupSheet: Criteria & weightages panel — editable until locked;
+    judges enter weightages, HIGHEST weightage auto = C1 (sorted desc → sequence_
+    order), must total 100. Participants listed by CHEST NUMBER only; tap a chest
+    → per-criterion inputs (0..max) → Save chest; green "scored" tick when all
+    criteria filled. Scoring a chest LOCKS that event's chests on Event Day.
+  * App.jsx: JudgeAuthProvider wraps routes; /judge/login + /judge (JudgeRoute).
+- Verified: backend node -c + load; all judge frontend files parse (esbuild).
+- TODO next: admin scoring/results (rewrite admin.judging.routes.js — divergence,
+  grades, finalise/publish + Results tab); MC script + judges briefing sheet
+  documents; optional live-ranking (rule #6) + criteria-confirm gate.
+
+## Event Day: assign-gate + Chairman-reason clear (July 2026)
+- Chest assignment now requires ALL participants in the group to be marked:
+  admin.chest.routes.js groupUnmarked(event,group) counts status='registered';
+  assign-auto/assign-timeslot return 409 "Mark every participant present or
+  absent before assigning chest numbers." Frontend disables the Assign buttons
+  while counts.unmarked>0 and shows an amber hint.
+- Clearing chests requires a REASON (Chairman action): DELETE /:event_id reads
+  req.body.reason, 400 if missing, audited with the reason. Still Chairman/
+  SuperAdmin only (canManual). Frontend prompts for the reason.
+- Verified: chest route node -c + load; client + EventDay parse.
+
 ## Event Day: chest lock + group reset + dramatized draw (July 2026)
 Refinements after the per-group rework (an event is ALWAYS group-level — e.g.
 Clay Modelling G4 vs G2 are separate contests):

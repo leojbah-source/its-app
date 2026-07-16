@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { ParentAuthProvider, useParentAuth } from './context/ParentAuthContext';
+import { JudgeAuthProvider, useJudgeAuth } from './context/JudgeAuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
 // Admin pages
@@ -23,6 +24,8 @@ import Dashboard from './pages/register/Dashboard';
 import ParticipantAdd from './pages/register/ParticipantAdd';
 import ParticipantDetail from './pages/register/ParticipantDetail';
 import TeamRegister from './pages/register/TeamRegister';
+import JudgeLogin from './pages/judge/JudgeLogin';
+import JudgeApp from './pages/judge/JudgeApp';
 
 /** Redirects unauthenticated parents to the portal login. */
 function ParentRoute({ children }) {
@@ -31,11 +34,18 @@ function ParentRoute({ children }) {
   return children;
 }
 
+function JudgeRoute({ children }) {
+  const { isAuthenticated } = useJudgeAuth();
+  if (!isAuthenticated) return <Navigate to="/judge/login" replace />;
+  return children;
+}
+
 export default function App() {
   return (
     <AuthProvider>
       <ToastProvider>
         <ParentAuthProvider>
+          <JudgeAuthProvider>
           <BrowserRouter>
             <Routes>
               {/* ── Admin routes ─────────────────────────────────────────── */}
@@ -96,10 +106,15 @@ export default function App() {
                 element={<ParentRoute><TeamRegister /></ParentRoute>}
               />
 
+              {/* ── Judge scoring portal ─────────────────────────────────── */}
+              <Route path="/judge/login" element={<JudgeLogin />} />
+              <Route path="/judge" element={<JudgeRoute><JudgeApp /></JudgeRoute>} />
+
               {/* ── Fallback ─────────────────────────────────────────────── */}
               <Route path="*" element={<Navigate to="/admin/login" replace />} />
             </Routes>
           </BrowserRouter>
+          </JudgeAuthProvider>
         </ParentAuthProvider>
       </ToastProvider>
     </AuthProvider>
