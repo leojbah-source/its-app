@@ -71,6 +71,7 @@ export const authApi = {
 // Judge-facing (token = judge). Chest numbers only; scoped per age group.
 export const judgeApi = {
   events: (token) => request('/api/judge/events', { token }),
+  briefing: (token, assignmentId) => request(`/api/judge/briefing/${assignmentId}`, { token }),
   groups: (token, assignmentId) => request(`/api/judge/events/${assignmentId}/groups`, { token }),
   sheet: (token, assignmentId, ageGroupId) =>
     request(`/api/judge/sheet/${assignmentId}?age_group_id=${ageGroupId}`, { token }),

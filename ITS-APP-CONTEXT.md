@@ -373,6 +373,37 @@ exact names, and both have CHECK constraints requiring a reason when set.
 Still to build: /api/timer/* routes, admin timing & DQ endpoints, Timer UI
 (full-screen stopwatch), Timing & DQ admin tab, judge DQ banner, PWA DQ display.
 
+## Judges' briefing sheet after login (July 2026)
+The judge portal now opens on a BRIEFING screen (the "Judges briefing sheet"),
+then Continue → scoring.
+- Backend judge.routes: GET /briefing/:assignment_id → { event (+ allotted/
+  grace/yellow seconds, is_stage_event), criteria, weightages_locked, agreement }.
+- Frontend JudgeApp restructured: after login (auto-opens the OTP'd event) →
+  Briefing (criteria list + total, agree/adjust weightages moved here from the
+  grid, timing line for stage events, "Agreed by X/Y" + I-agree) → "Continue to
+  scoring" → GroupPicker → ScoreGrid. The grid no longer carries the weightage
+  panel; it keeps the agreement gate (inputs disabled until all_agreed).
+  client.js judgeApi.briefing added.
+- Verified: judge route load; JudgeApp + client parse.
+
+## Day-of roles decision — MC & Timer (July 2026)
+Per user: MC and Timer are STAFF accounts with a ROLE (Timer role exists in the
+enum; MC to be added), same password login as staff, ASSIGNED per event, and on
+the day each sees ONLY their assigned event + role screen. Judges keep the OTP
+portal. Timer schema already exists: timer_assignments(user_id must hold 'Timer'
+role via trg_timer_assignments_check_role, event_id, year_id, otp_sent_at),
+participant_timings(registration_id, event_id, chest_no, start_time, end_time,
+allotted_time_s/grace_period_s snapshots, GENERATED time_taken/exceeded/
+within_grace/flag_for_dq). events.allotted_time_seconds/grace_period_seconds/
+yellow_alert_seconds drive the stopwatch.
+TODO NEXT (MC slice): migration add 'MC' user_role + mc_assignments; admin
+create MC/Timer users + assign per event (Event assignment page); MC portal
+(role landing after staff login) showing the MC SCRIPT (event details + the 3
+judges' detailed_bio + criteria + timing) and, after intros, chest numbers WITH
+participant names in chest order. THEN Timer portal (chest-only stopwatch:
+start/stop, yellow/red at yellow_alert/allotted, grace, record time per chest;
+Chairman password-verify to edit a missed stop).
+
 ## Results module — rank aggregation + finalise/publish (July 2026)
 Rewrote admin.judging.routes.js (was schema-broken) as the RESULTS module. No
 migration (event_results already exists). Per (event, age group):

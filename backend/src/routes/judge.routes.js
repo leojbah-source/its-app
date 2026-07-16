@@ -60,6 +60,26 @@ router.get('/events', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── GET /api/judge/briefing/:assignment_id — event briefing (criteria+agree) ──
+router.get('/briefing/:assignment_id', async (req, res, next) => {
+  try {
+    const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
+    if (!asg) return res.status(404).json({ error: 'Assignment not found' });
+    const { rows: ev } = await pool.query(
+      `SELECT e.event_code, e.event_name, c.name AS category_name,
+              e.allotted_time_seconds, e.grace_period_seconds, e.yellow_alert_seconds, e.is_stage_event
+       FROM events e LEFT JOIN categories c ON c.id = e.category_id WHERE e.id = $1`, [asg.event_id]);
+    const { rows: criteria } = await pool.query(
+      `SELECT id, criterion_name AS label, max_score, sequence_order
+       FROM event_criteria WHERE event_id = $1 ORDER BY sequence_order, id`, [asg.event_id]);
+    res.json({
+      assignment_id: asg.id, event: ev[0] || null, criteria,
+      weightages_locked: await eventScored(asg.event_id),
+      agreement: await agreementStatus(asg.event_id, asg.id),
+    });
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/judge/events/:assignment_id/groups — groups with chest lists ─────
 router.get('/events/:assignment_id/groups', async (req, res, next) => {
   try {
