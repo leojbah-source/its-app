@@ -373,6 +373,35 @@ exact names, and both have CHECK constraints requiring a reason when set.
 Still to build: /api/timer/* routes, admin timing & DQ endpoints, Timer UI
 (full-screen stopwatch), Timing & DQ admin tab, judge DQ banner, PWA DQ display.
 
+## Results module — rank aggregation + finalise/publish (July 2026)
+Rewrote admin.judging.routes.js (was schema-broken) as the RESULTS module. No
+migration (event_results already exists). Per (event, age group):
+- MODEL (user rule: "results are based on the ranks given by each judge"):
+  each judge ranks the group by their own totals (standard ranking, ties share);
+  PLACEMENT = lowest SUM of the judges' ranks; ties broken by criteria order
+  (C1 totals across judges desc, then C2 …) and tie_flag set. GRADE (A/B/C) by
+  AVERAGE score % vs year_config grade_a/b/c_pct. Points: rank_pts_first/second/
+  third for places 1–3, grade_a/b/c_pts for the grade, participation_bonus_pts
+  for all. DIVERGENCE (rule #7): a participant's judge-ranks spread >
+  round(participants × divergence_threshold_pct/100) → divergence_flag. Places
+  capped at min(3, participant_count).
+- Endpoints (mounted /api/admin, Chairman/SuperAdmin): GET /results/:event/groups
+  (groups + computed/finalised/published state), GET /results/:event/:ag (LIVE
+  compute + per-judge ranks + flags + state), POST .../compute (upsert
+  event_results; never overwrites published rows), POST .../finalise (Stage 1;
+  409 unless scoring complete = every judge scored every participant fully),
+  POST .../publish (Stage 2, Chairman; 409 unless finalised; CHECK enforces).
+- Frontend: src/pages/judging/Results.jsx (event picker from schedule → group
+  chips w/ state → results table: Place | Chest | per-judge ranks | Rank sum |
+  Avg% | Grade | Points | tie/diverge flags; Compute/Finalise/Publish buttons,
+  finalise disabled until complete). resultsApi in client.js. Sidebar "Results"
+  child activated → /admin/judging/results (Chairman/SuperAdmin route).
+- Verified: judging route node -c + load; Results/Sidebar/App parse.
+- DEFERRED: tiebreaker resolution (rule #8 Chairman-unlocked 1–10 marks),
+  extra/consolation prizes (rule #14), min_entries_threshold gating, divergence
+  "proceed/justify" review. Grade thresholds: defaults make B=C=50 (set
+  grade_c_pct lower in Year Setup for a distinct C band).
+
 ## Judge scoring — score cap + all-judges-agree (July 2026)
 - SCORE CAP: over-max entries were rejected by the server but still displayed +
   inflated the grid total. Fix (JudgeApp ScoreGrid): keep a `saved` map (server-

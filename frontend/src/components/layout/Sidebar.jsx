@@ -18,7 +18,7 @@ const NAV_ITEMS = [
     children: [
       { to: '/admin/judging/judges', label: 'Judges', active: true },
       { to: '/admin/judging/assignment', label: 'Event assignment', active: true },
-      { label: 'Results', active: false },
+      { to: '/admin/judging/results', label: 'Results', active: true },
     ],
   },
   { label: 'Awards', icon: Trophy, active: false, badge: 'Chairman' },
