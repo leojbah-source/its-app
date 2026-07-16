@@ -1,65 +1,60 @@
 // src/pages/judge/JudgeApp.jsx
-// Judge scoring: assigned events → pick age group → agree criteria weightages
-// (sum 100; highest weightage = C1) → score each participant by CHEST NUMBER.
+// Judge scoring. Focused flow to avoid mix-ups: the judge sees only the event
+// they were OTP'd for → picks ONE age group → a full-screen scoresheet for that
+// group only. Grid = chest rows × criteria columns + live Total + Rank (rule #6,
+// this judge only). Chest numbers only (rule #5). Mobile/tablet friendly.
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Gavel, LogOut, ChevronLeft, Check, Save, Sliders } from 'lucide-react';
+import { Gavel, LogOut, ChevronLeft, Sliders, Save } from 'lucide-react';
 import { useJudgeAuth } from '../../context/JudgeAuthContext';
 import { judgeApi } from '../../api/client';
 
 export default function JudgeApp() {
   const { token, judge, logout } = useJudgeAuth();
   const [events, setEvents] = useState([]);
-  const [current, setCurrent] = useState(null); // assignment/event
+  const [current, setCurrent] = useState(null);
   const [groups, setGroups] = useState([]);
   const [groupId, setGroupId] = useState(null);
-  const [sheet, setSheet] = useState(null);
   const [flash, setFlash] = useState('');
-  const [loading, setLoading] = useState(false);
 
   const loadEvents = useCallback(async () => {
-    try { setEvents(await judgeApi.events(token)); } catch (e) { setFlash(e.message); }
+    try {
+      const evs = await judgeApi.events(token);
+      setEvents(evs);
+      if (evs.length === 1) openEvent(evs[0]); // focused: only the OTP'd event
+    } catch (e) { setFlash(e.message); }
   }, [token]);
-  useEffect(() => { loadEvents(); }, [loadEvents]);
+  useEffect(() => { loadEvents(); /* eslint-disable-next-line */ }, []);
 
   async function openEvent(ev) {
-    setCurrent(ev); setGroups([]); setGroupId(null); setSheet(null); setFlash('');
+    setCurrent(ev); setGroups([]); setGroupId(null); setFlash('');
     try { setGroups(await judgeApi.groups(token, ev.assignment_id)); } catch (e) { setFlash(e.message); }
   }
-  const loadSheet = useCallback(async () => {
-    if (!current || !groupId) { setSheet(null); return; }
-    setLoading(true);
-    try { setSheet(await judgeApi.sheet(token, current.assignment_id, groupId)); }
-    catch (e) { setFlash(e.message); }
-    finally { setLoading(false); }
-  }, [token, current, groupId]);
-  useEffect(() => { loadSheet(); }, [loadSheet]);
-
-  function backToEvents() { setCurrent(null); setGroups([]); setGroupId(null); setSheet(null); }
+  const reloadGroups = useCallback(() => {
+    if (current) judgeApi.groups(token, current.assignment_id).then(setGroups).catch(() => {});
+  }, [token, current]);
 
   return (
     <div className="min-h-screen bg-slate-100">
-      <header className="sticky top-0 z-10 flex items-center justify-between bg-navy-800 px-4 py-3 text-white">
-        <div className="flex items-center gap-2">
-          <Gavel size={20} className="text-gold-400" />
-          <span className="font-semibold">Judge Scoring</span>
-        </div>
+      <header className="sticky top-0 z-20 flex items-center justify-between bg-navy-800 px-4 py-3 text-white">
+        <div className="flex items-center gap-2"><Gavel size={20} className="text-gold-400" /><span className="font-semibold">Judge Scoring</span></div>
         <div className="flex items-center gap-3 text-sm">
           <span className="text-navy-200">{judge?.name}</span>
           <button onClick={logout} className="inline-flex items-center gap-1 text-navy-100 hover:text-white"><LogOut size={16} /> Sign out</button>
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl p-4">
+      <main className="mx-auto max-w-4xl p-4">
         {flash && <div className="mb-3 rounded-md border border-navy-200 bg-white px-3 py-2 text-sm text-navy-700">{flash}</div>}
 
         {!current ? (
           <EventsList events={events} onOpen={openEvent} />
+        ) : !groupId ? (
+          <GroupPicker current={current} groups={groups}
+            onBack={events.length > 1 ? () => setCurrent(null) : null}
+            onPick={setGroupId} />
         ) : (
-          <EventDetail
-            current={current} groups={groups} groupId={groupId} setGroupId={setGroupId}
-            sheet={sheet} loading={loading} token={token} onBack={backToEvents}
-            reloadSheet={loadSheet} reloadGroups={() => openEvent(current)} setFlash={setFlash}
-          />
+          <ScoreGrid token={token} current={current} groupId={groupId}
+            onBack={() => setGroupId(null)} setFlash={setFlash} reloadGroups={reloadGroups} />
         )}
       </main>
     </div>
@@ -67,16 +62,15 @@ export default function JudgeApp() {
 }
 
 function EventsList({ events, onOpen }) {
-  if (!events.length) return <p className="py-10 text-center text-sm text-slate-500">No events assigned to you yet.</p>;
+  if (!events.length) return <p className="py-10 text-center text-sm text-slate-500">No event is open for you right now. The organiser sends an OTP when your event is ready.</p>;
   return (
     <div className="space-y-2">
-      <h1 className="mb-2 text-lg font-semibold text-navy-900">Your events</h1>
+      <h1 className="mb-2 text-lg font-semibold text-navy-900">Your event</h1>
       {events.map((e) => (
-        <button key={e.assignment_id} onClick={() => onOpen(e)}
-          className="flex w-full items-center justify-between rounded-xl bg-white p-4 text-left shadow-sm hover:bg-slate-50">
+        <button key={e.assignment_id} onClick={() => onOpen(e)} className="flex w-full items-center justify-between rounded-xl bg-white p-4 text-left shadow-sm hover:bg-slate-50">
           <div>
             <div className="font-medium text-navy-800"><span className="font-mono text-xs text-navy-500 mr-1.5">{e.event_code}</span>{e.event_name}</div>
-            <div className="text-xs text-slate-500">{e.category_name} · {e.criteria_count} criteria (total {e.criteria_total})</div>
+            <div className="text-xs text-slate-500">{e.category_name}</div>
           </div>
           <ChevronLeft className="rotate-180 text-slate-400" size={18} />
         </button>
@@ -85,111 +79,131 @@ function EventsList({ events, onOpen }) {
   );
 }
 
-function EventDetail({ current, groups, groupId, setGroupId, sheet, loading, token, onBack, reloadSheet, reloadGroups, setFlash }) {
+function GroupPicker({ current, groups, onBack, onPick }) {
   return (
     <div>
-      <button onClick={onBack} className="mb-3 inline-flex items-center gap-1 text-sm text-navy-600 hover:underline"><ChevronLeft size={16} /> All events</button>
+      {onBack && <button onClick={onBack} className="mb-3 inline-flex items-center gap-1 text-sm text-navy-600 hover:underline"><ChevronLeft size={16} /> Events</button>}
       <h1 className="text-lg font-semibold text-navy-900"><span className="font-mono text-sm text-navy-500 mr-1.5">{current.event_code}</span>{current.event_name}</h1>
-
-      <div className="my-3 flex flex-wrap gap-1.5">
-        {groups.length === 0 && <span className="text-xs text-slate-500">No groups with chest numbers yet — the organiser assigns them on the day.</span>}
-        {groups.map((g) => (
-          <button key={g.age_group_id} onClick={() => setGroupId(g.age_group_id)}
-            className={`rounded-full border px-3 py-1 text-xs font-medium ${String(groupId) === String(g.age_group_id) ? 'border-navy-600 bg-navy-600 text-white' : 'border-slate-300 bg-white text-slate-600'}`}>
-            {g.code} · {g.participant_count} · scored {g.scored_count}/{g.participant_count}
-          </button>
-        ))}
-      </div>
-
-      {loading ? <p className="py-8 text-center text-sm text-slate-500">Loading…</p>
-        : !groupId ? <p className="py-8 text-center text-sm text-slate-500">Select an age group to score.</p>
-        : sheet ? <GroupSheet sheet={sheet} token={token} assignmentId={current.assignment_id} reloadSheet={reloadSheet} reloadGroups={reloadGroups} setFlash={setFlash} />
-        : null}
+      <p className="mb-3 mt-1 text-sm text-slate-500">Select the age group you are judging now.</p>
+      {groups.length === 0 ? (
+        <p className="rounded-lg bg-white p-4 text-sm text-slate-500 shadow-sm">No chest numbers assigned yet — the organiser assigns them on the day, then this list fills in.</p>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {groups.map((g) => (
+            <button key={g.age_group_id} onClick={() => onPick(g.age_group_id)}
+              className="rounded-xl bg-white p-4 text-left shadow-sm hover:bg-slate-50">
+              <div className="text-base font-semibold text-navy-800">Group {g.code}</div>
+              <div className="text-xs text-slate-500">{g.participant_count} participants · scored {g.scored_count}/{g.participant_count}</div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function GroupSheet({ sheet, token, assignmentId, reloadSheet, reloadGroups, setFlash }) {
-  const { criteria, participants, scores, weightages_locked } = sheet;
+function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) {
+  const [sheet, setSheet] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [vals, setVals] = useState({});     // `${reg}:${crit}` -> string
+  const [savingCell, setSavingCell] = useState(null);
   const [editW, setEditW] = useState(false);
-  const [wDraft, setWDraft] = useState(() => criteria.map((c) => ({ id: c.id, label: c.label, max_score: Number(c.max_score) })));
-  const [openReg, setOpenReg] = useState(null);
-  const [sDraft, setSDraft] = useState({});
+  const [wDraft, setWDraft] = useState([]);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => { setWDraft(criteria.map((c) => ({ id: c.id, label: c.label, max_score: Number(c.max_score) }))); }, [criteria]);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const sh = await judgeApi.sheet(token, current.assignment_id, groupId);
+      setSheet(sh);
+      const m = {};
+      for (const s of sh.scores) m[`${s.registration_id}:${s.criterion_id}`] = String(s.score_value);
+      setVals(m);
+      setWDraft(sh.criteria.map((c) => ({ id: c.id, label: c.label, max_score: Number(c.max_score) })));
+    } catch (e) { setFlash(e.message); }
+    finally { setLoading(false); }
+  }, [token, current, groupId]);
+  useEffect(() => { load(); }, [load]);
+
+  const criteria = useMemo(() => (sheet ? [...sheet.criteria].sort((a, b) => a.sequence_order - b.sequence_order) : []), [sheet]);
+  const maxByCrit = useMemo(() => Object.fromEntries(criteria.map((c) => [c.id, Number(c.max_score)])), [criteria]);
+
+  const totalFor = useCallback((reg) => criteria.reduce((t, c) => {
+    const v = Number(vals[`${reg}:${c.id}`]); return t + (Number.isFinite(v) ? v : 0);
+  }, 0), [criteria, vals]);
+
+  const rankMap = useMemo(() => {
+    if (!sheet) return {};
+    const rows = sheet.participants.map((p) => ({ reg: p.registration_id, total: totalFor(p.registration_id) }))
+      .filter((r) => r.total > 0).sort((a, b) => b.total - a.total);
+    const map = {}; let rank = 0, prev = null;
+    rows.forEach((r, i) => { if (r.total !== prev) { rank = i + 1; prev = r.total; } map[r.reg] = rank; });
+    return map;
+  }, [sheet, totalFor]);
+
+  async function saveCell(reg, crit) {
+    const key = `${reg}:${crit}`;
+    const raw = vals[key];
+    if (raw === '' || raw == null) return;
+    const v = Number(raw);
+    if (!Number.isFinite(v) || v < 0 || v > maxByCrit[crit]) { setFlash(`Score must be 0–${maxByCrit[crit]}.`); return; }
+    setSavingCell(key);
+    try {
+      await judgeApi.saveScores(token, current.assignment_id, [{ registration_id: reg, criterion_id: crit, score_value: v }]);
+      reloadGroups();
+    } catch (e) { setFlash(e.message); }
+    finally { setSavingCell(null); }
+  }
 
   const wTotal = wDraft.reduce((t, c) => t + (Number(c.max_score) || 0), 0);
-  const scoreMap = useMemo(() => {
-    const m = {};
-    for (const s of scores) { (m[s.registration_id] ??= {})[s.criterion_id] = Number(s.score_value); }
-    return m;
-  }, [scores]);
-  const isScored = (reg) => criteria.length > 0 && criteria.every((c) => scoreMap[reg]?.[c.id] != null);
-
   async function saveWeights() {
     if (Math.round(wTotal) !== 100) { setFlash(`Weightages must total 100 (now ${wTotal}).`); return; }
     setBusy(true);
     try {
-      // highest weightage = C1: order by max_score desc
-      const ordered = [...wDraft].sort((a, b) => b.max_score - a.max_score)
-        .map((c, i) => ({ id: c.id, max_score: c.max_score, sequence_order: i + 1 }));
-      await judgeApi.setCriteria(token, assignmentId, ordered);
-      setEditW(false); setFlash('Weightages saved.'); reloadSheet();
+      const ordered = [...wDraft].sort((a, b) => b.max_score - a.max_score).map((c, i) => ({ id: c.id, max_score: c.max_score, sequence_order: i + 1 }));
+      await judgeApi.setCriteria(token, current.assignment_id, ordered);
+      setEditW(false); setFlash('Weightages saved.'); load();
     } catch (e) { setFlash(e.message); }
     finally { setBusy(false); }
   }
 
-  function openParticipant(reg) {
-    setOpenReg(reg);
-    const init = {};
-    for (const c of criteria) init[c.id] = scoreMap[reg]?.[c.id] ?? '';
-    setSDraft(init);
-  }
-  async function saveParticipant() {
-    const payload = criteria
-      .filter((c) => sDraft[c.id] !== '' && sDraft[c.id] != null)
-      .map((c) => ({ registration_id: openReg, criterion_id: c.id, score_value: Number(sDraft[c.id]) }));
-    if (!payload.length) { setFlash('Enter at least one score.'); return; }
-    setBusy(true);
-    try { await judgeApi.saveScores(token, assignmentId, payload); setOpenReg(null); setFlash('Saved.'); reloadSheet(); reloadGroups(); }
-    catch (e) { setFlash(e.message); }
-    finally { setBusy(false); }
-  }
-
-  const cSorted = [...criteria].sort((a, b) => a.sequence_order - b.sequence_order);
+  if (loading || !sheet) return <p className="py-10 text-center text-sm text-slate-500">Loading scoresheet…</p>;
+  const gcode = sheet.event?.age_group_code;
 
   return (
-    <div className="space-y-4">
+    <div>
+      <button onClick={onBack} className="mb-2 inline-flex items-center gap-1 text-sm text-navy-600 hover:underline"><ChevronLeft size={16} /> Groups</button>
+
+      {/* Big unambiguous banner — which event + group you are scoring */}
+      <div className="mb-3 rounded-xl bg-navy-700 p-4 text-white">
+        <div className="text-xs uppercase tracking-wide text-navy-200">Now scoring</div>
+        <div className="text-lg font-semibold">{current.event_code} · {current.event_name}</div>
+        <div className="mt-0.5 inline-block rounded-full bg-gold-500 px-3 py-0.5 text-sm font-semibold">Group {gcode}</div>
+      </div>
+
       {/* Criteria & weightages */}
-      <div className="rounded-xl bg-white p-4 shadow-sm">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-navy-900">Criteria &amp; weightages (total 100)</h2>
-          {!weightages_locked && !editW && (
-            <button onClick={() => setEditW(true)} className="inline-flex items-center gap-1 text-xs font-medium text-navy-600 hover:underline"><Sliders size={13} /> Agree / adjust</button>
-          )}
-          {weightages_locked && <span className="text-xs text-slate-400">locked (scoring started)</span>}
+      <div className="mb-3 rounded-xl bg-white p-3 shadow-sm">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-navy-900">Criteria &amp; weightages (100)</h2>
+          {!sheet.weightages_locked && !editW && <button onClick={() => setEditW(true)} className="inline-flex items-center gap-1 text-xs font-medium text-navy-600 hover:underline"><Sliders size={13} /> Agree / adjust</button>}
+          {sheet.weightages_locked && <span className="text-xs text-slate-400">locked</span>}
         </div>
         {!editW ? (
-          <div className="flex flex-wrap gap-1.5">
-            {cSorted.map((c, i) => (
-              <span key={c.id} className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-700">
-                <span className="font-semibold text-navy-700">C{i + 1}</span> {c.label} · <span className="font-mono">{c.max_score}</span>
-              </span>
-            ))}
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {criteria.map((c, i) => <span key={c.id} className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700"><b className="text-navy-700">C{i + 1}</b> {c.label} · {c.max_score}</span>)}
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="mt-2 space-y-2">
             {wDraft.map((c, idx) => (
               <div key={c.id} className="flex items-center gap-2">
                 <span className="flex-1 text-sm text-slate-700">{c.label}</span>
                 <input type="number" min={0} value={c.max_score}
-                  onChange={(e) => setWDraft((prev) => prev.map((x, i) => (i === idx ? { ...x, max_score: e.target.value === '' ? '' : Number(e.target.value) } : x)))}
+                  onChange={(e) => setWDraft((p) => p.map((x, i) => (i === idx ? { ...x, max_score: e.target.value === '' ? '' : Number(e.target.value) } : x)))}
                   className="w-20 rounded-md border border-slate-300 px-2 py-1 text-sm" />
               </div>
             ))}
-            <div className="flex items-center justify-between pt-1">
-              <span className={`text-xs ${Math.round(wTotal) === 100 ? 'text-green-600' : 'text-red-600'}`}>Total {wTotal} / 100 · highest = C1</span>
+            <div className="flex items-center justify-between">
+              <span className={`text-xs ${Math.round(wTotal) === 100 ? 'text-green-600' : 'text-red-600'}`}>Total {wTotal}/100 · highest = C1</span>
               <div className="flex gap-2">
                 <button onClick={() => setEditW(false)} className="rounded-md border border-slate-300 px-3 py-1 text-sm">Cancel</button>
                 <button onClick={saveWeights} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-navy-600 px-3 py-1 text-sm text-white disabled:bg-navy-300"><Save size={14} /> Save</button>
@@ -199,48 +213,55 @@ function GroupSheet({ sheet, token, assignmentId, reloadSheet, reloadGroups, set
         )}
       </div>
 
-      {/* Participants (chest numbers only) */}
-      <div className="rounded-xl bg-white p-2 shadow-sm">
-        {participants.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">No chest numbers assigned yet.</p> : (
-          <ul className="divide-y divide-slate-100">
-            {participants.map((p) => {
-              const scored = isScored(p.registration_id);
-              const open = openReg === p.registration_id;
-              return (
-                <li key={p.registration_id}>
-                  <button onClick={() => (open ? setOpenReg(null) : openParticipant(p.registration_id))}
-                    className="flex w-full items-center justify-between px-3 py-3 text-left hover:bg-slate-50">
-                    <span className="flex items-center gap-3">
-                      <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-navy-100 font-mono text-lg font-bold text-navy-800">{p.chest_number}</span>
-                      <span className="text-sm text-slate-600">Chest {p.chest_number}</span>
-                    </span>
-                    {scored ? <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600"><Check size={14} /> scored</span>
-                      : <span className="text-xs text-slate-400">tap to score</span>}
-                  </button>
-                  {open && (
-                    <div className="border-t border-slate-100 bg-slate-50 px-3 py-3">
-                      <div className="space-y-2">
-                        {cSorted.map((c, i) => (
-                          <div key={c.id} className="flex items-center gap-2">
-                            <span className="flex-1 text-sm text-slate-700"><span className="font-semibold text-navy-700">C{i + 1}</span> {c.label} <span className="text-slate-400">(max {c.max_score})</span></span>
-                            <input type="number" min={0} max={c.max_score} value={sDraft[c.id] ?? ''}
-                              onChange={(e) => setSDraft((prev) => ({ ...prev, [c.id]: e.target.value }))}
-                              className="w-20 rounded-md border border-slate-300 px-2 py-1.5 text-base" inputMode="numeric" />
-                          </div>
-                        ))}
-                        <div className="flex justify-end gap-2 pt-1">
-                          <button onClick={() => setOpenReg(null)} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm">Close</button>
-                          <button onClick={saveParticipant} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-navy-600 px-4 py-1.5 text-sm font-medium text-white disabled:bg-navy-300"><Save size={15} /> Save chest {p.chest_number}</button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+      {/* Scoresheet grid — chest rows × criteria columns + Total + Rank */}
+      {sheet.participants.length === 0 ? (
+        <p className="rounded-xl bg-white p-4 text-sm text-slate-500 shadow-sm">No chest numbers assigned for this group yet.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 text-left">Chest</th>
+                {criteria.map((c, i) => (
+                  <th key={c.id} className="px-2 py-2 text-center font-medium" title={c.label}>
+                    <div>C{i + 1}</div><div className="text-[10px] font-normal normal-case text-slate-400">max {c.max_score}</div>
+                  </th>
+                ))}
+                <th className="px-2 py-2 text-center">Total</th>
+                <th className="px-2 py-2 text-center">Rank</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {sheet.participants.map((p) => {
+                const reg = p.registration_id;
+                const total = totalFor(reg);
+                return (
+                  <tr key={reg}>
+                    <td className="sticky left-0 z-10 bg-white px-3 py-2">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-navy-100 font-mono text-base font-bold text-navy-800">{p.chest_number}</span>
+                    </td>
+                    {criteria.map((c) => {
+                      const key = `${reg}:${c.id}`;
+                      return (
+                        <td key={c.id} className="px-1 py-1 text-center">
+                          <input type="number" min={0} max={c.max_score} inputMode="numeric"
+                            value={vals[key] ?? ''}
+                            onChange={(e) => setVals((m) => ({ ...m, [key]: e.target.value }))}
+                            onBlur={() => saveCell(reg, c.id)}
+                            className={`w-14 rounded-md border px-1 py-2 text-center text-base ${savingCell === key ? 'border-gold-400' : 'border-slate-300'}`} />
+                        </td>
+                      );
+                    })}
+                    <td className="px-2 py-2 text-center font-semibold text-navy-800">{total || ''}</td>
+                    <td className="px-2 py-2 text-center">{rankMap[reg] ? <span className="inline-block rounded-full bg-gold-100 px-2 py-0.5 text-xs font-bold text-gold-700">{rankMap[reg]}</span> : <span className="text-slate-300">—</span>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-2 text-xs text-slate-500">Scores save automatically as you leave each box. Total and Rank update live (only you see your ranking).</p>
     </div>
   );
 }

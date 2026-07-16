@@ -41,8 +41,10 @@ router.get('/events', async (req, res, next) => {
               (SELECT COALESCE(SUM(ec.max_score),0)::int FROM event_criteria ec WHERE ec.event_id = e.id) AS criteria_total
        FROM judge_assignments ja
        JOIN events e ON e.id = ja.event_id
+       JOIN judges j ON j.id = ja.judge_id
        LEFT JOIN categories c ON c.id = e.category_id
        WHERE ja.judge_id = $1
+         AND (j.active_event_id IS NULL OR e.id = j.active_event_id)
        ORDER BY e.event_code`, [req.user.judgeId]);
     res.json(rows);
   } catch (err) { next(err); }
@@ -132,12 +134,20 @@ router.post('/criteria/:assignment_id', async (req, res, next) => {
     }
     if (Math.round(sum) !== 100) return res.status(400).json({ error: `Weightages must total 100 (currently ${sum}).` });
 
+    // ONE statement so the AFTER-EACH-ROW sum trigger sees the final total
+    // (updating rows individually trips it on an intermediate sum > 100).
+    const vals = [];
+    const tuples = list.map((c, i) => {
+      vals.push(c.id, Number(c.max_score), Number(c.sequence_order) || (i + 1));
+      const b = i * 3;
+      return `($${b + 1}::int, $${b + 2}::numeric, $${b + 3}::int)`;
+    });
+    vals.push(asg.event_id);
     await client.query('BEGIN');
-    for (const c of list) {
-      await client.query(
-        `UPDATE event_criteria SET max_score = $1, sequence_order = $2 WHERE id = $3 AND event_id = $4`,
-        [Number(c.max_score), Number(c.sequence_order) || 1, c.id, asg.event_id]);
-    }
+    await client.query(
+      `UPDATE event_criteria ec SET max_score = v.ms, sequence_order = v.so
+       FROM (VALUES ${tuples.join(', ')}) AS v(id, ms, so)
+       WHERE ec.id = v.id AND ec.event_id = $${vals.length}`, vals);
     await client.query('COMMIT');
     await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge',
       action: 'SET_CRITERIA_WEIGHTAGES', entity: 'events', entityId: asg.event_id, details: { criteria: list } });
