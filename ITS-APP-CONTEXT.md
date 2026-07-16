@@ -373,6 +373,25 @@ exact names, and both have CHECK constraints requiring a reason when set.
 Still to build: /api/timer/* routes, admin timing & DQ endpoints, Timer UI
 (full-screen stopwatch), Timing & DQ admin tab, judge DQ banner, PWA DQ display.
 
+## Judge scoring — score cap + all-judges-agree (July 2026)
+- SCORE CAP: over-max entries were rejected by the server but still displayed +
+  inflated the grid total. Fix (JudgeApp ScoreGrid): keep a `saved` map (server-
+  confirmed) separate from the `vals` edit buffer. On cell blur, if value > the
+  criterion weightage (or invalid) → flash + REVERT the cell to saved; only valid
+  values save. Total & Rank compute from `saved` only, so they're always correct.
+- ALL JUDGES AGREE (migration 019: judge_assignments.weightages_agreed_at):
+  * judge.routes agreementStatus(eventId, myAssignmentId) → {total, agreed,
+    i_agreed, all_agreed}. Sheet returns `agreement`.
+  * POST /criteria (set weightages) now RESETS all agreements for the event and
+    auto-agrees the proposer. New POST /criteria/:assignment_id/agree sets this
+    judge's agreement.
+  * POST /scores is BLOCKED (409) until all assigned judges agree.
+  * Frontend: weightage panel shows "Agreed by X/Y judges" + an "I agree" button
+    (or "You agreed"); grid inputs are DISABLED with an amber notice until
+    all_agreed. Editing weightages tells judges all must agree again.
+- Verified: judge route node -c + load; JudgeApp + client parse.
+- MIGRATION 019 must be applied.
+
 ## Judge scoring — weightage fix, event focus, grid (July 2026)
 Fixes + rework after first judge-portal test:
 - WEIGHTAGE BUG: trg_event_criteria_check is FOR EACH ROW and sums ALL of the

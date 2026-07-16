@@ -76,6 +76,8 @@ export const judgeApi = {
     request(`/api/judge/sheet/${assignmentId}?age_group_id=${ageGroupId}`, { token }),
   setCriteria: (token, assignmentId, criteria) =>
     request(`/api/judge/criteria/${assignmentId}`, { method: 'POST', token, body: { criteria } }),
+  agreeCriteria: (token, assignmentId) =>
+    request(`/api/judge/criteria/${assignmentId}/agree`, { method: 'POST', token, body: {} }),
   saveScores: (token, assignmentId, scores) =>
     request(`/api/judge/scores/${assignmentId}`, { method: 'POST', token, body: { scores } }),
 };

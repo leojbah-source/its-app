@@ -30,6 +30,16 @@ async function eventScored(eventId) {
                     WHERE r.event_id = $1) AS x`, [eventId]);
   return rows[0].x;
 }
+// Weightage agreement across ALL of an event's judges.
+async function agreementStatus(eventId, myAssignmentId) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS total,
+            COUNT(weightages_agreed_at)::int AS agreed,
+            bool_or(id = $2 AND weightages_agreed_at IS NOT NULL) AS i_agreed
+     FROM judge_assignments WHERE event_id = $1`, [eventId, myAssignmentId]);
+  const r = rows[0];
+  return { total: r.total, agreed: r.agreed, i_agreed: !!r.i_agreed, all_agreed: r.total > 0 && r.agreed === r.total };
+}
 
 // ── GET /api/judge/events — this judge's assigned events ─────────────────────
 router.get('/events', async (req, res, next) => {
@@ -105,6 +115,7 @@ router.get('/sheet/:assignment_id', async (req, res, next) => {
       criteria,
       weightages_locked: await eventScored(asg.event_id),
       weightage_total: criteria.reduce((t, c) => t + Number(c.max_score), 0),
+      agreement: await agreementStatus(asg.event_id, asg.id),
       participants,
       scores,
     });
@@ -148,6 +159,9 @@ router.post('/criteria/:assignment_id', async (req, res, next) => {
       `UPDATE event_criteria ec SET max_score = v.ms, sequence_order = v.so
        FROM (VALUES ${tuples.join(', ')}) AS v(id, ms, so)
        WHERE ec.id = v.id AND ec.event_id = $${vals.length}`, vals);
+    // Changing weightages resets everyone's agreement; the proposer auto-agrees.
+    await client.query(`UPDATE judge_assignments SET weightages_agreed_at = NULL WHERE event_id = $1`, [asg.event_id]);
+    await client.query(`UPDATE judge_assignments SET weightages_agreed_at = NOW() WHERE id = $1`, [asg.id]);
     await client.query('COMMIT');
     await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge',
       action: 'SET_CRITERIA_WEIGHTAGES', entity: 'events', entityId: asg.event_id, details: { criteria: list } });
@@ -161,6 +175,18 @@ router.post('/criteria/:assignment_id', async (req, res, next) => {
   } finally { client.release(); }
 });
 
+// ── POST /api/judge/criteria/:assignment_id/agree — this judge agrees ────────
+router.post('/criteria/:assignment_id/agree', async (req, res, next) => {
+  try {
+    const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
+    if (!asg) return res.status(404).json({ error: 'Assignment not found' });
+    await pool.query(`UPDATE judge_assignments SET weightages_agreed_at = NOW() WHERE id = $1`, [asg.id]);
+    await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge',
+      action: 'AGREE_WEIGHTAGES', entity: 'judge_assignments', entityId: asg.id });
+    res.json({ agreement: await agreementStatus(asg.event_id, asg.id) });
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/judge/scores/:assignment_id — save/update scores ───────────────
 // body: { scores: [{ registration_id, criterion_id, score_value }] }
 router.post('/scores/:assignment_id', async (req, res, next) => {
@@ -168,6 +194,9 @@ router.post('/scores/:assignment_id', async (req, res, next) => {
   try {
     const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
     if (!asg) return res.status(404).json({ error: 'Assignment not found' });
+    const agree = await agreementStatus(asg.event_id, asg.id);
+    if (!agree.all_agreed)
+      return res.status(409).json({ error: `All ${agree.total} judges must agree the criteria weightages before scoring (${agree.agreed}/${agree.total} agreed).` });
     const list = req.body?.scores;
     if (!Array.isArray(list) || !list.length) return res.status(400).json({ error: 'scores array is required' });
 
