@@ -11,6 +11,7 @@ import Events from './pages/Events';
 import Registrations from './pages/Registrations';
 import Lists from './pages/Lists';
 import Schedule from './pages/Schedule';
+import EventDay from './pages/EventDay';
 import Judges from './pages/Judges';
 import Assignment from './pages/judging/Assignment';
 
@@ -58,6 +59,10 @@ export default function App() {
               <Route
                 path="/admin/schedule"
                 element={<ProtectedRoute><Schedule /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/event-day"
+                element={<ProtectedRoute><EventDay /></ProtectedRoute>}
               />
               <Route
                 path="/admin/judging/judges"

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   Settings, ListChecks, Users, Gavel, CalendarClock, Trophy, Wallet,
-  Sparkles, ClipboardList, ChevronDown,
+  Sparkles, ClipboardList, ChevronDown, ClipboardCheck,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { to: '/admin/registrations', label: 'Registrations', icon: Users, active: true },
   { to: '/admin/lists', label: 'Lists', icon: ClipboardList, active: true },
   { to: '/admin/schedule', label: 'Schedule', icon: CalendarClock, active: true },
+  { to: '/admin/event-day', label: 'Event Day', icon: ClipboardCheck, active: true },
   {
     group: 'Judging', icon: Gavel, roles: ['SuperAdmin', 'Chairman'],
     children: [
