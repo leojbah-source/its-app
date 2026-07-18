@@ -386,6 +386,12 @@ then Continue → scoring.
   client.js judgeApi.briefing added.
 - Verified: judge route load; JudgeApp + client parse.
 
+## Timer sequential start (July 2026)
+Timer Start is now SEQUENTIAL: only the first not-yet-timed chest (chest order,
+nextReg memo) shows an enabled Start; others show "next in line". Nothing
+startable while a chest runs. A Chairman correction (pencil) sets a time → marks
+that chest done → unblocks the next (also the skip path for a no-show).
+
 ## Timer/MC group selection + headers (July 2026)
 Both portals were showing multiple age groups at once (chest numbers repeat per
 group). Fixed:

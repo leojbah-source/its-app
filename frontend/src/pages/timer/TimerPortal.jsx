@@ -44,6 +44,13 @@ export default function TimerPortal() {
   }, [load, current, groupId]);
 
   const running = useMemo(() => (data?.participants || []).find((p) => p.start_time && !p.end_time), [data]);
+  // Sequential: only the FIRST not-yet-timed chest (in chest order) can start,
+  // and only when nothing is running.
+  const nextReg = useMemo(() => {
+    if (!data || running) return null;
+    const w = (data.participants || []).find((p) => !p.start_time && !p.end_time);
+    return w ? w.registration_id : null;
+  }, [data, running]);
 
   function pickGroup(g) {
     if (running && String(g.age_group_id) !== String(groupId)) {
@@ -135,7 +142,9 @@ export default function TimerPortal() {
                           : isRunning ? <span className="text-sm text-amber-600">running…</span> : <span className="text-sm text-slate-400">waiting</span>}
                       </span>
                       <span className="flex items-center gap-1.5">
-                        {!done && !isRunning && <button onClick={() => start(p)} disabled={!!running} className="inline-flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white disabled:bg-slate-300"><Play size={14} /> Start</button>}
+                        {!done && !isRunning && (p.registration_id === nextReg
+                          ? <button onClick={() => start(p)} className="inline-flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white"><Play size={14} /> Start</button>
+                          : <span className="text-xs text-slate-300">next in line</span>)}
                         {isRunning && <button onClick={() => stop(p)} className="inline-flex items-center gap-1 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white"><Square size={14} /> Stop</button>}
                         <button onClick={() => setEdit({ registration_id: p.registration_id, chest_number: p.chest_number })} className="rounded-md p-1.5 text-slate-400 hover:text-navy-600" title="Chairman correction"><Pencil size={15} /></button>
                       </span>
