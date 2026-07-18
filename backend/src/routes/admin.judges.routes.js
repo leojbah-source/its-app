@@ -333,7 +333,9 @@ router.get('/event-assignments', requireRole(...staffRoles), async (req, res, ne
               string_agg(DISTINCT NULLIF(s.age_groups, ''), ' | ') AS age_groups,
               bool_or(s.status = 'confirmed') AS published,
               (SELECT COUNT(*)::int FROM registrations r
-               WHERE r.event_id = e.id AND r.status NOT IN ('withdrawn','swapped')) AS entries
+               WHERE r.event_id = e.id AND r.status NOT IN ('withdrawn','swapped')) AS entries,
+              (SELECT string_agg(u.full_name, ', ') FROM mc_assignments ma
+               JOIN users u ON u.id = ma.user_id WHERE ma.event_id = e.id) AS mc_name
        FROM schedule s
        JOIN events e ON e.id = s.event_id
        LEFT JOIN categories c ON c.id = e.category_id

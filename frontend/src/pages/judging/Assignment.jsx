@@ -104,11 +104,11 @@ export default function Assignment() {
   async function assignMc() {
     if (!mcPick) return; setMcBusy(true);
     try { await eventStaffApi.assign(token, { role: 'MC', user_id: Number(mcPick), event_id: mcEvent.event_id });
-      setMcData(await eventStaffApi.forEvent(token, mcEvent.event_id)); setMcPick(''); setMcMsg('MC assigned.'); }
+      setMcData(await eventStaffApi.forEvent(token, mcEvent.event_id)); setMcPick(''); setMcMsg('MC assigned.'); load(); }
     catch (e) { setMcMsg(e.message); } finally { setMcBusy(false); }
   }
   async function unassignMc(assignmentId) {
-    try { await eventStaffApi.unassign(token, 'MC', assignmentId); setMcData(await eventStaffApi.forEvent(token, mcEvent.event_id)); setMcMsg('Removed.'); }
+    try { await eventStaffApi.unassign(token, 'MC', assignmentId); setMcData(await eventStaffApi.forEvent(token, mcEvent.event_id)); setMcMsg('Removed.'); load(); }
     catch (e) { setMcMsg(e.message); }
   }
   async function createMc() {
@@ -186,7 +186,8 @@ export default function Assignment() {
                           <Button size="sm" variant="outline" icon={UserPlus} onClick={() => openAssign(ev)}>Assign</Button>
                           <Button size="sm" variant="ghost" icon={KeyRound} loading={sendingId === ev.event_id}
                             disabled={ev.judges.length === 0} onClick={() => sendOtps(ev)} title="Send briefing OTPs to this event's judges">OTP</Button>
-                          <Button size="sm" variant="ghost" icon={Mic} onClick={() => openMc(ev)} title="Assign an MC to this event">MC</Button>
+                          <Button size="sm" variant={ev.mc_name ? 'gold' : 'ghost'} icon={Mic} onClick={() => openMc(ev)}
+                            title={ev.mc_name ? `MC: ${ev.mc_name}` : 'Assign an MC to this event'}>{ev.mc_name ? 'MC \u2713' : 'MC'}</Button>
                         </div>
                       </td>
                     </tr>
