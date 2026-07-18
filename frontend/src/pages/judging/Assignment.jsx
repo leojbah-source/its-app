@@ -33,6 +33,7 @@ export default function Assignment() {
   const [mcPick, setMcPick] = useState('');
   const [newMc, setNewMc] = useState({ full_name: '', email: '', password: '' });
   const [mcBusy, setMcBusy] = useState(false);
+  const [mcMsg, setMcMsg] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -96,27 +97,27 @@ export default function Assignment() {
   }
 
   async function openMc(ev) {
-    setMcEvent(ev); setMcPick(''); setNewMc({ full_name: '', email: '', password: '' });
+    setMcEvent(ev); setMcPick(''); setNewMc({ full_name: '', email: '', password: '' }); setMcMsg('');
     try { const [d, u] = await Promise.all([eventStaffApi.forEvent(token, ev.event_id), eventStaffApi.users(token, 'MC')]); setMcData(d); setMcUsers(u); }
     catch (e) { setFlash(e.message); }
   }
   async function assignMc() {
     if (!mcPick) return; setMcBusy(true);
     try { await eventStaffApi.assign(token, { role: 'MC', user_id: Number(mcPick), event_id: mcEvent.event_id });
-      setMcData(await eventStaffApi.forEvent(token, mcEvent.event_id)); setMcPick(''); }
-    catch (e) { setFlash(e.message); } finally { setMcBusy(false); }
+      setMcData(await eventStaffApi.forEvent(token, mcEvent.event_id)); setMcPick(''); setMcMsg('MC assigned.'); }
+    catch (e) { setMcMsg(e.message); } finally { setMcBusy(false); }
   }
   async function unassignMc(assignmentId) {
-    try { await eventStaffApi.unassign(token, 'MC', assignmentId); setMcData(await eventStaffApi.forEvent(token, mcEvent.event_id)); }
-    catch (e) { setFlash(e.message); }
+    try { await eventStaffApi.unassign(token, 'MC', assignmentId); setMcData(await eventStaffApi.forEvent(token, mcEvent.event_id)); setMcMsg('Removed.'); }
+    catch (e) { setMcMsg(e.message); }
   }
   async function createMc() {
     if (!newMc.full_name.trim() || !newMc.password) { setFlash('MC name and password are required.'); return; }
     setMcBusy(true);
     try { const u = await eventStaffApi.createUser(token, { ...newMc, role: 'MC' });
       setMcUsers(await eventStaffApi.users(token, 'MC')); setMcPick(String(u.id)); setNewMc({ full_name: '', email: '', password: '' });
-      setFlash(`MC "${u.full_name}" created — now click Assign.`); }
-    catch (e) { setFlash(e.message); } finally { setMcBusy(false); }
+      setMcMsg(`MC "${u.full_name}" created — now click Assign.`); }
+    catch (e) { setMcMsg(e.message); } finally { setMcBusy(false); }
   }
 
   const slot = (judges, i) => judges[i]?.full_name || <span className="text-slate-300">—</span>;
@@ -262,6 +263,7 @@ export default function Assignment() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setMcEvent(null)}>
           <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-base font-semibold text-navy-900">MC — {mcEvent.event_code} {mcEvent.event_name}</h3>
+            {mcMsg && <p className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-700">{mcMsg}</p>}
             <div className="mt-3">
               <p className="mb-1 text-xs font-medium text-slate-500">Assigned MC</p>
               {mcData.mc.length === 0 ? <p className="text-sm text-slate-400">None yet.</p> : mcData.mc.map((m) => (
