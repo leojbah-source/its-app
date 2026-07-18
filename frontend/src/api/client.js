@@ -219,7 +219,9 @@ export const scheduleApi = {
 // ── Schools lookup ───────────────────────────────────────────────────────────
 export const timerApi = {
   myEvents: (token) => request('/api/timer/my-events', { token }),
-  participants: (token, eventId) => request(`/api/timer/participants/${eventId}`, { token }),
+  groups: (token, eventId) => request(`/api/timer/groups/${eventId}`, { token }),
+  participants: (token, eventId, ageGroupId) =>
+    request(`/api/timer/participants/${eventId}${ageGroupId ? `?age_group_id=${ageGroupId}` : ''}`, { token }),
   start: (token, eventId, body) => request(`/api/timer/${eventId}/start`, { method: 'POST', token, body }),
   stop: (token, eventId, registration_id) => request(`/api/timer/${eventId}/stop`, { method: 'POST', token, body: { registration_id } }),
   override: (token, eventId, body) => request(`/api/timer/${eventId}/override`, { method: 'POST', token, body }),

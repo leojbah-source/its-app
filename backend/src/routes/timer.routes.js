@@ -35,7 +35,21 @@ router.get('/my-events', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /participants/:event_id — CHEST ONLY + timing state + event thresholds
+// GET /groups/:event_id — age groups (chest-assigned attendees) for the event
+router.get('/groups/:event_id', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ag.id AS age_group_id, ag.code, ag.sort_order,
+              COUNT(DISTINCT ca.registration_id)::int AS participant_count
+       FROM registrations r JOIN age_groups ag ON ag.id = r.age_group_id
+       JOIN chest_assignments ca ON ca.registration_id = r.id
+       WHERE r.event_id = $1 AND r.status = 'attended'
+       GROUP BY ag.id, ag.code, ag.sort_order ORDER BY ag.sort_order, ag.code`, [req.params.event_id]);
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// GET /participants/:event_id?age_group_id= — CHEST ONLY + timing state ────────
 router.get('/participants/:event_id', async (req, res, next) => {
   try {
     const { rows: ev } = await pool.query(
@@ -50,7 +64,9 @@ router.get('/participants/:event_id', async (req, res, next) => {
                           FROM participant_timings t WHERE t.registration_id = r.id AND t.event_id = $1
                           ORDER BY t.id DESC LIMIT 1) pt ON TRUE
        WHERE r.event_id = $1 AND r.status = 'attended'
-       ORDER BY ag.sort_order, ca.chest_number`, [req.params.event_id]);
+         AND ($2::int IS NULL OR r.age_group_id = $2)
+       ORDER BY ag.sort_order, ca.chest_number`,
+      [req.params.event_id, req.query.age_group_id ? Number(req.query.age_group_id) : null]);
     res.json({ timing: ev[0], participants: rows });
   } catch (err) { next(err); }
 });

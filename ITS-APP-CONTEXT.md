@@ -386,6 +386,23 @@ then Continue → scoring.
   client.js judgeApi.briefing added.
 - Verified: judge route load; JudgeApp + client parse.
 
+## Timer/MC group selection + headers (July 2026)
+Both portals were showing multiple age groups at once (chest numbers repeat per
+group). Fixed:
+- Timer backend: GET /api/timer/groups/:event_id (age groups w/ chest-assigned
+  count); GET /participants/:event_id now takes ?age_group_id filter.
+  timerApi.groups + participants(eventId, ageGroupId).
+- Timer portal: event → GROUP picker → that group only. Header shows EVENT +
+  "Group Gx". Switching group (or Back) while a timer is running prompts a
+  confirm (the running timer keeps going in the DB).
+- MC portal: Participants tab now has a GROUP picker (derived from the grouped
+  data) → shows only that group. Clear EVENT header (code/name/category) at top;
+  selected-group pill. Leaving an UNFINISHED group prompts a confirm. Done-tick
+  detection + "call the next number" banner are scoped to the selected group.
+- FIX: the MC done tick was rendering a literal "\u2713" (bad heredoc escape) —
+  now a real checkmark.
+- Verified: timer route node -c; TimerPortal + McPortal + client parse.
+
 ## Timer portal + MC done-tick (July 2026)
 Timer is a staff 'Timer'-role account (enum already existed; timer_assignments +
 participant_timings already existed). No migration.
