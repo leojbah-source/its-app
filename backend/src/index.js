@@ -20,6 +20,8 @@ const adminListsRoutes = require('./routes/admin.lists.routes');
 const adminScheduleRoutes = require('./routes/admin.schedule.routes');
 const adminReportsRoutes = require('./routes/admin.reports.routes');
 const judgeRoutes = require('./routes/judge.routes');
+const adminEventStaffRoutes = require('./routes/admin.eventstaff.routes');
+const mcRoutes = require('./routes/mc.routes');
 const registerRoutes = require('./routes/register.routes');
 const publicRoutes = require('./routes/public.routes');
 const pwaRoutes = require('./routes/pwa.routes');
@@ -66,6 +68,8 @@ app.use('/api/admin/reports', adminReportsRoutes);
 
 // --- Judge ---
 app.use('/api/judge', judgeRoutes);
+app.use('/api/admin/event-staff', adminEventStaffRoutes);
+app.use('/api/mc', mcRoutes);
 
 // --- Public registration (no auth) ---
 app.use('/api/register', registerRoutes);

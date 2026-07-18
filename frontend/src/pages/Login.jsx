@@ -6,7 +6,8 @@ import { useToast } from '../context/ToastContext';
 import Button from '../components/ui/Button';
 
 export default function Login() {
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, user } = useAuth();
+  const landingFor = (role) => (role === 'MC' ? '/mc' : role === 'Timer' ? '/timer' : '/admin/config/year');
   const { showToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -18,7 +19,7 @@ export default function Login() {
   const [formError, setFormError] = useState(null);
 
   if (isAuthenticated) {
-    const redirectTo = location.state?.from?.pathname || '/admin/config/year';
+    const redirectTo = location.state?.from?.pathname || landingFor(user?.role);
     return <Navigate to={redirectTo} replace />;
   }
 
@@ -35,7 +36,7 @@ export default function Login() {
     try {
       const data = await login(username.trim(), password);
       showToast(`Welcome back, ${data.user?.name || username}.`, 'success');
-      navigate(location.state?.from?.pathname || '/admin/config/year', { replace: true });
+      navigate(location.state?.from?.pathname || landingFor(data.user?.role), { replace: true });
     } catch (err) {
       setFormError(err.message || 'Invalid username or password.');
     } finally {

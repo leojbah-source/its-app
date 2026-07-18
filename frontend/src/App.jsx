@@ -16,6 +16,7 @@ import EventDay from './pages/EventDay';
 import Judges from './pages/Judges';
 import Assignment from './pages/judging/Assignment';
 import Results from './pages/judging/Results';
+import McPortal from './pages/mc/McPortal';
 
 // Parent registration portal pages
 import Landing from './pages/register/Landing';
@@ -86,6 +87,10 @@ export default function App() {
               <Route
                 path="/admin/judging/results"
                 element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><Results /></ProtectedRoute>}
+              />
+              <Route
+                path="/mc"
+                element={<ProtectedRoute allowedRoles={['MC', 'SuperAdmin', 'Chairman']}><McPortal /></ProtectedRoute>}
               />
               <Route path="/admin/judges" element={<Navigate to="/admin/judging/judges" replace />} />
               <Route path="/admin" element={<Navigate to="/admin/config/year" replace />} />

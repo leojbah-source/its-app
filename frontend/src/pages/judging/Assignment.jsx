@@ -4,14 +4,14 @@
 // picks judges whose expertise matches the event's category (strict); briefing
 // OTPs for an event's judges are sent from here. Chairman/SuperAdmin only.
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, UserPlus, KeyRound } from 'lucide-react';
+import { RefreshCw, UserPlus, KeyRound, Mic } from 'lucide-react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { Card, Badge } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import { PageLoader, ErrorBanner } from '../../components/ui/States';
 import { useAuth } from '../../context/AuthContext';
-import { judgesApi } from '../../api/client';
+import { judgesApi, eventStaffApi } from '../../api/client';
 
 export default function Assignment() {
   const { token } = useAuth();
@@ -27,6 +27,12 @@ export default function Assignment() {
   const [selected, setSelected] = useState(new Set());
   const [busy, setBusy] = useState(false);
   const [modalErr, setModalErr] = useState('');
+  const [mcEvent, setMcEvent] = useState(null);
+  const [mcData, setMcData] = useState({ mc: [], timer: [] });
+  const [mcUsers, setMcUsers] = useState([]);
+  const [mcPick, setMcPick] = useState('');
+  const [newMc, setNewMc] = useState({ full_name: '', email: '', password: '' });
+  const [mcBusy, setMcBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -87,6 +93,30 @@ export default function Assignment() {
       setOtpInfo({ event: `${ev.event_code} · ${ev.event_name}`, ...r });
     } catch (err) { setFlash(err.message); }
     finally { setSendingId(null); }
+  }
+
+  async function openMc(ev) {
+    setMcEvent(ev); setMcPick(''); setNewMc({ full_name: '', email: '', password: '' });
+    try { const [d, u] = await Promise.all([eventStaffApi.forEvent(token, ev.event_id), eventStaffApi.users(token, 'MC')]); setMcData(d); setMcUsers(u); }
+    catch (e) { setFlash(e.message); }
+  }
+  async function assignMc() {
+    if (!mcPick) return; setMcBusy(true);
+    try { await eventStaffApi.assign(token, { role: 'MC', user_id: Number(mcPick), event_id: mcEvent.event_id });
+      setMcData(await eventStaffApi.forEvent(token, mcEvent.event_id)); setMcPick(''); }
+    catch (e) { setFlash(e.message); } finally { setMcBusy(false); }
+  }
+  async function unassignMc(assignmentId) {
+    try { await eventStaffApi.unassign(token, 'MC', assignmentId); setMcData(await eventStaffApi.forEvent(token, mcEvent.event_id)); }
+    catch (e) { setFlash(e.message); }
+  }
+  async function createMc() {
+    if (!newMc.full_name.trim() || !newMc.password) { setFlash('MC name and password are required.'); return; }
+    setMcBusy(true);
+    try { const u = await eventStaffApi.createUser(token, { ...newMc, role: 'MC' });
+      setMcUsers(await eventStaffApi.users(token, 'MC')); setMcPick(String(u.id)); setNewMc({ full_name: '', email: '', password: '' });
+      setFlash(`MC "${u.full_name}" created — now click Assign.`); }
+    catch (e) { setFlash(e.message); } finally { setMcBusy(false); }
   }
 
   const slot = (judges, i) => judges[i]?.full_name || <span className="text-slate-300">—</span>;
@@ -155,6 +185,7 @@ export default function Assignment() {
                           <Button size="sm" variant="outline" icon={UserPlus} onClick={() => openAssign(ev)}>Assign</Button>
                           <Button size="sm" variant="ghost" icon={KeyRound} loading={sendingId === ev.event_id}
                             disabled={ev.judges.length === 0} onClick={() => sendOtps(ev)} title="Send briefing OTPs to this event's judges">OTP</Button>
+                          <Button size="sm" variant="ghost" icon={Mic} onClick={() => openMc(ev)} title="Assign an MC to this event">MC</Button>
                         </div>
                       </td>
                     </tr>
@@ -224,6 +255,38 @@ export default function Assignment() {
             <div className="mt-4 text-right">
               <button onClick={() => setOtpInfo(null)} className="rounded-md border border-slate-300 px-4 py-1.5 text-sm">Done</button>
             </div>
+          </div>
+        </div>
+      )}
+      {mcEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setMcEvent(null)}>
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-navy-900">MC — {mcEvent.event_code} {mcEvent.event_name}</h3>
+            <div className="mt-3">
+              <p className="mb-1 text-xs font-medium text-slate-500">Assigned MC</p>
+              {mcData.mc.length === 0 ? <p className="text-sm text-slate-400">None yet.</p> : mcData.mc.map((m) => (
+                <div key={m.assignment_id} className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-1.5 text-sm">
+                  <span>{m.full_name}{m.email ? ` · ${m.email}` : ''}</span>
+                  <button onClick={() => unassignMc(m.assignment_id)} className="text-xs text-red-600 hover:underline">Remove</button>
+                </div>))}
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <select value={mcPick} onChange={(e) => setMcPick(e.target.value)} className="flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                <option value="">Pick an existing MC…</option>
+                {mcUsers.map((u) => <option key={u.id} value={u.id}>{u.full_name}{u.email ? ` · ${u.email}` : ''}</option>)}
+              </select>
+              <button onClick={assignMc} disabled={!mcPick || mcBusy} className="rounded-md bg-navy-600 px-3 py-1.5 text-sm text-white disabled:bg-navy-300">Assign</button>
+            </div>
+            <div className="mt-4 border-t border-slate-100 pt-3">
+              <p className="mb-1 text-xs font-medium text-slate-500">Or create a new MC account (they log in with email + password)</p>
+              <div className="space-y-2">
+                <input value={newMc.full_name} onChange={(e) => setNewMc({ ...newMc, full_name: e.target.value })} placeholder="Full name" className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                <input value={newMc.email} onChange={(e) => setNewMc({ ...newMc, email: e.target.value })} placeholder="Email (used to log in)" className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                <input value={newMc.password} onChange={(e) => setNewMc({ ...newMc, password: e.target.value })} placeholder="Password" className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                <button onClick={createMc} disabled={mcBusy} className="rounded-md border border-navy-300 px-3 py-1.5 text-sm text-navy-700 disabled:opacity-50">Create MC</button>
+              </div>
+            </div>
+            <div className="mt-4 text-right"><button onClick={() => setMcEvent(null)} className="rounded-md border border-slate-300 px-4 py-1.5 text-sm">Done</button></div>
           </div>
         </div>
       )}

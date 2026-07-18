@@ -217,6 +217,20 @@ export const scheduleApi = {
 };
 
 // ── Schools lookup ───────────────────────────────────────────────────────────
+export const mcApi = {
+  myEvents: (token) => request('/api/mc/my-events', { token }),
+  script: (token, eventId) => request(`/api/mc/script/${eventId}`, { token }),
+  participants: (token, eventId) => request(`/api/mc/participants/${eventId}`, { token }),
+};
+
+export const eventStaffApi = {
+  users: (token, role) => request(`/api/admin/event-staff/users?role=${role}`, { token }),
+  createUser: (token, body) => request('/api/admin/event-staff/users', { method: 'POST', token, body }),
+  forEvent: (token, eventId) => request(`/api/admin/event-staff/event/${eventId}`, { token }),
+  assign: (token, body) => request('/api/admin/event-staff/assign', { method: 'POST', token, body }),
+  unassign: (token, role, assignmentId) => request(`/api/admin/event-staff/assign/${role}/${assignmentId}`, { method: 'DELETE', token }),
+};
+
 export const resultsApi = {
   groups: (token, eventId) => request(`/api/admin/results/${eventId}/groups`, { token }),
   get: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}`, { token }),

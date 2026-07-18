@@ -386,6 +386,38 @@ then Continue → scoring.
   client.js judgeApi.briefing added.
 - Verified: judge route load; JudgeApp + client parse.
 
+## MC role — built (July 2026)
+MCs are STAFF accounts (migration 020 adds 'MC' user_role; 021 mc_assignments —
+mirrors timer_assignments, role enforced in app). Same email+password login as
+staff; assigned per event; see only their assigned event on the day.
+- Backend: admin.eventstaff.routes.js (/api/admin/event-staff, Chairman/SA):
+  GET /users?role=MC|Timer, POST /users (create MC/Timer w/ bcrypt), GET
+  /event/:eventId ({mc,timer} assigned), POST /assign {role,user_id,event_id}
+  (verifies user holds the role; timer_assignments' trigger also enforces Timer),
+  DELETE /assign/:role/:assignmentId. mc.routes.js (/api/mc, staff + role
+  MC/SA/Chairman): GET /my-events, GET /script/:event_id (event+timing, the 3
+  judges' detailed_bio, criteria, schedule date/venue/time, year branding), GET
+  /participants/:event_id (chest + NAME by group, chest order — MCs see names).
+  Both mounted in index.js. Migration 020 must be its OWN file (ALTER TYPE ADD
+  VALUE can't share a txn) — 021 creates the table.
+- Frontend: src/pages/mc/McPortal.jsx (own layout; My events → tabs MC Script /
+  Participants). Script renders welcome + judges' bios + criteria + timing +
+  sponsors from the endpoint. mcApi + eventStaffApi in client.js. Route /mc
+  (ProtectedRoute allowedRoles MC/SuperAdmin/Chairman). Login.jsx now redirects
+  by role: MC → /mc, Timer → /timer (portal pending), else /admin/config/year.
+  Admin MC assignment added to the Event assignment page: a "MC" button per
+  event row → modal to pick/assign an existing MC or CREATE a new MC account.
+- NOTE: admin AuthContext is IN-MEMORY (refresh signs out) — MC/Timer on tablets
+  will re-login on refresh. Consider persisting admin auth (sessionStorage) for
+  day-of tablet use later.
+- Verified: route modules load; all changed frontend files parse (esbuild).
+- MIGRATIONS 020 + 021 must be applied.
+- TODO NEXT: Timer portal (staff Timer role + timer_assignments already exist;
+  build the chest-only stopwatch: start/stop, yellow/red at yellow_alert/
+  allotted, grace, record time per chest into participant_timings; Chairman
+  password-verify to edit a missed stop). Also show assigned MC/Timer in the
+  Event assignment table at a glance (currently only in the MC modal).
+
 ## Day-of roles decision — MC & Timer (July 2026)
 Per user: MC and Timer are STAFF accounts with a ROLE (Timer role exists in the
 enum; MC to be added), same password login as staff, ASSIGNED per event, and on
