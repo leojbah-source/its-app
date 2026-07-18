@@ -386,6 +386,37 @@ then Continue → scoring.
   client.js judgeApi.briefing added.
 - Verified: judge route load; JudgeApp + client parse.
 
+## Timer portal + MC done-tick (July 2026)
+Timer is a staff 'Timer'-role account (enum already existed; timer_assignments +
+participant_timings already existed). No migration.
+- Backend timer.routes.js (/api/timer, staff + Timer/SA/Chairman): GET /my-events
+  (+ event thresholds), GET /participants/:event_id (CHEST ONLY + latest timing
+  state via LATERAL + event allotted/grace/yellow), POST /:event/start &
+  /:event/stop (upsert participant_timings; generated cols compute time/DQ;
+  BEFORE-INSERT trigger fills allotted/grace snapshots), POST /:event/override
+  (Chairman email+password verified via bcrypt → set corrected seconds; audited
+  TIMER_OVERRIDE). timed_by stamped.
+- Frontend TimerPortal.jsx (/timer, ProtectedRoute Timer/SA/Chairman): my-events
+  → big live stopwatch for the running chest (250ms tick + 3s poll), light state
+  green→yellow(allotted−yellow)→red(allotted)→over(grace); per-chest Start
+  (disabled while one runs)/Stop; done rows show time (+ 'over' if flag_for_dq);
+  Pencil → OverrideModal (seconds + Chairman email/password). timerApi in client.
+  Login already routes Timer → /timer.
+- MC DONE-TICK (new feature): mc.routes /participants now returns `done`
+  (latest timing end_time set). McPortal Participants POLLS every 5s; detects
+  newly-completed chests vs previous set → green banner "Chest N finished — call
+  the next number"; done rows show a green ✓ and struck-through name. So the MC
+  knows which chest is complete and calls the next correctly.
+- Admin: Event assignment page modal GENERALISED to MC + Timer (staffRole state;
+  MC and Timer buttons, each gold + ✓ when assigned via mc_name/timer_name in
+  event-assignments; create/assign/unassign are role-aware). eventStaffApi
+  already role-generic (assign role: MC|Timer; timer_assignments trigger enforces
+  the Timer role).
+- Verified: all route modules + index node -c; all changed frontend parse.
+- NOTE: admin AuthContext still in-memory (Timer/MC refresh = re-login) — persist
+  for day-of tablets later. Timer times one performer at a time (Start disabled
+  while another runs).
+
 ## MC role — built (July 2026)
 MCs are STAFF accounts (migration 020 adds 'MC' user_role; 021 mc_assignments —
 mirrors timer_assignments, role enforced in app). Same email+password login as

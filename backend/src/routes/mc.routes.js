@@ -56,17 +56,21 @@ router.get('/participants/:event_id', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT ag.code AS age_group, ag.sort_order, ca.chest_number,
-              COALESCE(p.full_name, t.team_name) AS name
+              COALESCE(p.full_name, t.team_name) AS name,
+              (pt.end_time IS NOT NULL) AS done
        FROM registrations r JOIN chest_assignments ca ON ca.registration_id = r.id
        JOIN age_groups ag ON ag.id = r.age_group_id
        LEFT JOIN participants p ON p.id = r.participant_id
        LEFT JOIN teams t ON t.id = r.team_id
+       LEFT JOIN LATERAL (SELECT end_time FROM participant_timings t2
+                          WHERE t2.registration_id = r.id AND t2.event_id = $1
+                          ORDER BY t2.id DESC LIMIT 1) pt ON TRUE
        WHERE r.event_id = $1 AND r.status = 'attended'
        ORDER BY ag.sort_order, ca.chest_number`, [req.params.event_id]);
     const groups = []; const map = new Map();
     for (const row of rows) {
       if (!map.has(row.age_group)) { const g = { age_group: row.age_group, participants: [] }; map.set(row.age_group, g); groups.push(g); }
-      map.get(row.age_group).participants.push({ chest_number: row.chest_number, name: row.name });
+      map.get(row.age_group).participants.push({ chest_number: row.chest_number, name: row.name, done: row.done });
     }
     res.json(groups);
   } catch (err) { next(err); }

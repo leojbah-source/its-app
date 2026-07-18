@@ -335,7 +335,9 @@ router.get('/event-assignments', requireRole(...staffRoles), async (req, res, ne
               (SELECT COUNT(*)::int FROM registrations r
                WHERE r.event_id = e.id AND r.status NOT IN ('withdrawn','swapped')) AS entries,
               (SELECT string_agg(u.full_name, ', ') FROM mc_assignments ma
-               JOIN users u ON u.id = ma.user_id WHERE ma.event_id = e.id) AS mc_name
+               JOIN users u ON u.id = ma.user_id WHERE ma.event_id = e.id) AS mc_name,
+              (SELECT string_agg(u.full_name, ', ') FROM timer_assignments tia
+               JOIN users u ON u.id = tia.user_id WHERE tia.event_id = e.id) AS timer_name
        FROM schedule s
        JOIN events e ON e.id = s.event_id
        LEFT JOIN categories c ON c.id = e.category_id

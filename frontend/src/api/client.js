@@ -217,6 +217,14 @@ export const scheduleApi = {
 };
 
 // ── Schools lookup ───────────────────────────────────────────────────────────
+export const timerApi = {
+  myEvents: (token) => request('/api/timer/my-events', { token }),
+  participants: (token, eventId) => request(`/api/timer/participants/${eventId}`, { token }),
+  start: (token, eventId, body) => request(`/api/timer/${eventId}/start`, { method: 'POST', token, body }),
+  stop: (token, eventId, registration_id) => request(`/api/timer/${eventId}/stop`, { method: 'POST', token, body: { registration_id } }),
+  override: (token, eventId, body) => request(`/api/timer/${eventId}/override`, { method: 'POST', token, body }),
+};
+
 export const mcApi = {
   myEvents: (token) => request('/api/mc/my-events', { token }),
   script: (token, eventId) => request(`/api/mc/script/${eventId}`, { token }),

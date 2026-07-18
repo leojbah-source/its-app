@@ -17,6 +17,7 @@ import Judges from './pages/Judges';
 import Assignment from './pages/judging/Assignment';
 import Results from './pages/judging/Results';
 import McPortal from './pages/mc/McPortal';
+import TimerPortal from './pages/timer/TimerPortal';
 
 // Parent registration portal pages
 import Landing from './pages/register/Landing';
@@ -91,6 +92,10 @@ export default function App() {
               <Route
                 path="/mc"
                 element={<ProtectedRoute allowedRoles={['MC', 'SuperAdmin', 'Chairman']}><McPortal /></ProtectedRoute>}
+              />
+              <Route
+                path="/timer"
+                element={<ProtectedRoute allowedRoles={['Timer', 'SuperAdmin', 'Chairman']}><TimerPortal /></ProtectedRoute>}
               />
               <Route path="/admin/judges" element={<Navigate to="/admin/judging/judges" replace />} />
               <Route path="/admin" element={<Navigate to="/admin/config/year" replace />} />

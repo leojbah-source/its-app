@@ -22,6 +22,7 @@ const adminReportsRoutes = require('./routes/admin.reports.routes');
 const judgeRoutes = require('./routes/judge.routes');
 const adminEventStaffRoutes = require('./routes/admin.eventstaff.routes');
 const mcRoutes = require('./routes/mc.routes');
+const timerRoutes = require('./routes/timer.routes');
 const registerRoutes = require('./routes/register.routes');
 const publicRoutes = require('./routes/public.routes');
 const pwaRoutes = require('./routes/pwa.routes');
@@ -70,6 +71,7 @@ app.use('/api/admin/reports', adminReportsRoutes);
 app.use('/api/judge', judgeRoutes);
 app.use('/api/admin/event-staff', adminEventStaffRoutes);
 app.use('/api/mc', mcRoutes);
+app.use('/api/timer', timerRoutes);
 
 // --- Public registration (no auth) ---
 app.use('/api/register', registerRoutes);

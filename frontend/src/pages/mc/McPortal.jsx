@@ -2,7 +2,7 @@
 // MC portal (staff login, MC role). Shows the MC's assigned event → the MC
 // SCRIPT (event details + the 3 judges' bios, auto-filled + criteria + timing),
 // and a Participants view (chest numbers WITH names, in chest order per group).
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Mic, LogOut, ChevronLeft, Users, ScrollText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { mcApi } from '../../api/client';
@@ -17,6 +17,8 @@ export default function McPortal() {
   const [script, setScript] = useState(null);
   const [participants, setParticipants] = useState(null);
   const [flash, setFlash] = useState('');
+  const [doneBanner, setDoneBanner] = useState('');
+  const prevDone = useRef(new Set());
 
   useEffect(() => {
     mcApi.myEvents(token).then((evs) => { setEvents(evs); if (evs.length === 1) setEventId(evs[0].event_id); })
@@ -27,12 +29,27 @@ export default function McPortal() {
     if (!eventId) return;
     mcApi.script(token, eventId).then(setScript).catch((e) => setFlash(e.message));
   }, [token, eventId]);
-  const loadParticipants = useCallback(() => {
+  const loadParticipants = useCallback(async () => {
     if (!eventId) return;
-    mcApi.participants(token, eventId).then(setParticipants).catch((e) => setFlash(e.message));
+    try {
+      const gs = await mcApi.participants(token, eventId);
+      setParticipants(gs);
+      const nowDone = new Set();
+      for (const g of gs) for (const p of g.participants) if (p.done) nowDone.add(p.chest_number);
+      const newly = [...nowDone].filter((c) => !prevDone.current.has(c));
+      if (prevDone.current.size > 0 && newly.length > 0)
+        setDoneBanner(`Chest ${newly.sort((a, b) => a - b).join(', ')} finished — call the next number.`);
+      prevDone.current = nowDone;
+    } catch (e) { setFlash(e.message); }
   }, [token, eventId]);
   useEffect(() => { if (eventId) { setScript(null); setParticipants(null); setTab('script'); loadScript(); } }, [eventId, loadScript]);
-  useEffect(() => { if (tab === 'participants' && eventId && !participants) loadParticipants(); }, [tab, eventId, participants, loadParticipants]);
+  useEffect(() => { prevDone.current = new Set(); setDoneBanner(''); }, [eventId]);
+  useEffect(() => {
+    if (tab !== 'participants' || !eventId) return;
+    loadParticipants();
+    const iv = setInterval(loadParticipants, 5000);
+    return () => clearInterval(iv);
+  }, [tab, eventId, loadParticipants]);
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -64,6 +81,12 @@ export default function McPortal() {
               <button onClick={() => setTab('script')} className={`flex-1 rounded-md px-3 py-2 text-sm font-medium ${tab === 'script' ? 'bg-navy-600 text-white' : 'text-slate-600'}`}><ScrollText size={15} className="mr-1 inline" /> MC Script</button>
               <button onClick={() => setTab('participants')} className={`flex-1 rounded-md px-3 py-2 text-sm font-medium ${tab === 'participants' ? 'bg-navy-600 text-white' : 'text-slate-600'}`}><Users size={15} className="mr-1 inline" /> Participants</button>
             </div>
+            {tab === 'participants' && doneBanner && (
+              <div className="mb-3 flex items-center justify-between rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">
+                <span>{doneBanner}</span>
+                <button onClick={() => setDoneBanner('')} className="text-xs text-green-700 hover:underline">Dismiss</button>
+              </div>
+            )}
             {tab === 'script' ? <Script data={script} /> : <Participants groups={participants} />}
           </div>
         )}
@@ -148,7 +171,8 @@ function Participants({ groups }) {
             {g.participants.map((p) => (
               <div key={p.chest_number} className="flex items-center gap-3 px-1 py-2">
                 <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-navy-100 font-mono text-base font-bold text-navy-800">{p.chest_number}</span>
-                <span className="text-base text-slate-800">{p.name}</span>
+                <span className={`text-base ${p.done ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{p.name}</span>
+                {p.done && <span className="ml-auto inline-flex items-center gap-1 text-sm font-medium text-green-600">\u2713 done</span>}
               </div>
             ))}
           </div>
