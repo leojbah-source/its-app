@@ -165,20 +165,26 @@ router.post('/criteria/:assignment_id', async (req, res, next) => {
     }
     if (Math.round(sum) !== 100) return res.status(400).json({ error: `Weightages must total 100 (currently ${sum}).` });
 
-    // ONE statement so the AFTER-EACH-ROW sum trigger sees the final total
-    // (updating rows individually trips it on an intermediate sum > 100).
-    const vals = [];
-    const tuples = list.map((c, i) => {
-      vals.push(c.id, Number(c.max_score), Number(c.sequence_order) || (i + 1));
-      const b = i * 3;
-      return `($${b + 1}::int, $${b + 2}::numeric, $${b + 3}::int)`;
-    });
-    vals.push(asg.event_id);
     await client.query('BEGIN');
+    // 1) max_score in ONE statement so the AFTER-EACH-ROW sum trigger sees the
+    //    final total (per-row updates would trip it on an intermediate sum>100).
+    const mvals = [];
+    const mtuples = list.map((c, i) => { mvals.push(c.id, Number(c.max_score)); const b = i * 2; return `($${b + 1}::int, $${b + 2}::numeric)`; });
+    mvals.push(asg.event_id);
     await client.query(
-      `UPDATE event_criteria ec SET max_score = v.ms, sequence_order = v.so
-       FROM (VALUES ${tuples.join(', ')}) AS v(id, ms, so)
-       WHERE ec.id = v.id AND ec.event_id = $${vals.length}`, vals);
+      `UPDATE event_criteria ec SET max_score = v.ms
+       FROM (VALUES ${mtuples.join(', ')}) AS v(id, ms)
+       WHERE ec.id = v.id AND ec.event_id = $${mvals.length}`, mvals);
+    // 2) sequence_order (C1..) reorder in TWO steps to avoid the transient
+    //    UNIQUE(event_id, sequence_order) collision when positions swap.
+    await client.query(`UPDATE event_criteria SET sequence_order = sequence_order + 1000 WHERE event_id = $1`, [asg.event_id]);
+    const svals = [];
+    const stuples = list.map((c, i) => { svals.push(c.id, Number(c.sequence_order) || (i + 1)); const b = i * 2; return `($${b + 1}::int, $${b + 2}::int)`; });
+    svals.push(asg.event_id);
+    await client.query(
+      `UPDATE event_criteria ec SET sequence_order = v.so
+       FROM (VALUES ${stuples.join(', ')}) AS v(id, so)
+       WHERE ec.id = v.id AND ec.event_id = $${svals.length}`, svals);
     // Changing weightages resets everyone's agreement; the proposer auto-agrees.
     await client.query(`UPDATE judge_assignments SET weightages_agreed_at = NULL WHERE event_id = $1`, [asg.event_id]);
     await client.query(`UPDATE judge_assignments SET weightages_agreed_at = NOW() WHERE id = $1`, [asg.id]);

@@ -386,6 +386,23 @@ then Continue → scoring.
   client.js judgeApi.briefing added.
 - Verified: judge route load; JudgeApp + client parse.
 
+## Weightage save bug + shared-weightage clarity (July 2026)
+- BUG: saving reordered weightages hit UNIQUE(event_id, sequence_order)
+  ("event_criteria_event_id_sequence_order_key") — the single UPDATE reassigning
+  sequence_order transiently duplicated a position. FIX (judge.routes /criteria):
+  update max_score in one statement (sum trigger sees final 100), then reorder
+  sequence_order in TWO steps: bump all +1000, then set final 1..n → no transient
+  collision. So the save FAILING is why weightages appeared to "revert" to the DB
+  values (25/25/25/25).
+- CLARITY: weightages are ONE SHARED set per event (single event_criteria row
+  set), agreed by the whole panel — NOT per-judge. Any judge's save overwrites
+  the shared set + resets agreements + proposer auto-agrees. Judges differ in
+  their SCORES, not the weightage structure. JudgeApp Briefing copy rewritten to
+  say this ("shared by all three judges … one figure per criterion"); the
+  briefing now POLLS every 5s (paused while a judge is editing) so judges see the
+  others' saved figures + the "Agreed by X/Y" count live.
+- Verified: judge route node -c; JudgeApp parses.
+
 ## Judge sees ALL assigned events (July 2026)
 FIX: /api/judge/events previously FILTERED to judges.active_event_id (set only
 by OTP send), so a newly-assigned event was hidden until its OTP was sent —

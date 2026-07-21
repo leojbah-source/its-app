@@ -76,6 +76,11 @@ function Briefing({ token, current, onBack, onContinue, setFlash }) {
     finally { setLoading(false); }
   }, [token, current]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (editW) return; // don't clobber the judge's draft while they edit
+    const iv = setInterval(load, 5000);
+    return () => clearInterval(iv);
+  }, [editW, load]);
 
   const wTotal = wDraft.reduce((t, c) => t + (Number(c.max_score) || 0), 0);
   async function saveWeights() {
@@ -106,7 +111,8 @@ function Briefing({ token, current, onBack, onContinue, setFlash }) {
       </div>
 
       <div className="mb-3 rounded-xl bg-white p-4 shadow-sm">
-        <p className="text-sm text-slate-600">Thank you for judging today. Please agree the weightage for each criterion so they total <b>100</b>. The highest weightage becomes <b>C1</b> (used to break ties, then C2, C3…).</p>
+        <p className="text-sm text-slate-600">These weightages are <b>shared by all three judges</b> for this event — the panel agrees on <b>one figure per criterion</b> (not one per judge), totalling <b>100</b>. The highest becomes <b>C1</b> (used to break ties, then C2, C3…).</p>
+        <p className="mt-1 text-xs text-slate-500">One judge enters the agreed figures; each judge then taps “I agree”. If anyone changes them, everyone must agree again. Your individual <i>scores</i> come later.</p>
         <div className="mt-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-navy-900">Criteria &amp; weightages</h2>
           {!brief.weightages_locked && !editW && <button onClick={() => setEditW(true)} className="inline-flex items-center gap-1 text-xs font-medium text-navy-600 hover:underline"><Sliders size={13} /> Adjust</button>}
