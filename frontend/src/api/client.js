@@ -245,6 +245,7 @@ export const resultsApi = {
   groups: (token, eventId) => request(`/api/admin/results/${eventId}/groups`, { token }),
   get: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}`, { token }),
   compute: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/compute`, { method: 'POST', token, body: {} }),
+  reviewDivergence: (token, eventId, ag, registration_id, note) => request(`/api/admin/results/${eventId}/${ag}/divergence`, { method: 'POST', token, body: { registration_id, note } }),
   finalise: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/finalise`, { method: 'POST', token, body: {} }),
   publish: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/publish`, { method: 'POST', token, body: {} }),
 };

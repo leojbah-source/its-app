@@ -177,7 +177,34 @@ router.get('/results/:event_id/:age_group_id', requireRole(...viewRoles), async 
       `SELECT e.event_code, e.event_name, c.name AS category_name, ag.code AS age_group_code
        FROM events e LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN age_groups ag ON ag.id = $2 WHERE e.id = $1`, [req.params.event_id, req.params.age_group_id]);
+    // merge stored divergence review notes
+    const regIds = data.results.map((r) => r.registration_id);
+    if (regIds.length) {
+      const { rows: stored } = await pool.query(
+        `SELECT registration_id, divergence_notes FROM event_results WHERE registration_id = ANY($1)`, [regIds]);
+      const noteMap = new Map(stored.map((x) => [x.registration_id, x.divergence_notes]));
+      data.results.forEach((r) => { r.divergence_notes = noteMap.get(r.registration_id) || null; });
+    }
     res.json({ ...data, event: ev[0] || null, state: await groupState(req.params.event_id, req.params.age_group_id) });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/results/:event_id/:age_group_id/divergence — review note ──
+router.post('/results/:event_id/:age_group_id/divergence', requireRole(...viewRoles), async (req, res, next) => {
+  try {
+    const { registration_id, note } = req.body;
+    if (!registration_id) return res.status(400).json({ error: 'registration_id required' });
+    const { rows: reg } = await pool.query(`SELECT event_id FROM registrations WHERE id = $1`, [registration_id]);
+    if (!reg[0]) return res.status(404).json({ error: 'Registration not found' });
+    await pool.query(
+      `INSERT INTO event_results (registration_id, event_id, divergence_flag, divergence_notes)
+       VALUES ($1,$2,TRUE,$3)
+       ON CONFLICT (registration_id) DO UPDATE SET divergence_notes = EXCLUDED.divergence_notes, updated_at = NOW()
+       WHERE event_results.is_published = FALSE`,
+      [registration_id, reg[0].event_id, (note || '').trim() || null]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'REVIEW_DIVERGENCE', entity: 'event_results', entityId: registration_id, details: { note } });
+    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
@@ -223,6 +250,15 @@ router.post('/results/:event_id/:age_group_id/finalise', requireRole(...viewRole
     const eventId = Number(req.params.event_id), ag = Number(req.params.age_group_id);
     const data = await computeGroup(eventId, ag, cfg);
     if (!data.complete) return res.status(409).json({ error: 'All judges must finish scoring every participant before finalising.' });
+    // diverging results need a Chairman review note first (rule #7)
+    const divergent = data.results.filter((r) => r.divergence_flag).map((r) => r.registration_id);
+    if (divergent.length) {
+      const { rows: notes } = await pool.query(
+        `SELECT registration_id, divergence_notes FROM event_results WHERE registration_id = ANY($1)`, [divergent]);
+      const noteMap = new Map(notes.map((x) => [x.registration_id, x.divergence_notes]));
+      const unreviewed = divergent.filter((id) => !noteMap.get(id));
+      if (unreviewed.length) return res.status(409).json({ error: `${unreviewed.length} diverging result(s) need a Chairman review note before finalising.` });
+    }
     // ensure rows exist, then finalise
     const { rows } = await pool.query(
       `UPDATE event_results er SET is_finalised = TRUE, finalised_by = $1, finalised_at = NOW(), updated_at = NOW()

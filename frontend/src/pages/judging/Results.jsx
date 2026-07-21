@@ -58,6 +58,13 @@ export default function Results() {
 
   const state = data?.state || {};
   const flagged = useMemo(() => (data?.results || []).filter((r) => r.tie_flag || r.divergence_flag).length, [data]);
+  const unreviewedDiv = useMemo(() => (data?.results || []).filter((r) => r.divergence_flag && !r.divergence_notes).length, [data]);
+  async function reviewDiv(row) {
+    const note = window.prompt(`Chest ${row.chest_number} — judges' ranks diverge (±${data.absolute_threshold} ranks). Enter a Chairman review note:`, row.divergence_notes || '');
+    if (note == null) return;
+    try { await resultsApi.reviewDivergence(token, eventId, groupId, row.registration_id, note); setFlash('Divergence reviewed.'); loadResults(); }
+    catch (e) { setFlash(e.message); }
+  }
   const sel = 'rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
 
   return (
@@ -102,11 +109,12 @@ export default function Results() {
               <div className="flex-1" />
               <Button variant="outline" icon={RefreshCw} onClick={loadResults}>Refresh</Button>
               {!state.published && <Button variant="outline" icon={Calculator} loading={busy} onClick={() => act('compute')}>Compute &amp; save</Button>}
-              {!state.finalised && <Button variant="primary" icon={CheckCircle2} loading={busy} disabled={!data.complete} onClick={() => act('finalise')}>Finalise</Button>}
+              {!state.finalised && <Button variant="primary" icon={CheckCircle2} loading={busy} disabled={!data.complete || unreviewedDiv > 0} onClick={() => act('finalise')}>Finalise</Button>}
               {state.finalised && !state.published && <Button variant="gold" icon={Send} loading={busy} onClick={() => act('publish')}>Publish</Button>}
             </div>
 
             {!data.complete && <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">Not all judges have scored every participant yet — you can compute a preview, but finalising is disabled until scoring is complete.</div>}
+            {data.complete && unreviewedDiv > 0 && <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{unreviewedDiv} result(s) have diverging judge ranks — click “review diverge” on each and add a note before finalising.</div>}
 
             <Card className="p-0 overflow-hidden">
               <div className="overflow-x-auto">
@@ -136,7 +144,11 @@ export default function Results() {
                         <td className="px-2 py-2 text-center">
                           <div className="flex justify-center gap-1">
                             {r.tie_flag && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">tie</span>}
-                            {r.divergence_flag && <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] text-red-700">diverge</span>}
+                            {r.divergence_flag && (state.published
+                              ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600" title={r.divergence_notes || ''}>diverge</span>
+                              : r.divergence_notes
+                                ? <button onClick={() => reviewDiv(r)} title={r.divergence_notes} className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] text-green-700">diverge ✓</button>
+                                : <button onClick={() => reviewDiv(r)} className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700">review diverge</button>)}
                           </div>
                         </td>
                       </tr>
