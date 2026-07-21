@@ -386,6 +386,16 @@ then Continue → scoring.
   client.js judgeApi.briefing added.
 - Verified: judge route load; JudgeApp + client parse.
 
+## Judge sees ALL assigned events (July 2026)
+FIX: /api/judge/events previously FILTERED to judges.active_event_id (set only
+by OTP send), so a newly-assigned event was hidden until its OTP was sent —
+worse under OTP bypass (no OTP send at all), leaving judges stuck on the old
+event. Now /events returns ALL the judge's assigned events with an is_active
+flag (e.id = active_event_id), ordered active-first. JudgeApp auto-opens only
+when there's exactly ONE event; with multiple it shows the list, the OTP'd one
+badged "current" and listed first, and the judge chooses. active_event_id is now
+a highlight/default, not a hard filter.
+
 ## Judge OTP bypass for testing (July 2026)
 auth.routes verify-otp: if env JUDGE_OTP_BYPASS=true, judges log in with PHONE
 ONLY (no WhatsApp/SMS OTP) — for testing before go-live. Default (unset/false) =

@@ -52,10 +52,11 @@ export default function JudgeApp() {
 function EventsList({ events, onOpen }) {
   if (!events.length) return <p className="py-10 text-center text-sm text-slate-500">No event is open for you right now. The organiser sends an OTP when your event is ready.</p>;
   return (
-    <div className="space-y-2"><h1 className="mb-2 text-lg font-semibold text-navy-900">Your event</h1>
+    <div className="space-y-2"><h1 className="mb-2 text-lg font-semibold text-navy-900">Your events</h1>
       {events.map((e) => (
         <button key={e.assignment_id} onClick={() => onOpen(e)} className="flex w-full items-center justify-between rounded-xl bg-white p-4 text-left shadow-sm hover:bg-slate-50">
-          <div><div className="font-medium text-navy-800"><span className="font-mono text-xs text-navy-500 mr-1.5">{e.event_code}</span>{e.event_name}</div>
+          <div><div className="font-medium text-navy-800"><span className="font-mono text-xs text-navy-500 mr-1.5">{e.event_code}</span>{e.event_name}
+            {e.is_active && <span className="ml-2 rounded-full bg-gold-100 px-2 py-0.5 text-[10px] font-semibold text-gold-700">current</span>}</div>
           <div className="text-xs text-slate-500">{e.category_name}</div></div><ChevronLeft className="rotate-180 text-slate-400" size={18} /></button>))}
     </div>
   );

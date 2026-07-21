@@ -47,6 +47,7 @@ router.get('/events', async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT ja.id AS assignment_id, e.id AS event_id, e.event_code, e.event_name,
               c.name AS category_name,
+              (e.id = j.active_event_id) AS is_active,
               (SELECT COUNT(*)::int FROM event_criteria ec WHERE ec.event_id = e.id) AS criteria_count,
               (SELECT COALESCE(SUM(ec.max_score),0)::int FROM event_criteria ec WHERE ec.event_id = e.id) AS criteria_total
        FROM judge_assignments ja
@@ -54,8 +55,7 @@ router.get('/events', async (req, res, next) => {
        JOIN judges j ON j.id = ja.judge_id
        LEFT JOIN categories c ON c.id = e.category_id
        WHERE ja.judge_id = $1
-         AND (j.active_event_id IS NULL OR e.id = j.active_event_id)
-       ORDER BY e.event_code`, [req.user.judgeId]);
+       ORDER BY (e.id = j.active_event_id) DESC NULLS LAST, e.event_code`, [req.user.judgeId]);
     res.json(rows);
   } catch (err) { next(err); }
 });
