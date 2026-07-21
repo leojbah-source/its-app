@@ -386,6 +386,13 @@ then Continue → scoring.
   client.js judgeApi.briefing added.
 - Verified: judge route load; JudgeApp + client parse.
 
+## Judge OTP bypass for testing (July 2026)
+auth.routes verify-otp: if env JUDGE_OTP_BYPASS=true, judges log in with PHONE
+ONLY (no WhatsApp/SMS OTP) — for testing before go-live. Default (unset/false) =
+normal OTP enforced. Added to backend/.env.example. JudgeLogin.jsx made OTP
+optional (validates phone only; label "(if required)"; note about testing).
+REMOVE/set false before going live to re-enable OTP.
+
 ## Divergence review before finalise (July 2026)
 Deferred judging item 1/4. When a participant's judge-ranks diverge beyond the
 threshold (rule #7), a Chairman must review + note it before the group can be

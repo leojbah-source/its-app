@@ -22,7 +22,7 @@ export default function JudgeLogin() {
   }
   async function submit(e) {
     e.preventDefault();
-    if (!phone.trim() || !otp.trim()) { setErr('Enter your phone and the OTP.'); return; }
+    if (!phone.trim()) { setErr('Enter your phone number.'); return; }
     setBusy(true); setErr('');
     try { await login(phone.trim(), otp.trim()); navigate('/judge'); }
     catch (e2) { setErr(e2.message); }
@@ -50,7 +50,7 @@ export default function JudgeLogin() {
             <Send size={14} /> Send OTP to my phone
           </button>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">OTP</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">OTP <span className="font-normal text-slate-400">(if required)</span></label>
             <input value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="6-digit code" className={inp} inputMode="numeric" />
           </div>
           {msg && <p className="text-sm text-green-600">{msg}</p>}
@@ -60,7 +60,7 @@ export default function JudgeLogin() {
             <LogIn size={18} /> {busy ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-        <p className="mt-4 text-center text-xs text-slate-400">The OTP is sent by the organisers at your briefing.</p>
+        <p className="mt-4 text-center text-xs text-slate-400">Enter the OTP if the organisers ask for it. During testing you may sign in with your phone alone.</p>
       </div>
     </div>
   );

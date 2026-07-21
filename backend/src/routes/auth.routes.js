@@ -60,10 +60,16 @@ router.post('/send-otp', async (req, res, next) => {
 router.post('/verify-otp', async (req, res, next) => {
   try {
     const { phone, otp } = req.body;
-    if (!phone || !otp) return res.status(400).json({ error: 'phone and otp are required' });
+    if (!phone) return res.status(400).json({ error: 'phone is required' });
 
-    const valid = await verifyOtp(phone, otp);
-    if (!valid) return res.status(401).json({ error: 'Invalid or expired OTP' });
+    // TESTING: set JUDGE_OTP_BYPASS=true to let judges log in with phone only
+    // (no WhatsApp/SMS OTP). Remove/set false before going live.
+    const bypass = process.env.JUDGE_OTP_BYPASS === 'true';
+    if (!bypass) {
+      if (!otp) return res.status(400).json({ error: 'OTP is required' });
+      const valid = await verifyOtp(phone, otp);
+      if (!valid) return res.status(401).json({ error: 'Invalid or expired OTP' });
+    }
 
     const { rows } = await pool.query(`SELECT id, full_name, is_blacklisted FROM judges WHERE phone = $1`, [phone]);
     const judge = rows[0];
