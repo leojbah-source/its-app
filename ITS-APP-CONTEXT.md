@@ -386,6 +386,29 @@ then Continue → scoring.
   client.js judgeApi.briefing added.
 - Verified: judge route load; JudgeApp + client parse.
 
+## Divergence review before finalise (July 2026)
+Deferred judging item 1/4. When a participant's judge-ranks diverge beyond the
+threshold (rule #7), a Chairman must review + note it before the group can be
+finalised.
+- admin.judging.routes: GET /results now merges stored event_results
+  divergence_notes into each live result row. POST /results/:e/:ag/divergence
+  {registration_id, note} upserts event_results.divergence_notes (not on
+  published rows). finalise now 409s if any diverging participant lacks a note.
+- Results.jsx: diverging rows show a red "review diverge" button (Chairman note
+  prompt) → "diverge ✓" green once noted (note in tooltip); Finalise disabled +
+  red hint while unreviewedDiv>0. resultsApi.reviewDivergence added.
+- Verified: judging route node -c; client + Results parse.
+Remaining deferred (user order): 2) tiebreaker resolution (rule #8), 3) prize-
+eligibility (min_entries_threshold/no_prize_below), 4) extra/consolation prizes.
+
+## Staff session persistence (July 2026)
+AuthContext (staff/admin) now persists token + user in sessionStorage (keys
+its_staff_token/its_staff_user) — a refresh or tablet sleep no longer signs out
+(critical for MC/Timer day-of tablets); clears on tab close. Recovers user from
+the JWT payload if the stored user is lost. Login response already includes
+role, so landingFor()/ProtectedRoute allowedRoles work after refresh. (Judge +
+parent portals already used sessionStorage.)
+
 ## Timer sequential start (July 2026)
 Timer Start is now SEQUENTIAL: only the first not-yet-timed chest (chest order,
 nextReg memo) shows an enabled Start; others show "next in line". Nothing
