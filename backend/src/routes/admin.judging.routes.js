@@ -5,6 +5,9 @@
 // flagged. GRADE (A/B/C) is by the average score % (separate from placement).
 // Divergence flagged when a participant's ranks differ across judges beyond the
 // threshold (rule #7). Two-stage: finalise (print) then Chairman publish (#13).
+// Rule #8 tiebreaker: when a placement tie cannot be broken by criteria order,
+// the Chairman UNLOCKS a tiebreaker session and each judge gives a 1–10 mark per
+// tied participant (Admin keys them in). The mark totals are the FINAL tiebreak.
 const express = require('express');
 const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
@@ -33,6 +36,25 @@ function rankByDesc(items, valueOf) {
   return rank;
 }
 
+// Per-participant sum of the judges' LATEST tiebreaker marks (rule #8). A fresh
+// unlock supersedes earlier marks for the same (participant, judge), so we take
+// the mark from the highest unlock_id per pair, then sum across judges.
+async function tiebreakMarkSums(eventId) {
+  const { rows } = await pool.query(
+    `SELECT tm.participant_reg_id AS reg, SUM(tm.mark)::int AS s
+     FROM tiebreaker_marks tm
+     JOIN (SELECT participant_reg_id, judge_id, MAX(unlock_id) AS mu
+           FROM tiebreaker_marks WHERE event_id = $1
+           GROUP BY participant_reg_id, judge_id) l
+       ON l.participant_reg_id = tm.participant_reg_id
+      AND l.judge_id = tm.judge_id AND l.mu = tm.unlock_id
+     WHERE tm.event_id = $1
+     GROUP BY tm.participant_reg_id`, [eventId]);
+  const m = {};
+  for (const x of rows) m[x.reg] = Number(x.s);
+  return m;
+}
+
 // Live computation for one (event, age group). Returns meta + per-participant rows.
 async function computeGroup(eventId, ageGroupId, cfg) {
   const { rows: participants } = await pool.query(
@@ -41,7 +63,7 @@ async function computeGroup(eventId, ageGroupId, cfg) {
      WHERE r.event_id = $1 AND r.age_group_id = $2 AND r.status = 'attended'
      ORDER BY ca.chest_number`, [eventId, ageGroupId]);
   const { rows: judges } = await pool.query(
-    `SELECT ja.id AS assignment_id, j.full_name FROM judge_assignments ja
+    `SELECT ja.id AS assignment_id, ja.judge_id, j.full_name FROM judge_assignments ja
      JOIN judges j ON j.id = ja.judge_id WHERE ja.event_id = $1 ORDER BY j.full_name`, [eventId]);
   const { rows: criteria } = await pool.query(
     `SELECT id, criterion_name AS label, max_score, sequence_order
@@ -57,6 +79,8 @@ async function computeGroup(eventId, ageGroupId, cfg) {
        FROM scores WHERE judge_assignment_id = ANY($1) AND registration_id = ANY($2)`, [asgIds, regIds]);
     scores = r.rows;
   }
+  const tbMark = await tiebreakMarkSums(eventId); // reg -> mark total (higher wins tie)
+
   // maps
   const total = {};       // `${asg}:${reg}` -> sum
   const cnt = {};         // `${asg}:${reg}` -> #criteria scored
@@ -100,21 +124,34 @@ async function computeGroup(eventId, ageGroupId, cfg) {
     if (avgPct >= Number(cfg.grade_a_pct)) grade = 'A';
     else if (avgPct >= Number(cfg.grade_b_pct)) grade = 'B';
     else if (avgPct >= Number(cfg.grade_c_pct)) grade = 'C';
-    return { registration_id: reg, chest_number: p.chest_number, perJudge, rankSum, avgPct: Math.round(avgPct * 100) / 100, divergence, critTotals, grade };
+    return { registration_id: reg, chest_number: p.chest_number, perJudge, rankSum,
+      avgPct: Math.round(avgPct * 100) / 100, divergence, critTotals, grade, tbMark: tbMark[reg] || 0 };
   });
 
-  // placement: rankSum asc, tiebreak by critTotals (C1..) desc
+  // placement: rankSum asc, tiebreak by critTotals (C1..) desc, then rule #8 marks desc
   const ordered = [...rows].sort((a, b) => {
     if (a.rankSum !== b.rankSum) return a.rankSum - b.rankSum;
     for (let i = 0; i < a.critTotals.length; i++) if (b.critTotals[i] !== a.critTotals[i]) return b.critTotals[i] - a.critTotals[i];
+    if (b.tbMark !== a.tbMark) return b.tbMark - a.tbMark;
     return 0;
   });
   const rankSumCount = {};
   rows.forEach((r) => { rankSumCount[r.rankSum] = (rankSumCount[r.rankSum] || 0) + 1; });
   const maxPlaces = Math.min(3, participants.length);
+
+  // Unresolved EXACT ties: identical rankSum AND identical criteria totals AND equal
+  // tiebreaker marks — the automatic tiebreak cannot separate them. Only matters when
+  // the cluster touches a prize position (rule #8 tiebreaker needed there).
+  const keyOf = (r) => `${r.rankSum}|${r.critTotals.join(',')}|${r.tbMark}`;
+  const clusterCount = {}, clusterMinIdx = {};
+  ordered.forEach((r, i) => { const k = keyOf(r); clusterCount[k] = (clusterCount[k] || 0) + 1; if (!(k in clusterMinIdx)) clusterMinIdx[k] = i; });
+
   ordered.forEach((r, i) => {
     r.place = i < maxPlaces ? i + 1 : null;
     r.tie = rankSumCount[r.rankSum] > 1;
+    const k = keyOf(r);
+    r.exactTie = clusterCount[k] > 1;
+    r.needsTiebreak = r.exactTie && clusterMinIdx[k] < maxPlaces; // cluster reaches a prize place
     // points
     const rp = r.place === 1 ? cfg.rank_pts_first : r.place === 2 ? cfg.rank_pts_second : r.place === 3 ? cfg.rank_pts_third : 0;
     const gp = r.grade === 'A' ? cfg.grade_a_pts : r.grade === 'B' ? cfg.grade_b_pts : r.grade === 'C' ? cfg.grade_c_pts : 0;
@@ -127,12 +164,15 @@ async function computeGroup(eventId, ageGroupId, cfg) {
   return {
     event_id: eventId, age_group_id: ageGroupId,
     judges: judges.map((j) => j.full_name),
+    judge_meta: judges.map((j) => ({ judge_id: j.judge_id, name: j.full_name })),
     criteria, participant_count: participants.length,
     complete, divergence_threshold_pct: Number(cfg.divergence_threshold_pct), absolute_threshold: absThresh,
+    tiebreak_needed: ordered.some((r) => r.needsTiebreak),
     results: ordered.map((r) => ({
       registration_id: r.registration_id, chest_number: r.chest_number, per_judge: r.perJudge,
       rank_sum: r.rankSum, avg_pct: r.avgPct, place: r.place, grade: r.grade,
       tie_flag: r.tie, divergence_flag: r.divergence,
+      exact_tie: r.exactTie, needs_tiebreak: r.needsTiebreak, mark_sum: r.tbMark,
       rank_points: r.rank_points, grade_points: r.grade_points,
       participation_bonus_pts: r.participation_bonus_pts, total_points: r.total_points,
     })),
@@ -208,6 +248,70 @@ router.post('/results/:event_id/:age_group_id/divergence', requireRole(...viewRo
   } catch (err) { next(err); }
 });
 
+// ── POST /api/admin/results/:event_id/:age_group_id/tiebreak/unlock (rule #8) ─
+// Only a Chairman may authorise a tiebreaker session (the DB trigger enforces the
+// same). Returns the unlock_id used to key in the judges' 1–10 marks.
+router.post('/results/:event_id/:age_group_id/tiebreak/unlock', requireRole(...viewRoles), async (req, res, next) => {
+  try {
+    if (req.user.role !== 'Chairman') {
+      return res.status(403).json({ error: 'Only the Chairman may unlock a tiebreaker session (rule #8).' });
+    }
+    const eventId = Number(req.params.event_id), ag = Number(req.params.age_group_id);
+    const st = await groupState(eventId, ag);
+    if (st.published) return res.status(409).json({ error: 'Results already published — cannot open a tiebreaker.' });
+    const { rows } = await pool.query(
+      `INSERT INTO tiebreaker_unlocks (event_id, unlocked_by) VALUES ($1, $2) RETURNING id`,
+      [eventId, req.user.id]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'UNLOCK_TIEBREAKER', entity: 'events', entityId: eventId, details: { age_group_id: ag, unlock_id: rows[0].id } });
+    res.json({ unlock_id: rows[0].id });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/results/:event_id/:age_group_id/tiebreak/marks (rule #8) ──
+// Admin keys in the judges' 1–10 marks under the Chairman-authorised session, then
+// the session is locked. Marks feed the final tiebreak on the next compute.
+router.post('/results/:event_id/:age_group_id/tiebreak/marks', requireRole(...viewRoles), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const eventId = Number(req.params.event_id);
+    const { unlock_id, marks } = req.body;
+    if (!unlock_id || !Array.isArray(marks) || !marks.length) {
+      return res.status(400).json({ error: 'unlock_id and a non-empty marks array are required' });
+    }
+    // validate the session belongs to this event and is still open
+    const { rows: sess } = await pool.query(
+      `SELECT id, locked_at FROM tiebreaker_unlocks WHERE id = $1 AND event_id = $2`, [unlock_id, eventId]);
+    if (!sess[0]) return res.status(404).json({ error: 'Tiebreaker session not found for this event.' });
+    if (sess[0].locked_at) return res.status(409).json({ error: 'This tiebreaker session is already locked.' });
+    for (const m of marks) {
+      const mk = Number(m.mark);
+      if (!m.registration_id || !m.judge_id || !Number.isInteger(mk) || mk < 1 || mk > 10) {
+        return res.status(400).json({ error: 'Each mark needs registration_id, judge_id and an integer mark 1–10.' });
+      }
+    }
+    await client.query('BEGIN');
+    for (const m of marks) {
+      await client.query(
+        `INSERT INTO tiebreaker_marks
+           (event_id, participant_reg_id, judge_id, mark, unlock_id, entered_by, approved_by_chairman)
+         VALUES ($1,$2,$3,$4,$5,$6,
+                 (SELECT unlocked_by FROM tiebreaker_unlocks WHERE id = $5))
+         ON CONFLICT (participant_reg_id, judge_id, unlock_id)
+           DO UPDATE SET mark = EXCLUDED.mark, entered_by = EXCLUDED.entered_by, entered_at = NOW()`,
+        [eventId, m.registration_id, m.judge_id, Number(m.mark), unlock_id, req.user.id]);
+    }
+    await client.query(`UPDATE tiebreaker_unlocks SET locked_at = NOW() WHERE id = $1`, [unlock_id]);
+    await client.query('COMMIT');
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'ENTER_TIEBREAKER_MARKS', entity: 'events', entityId: eventId, details: { unlock_id, count: marks.length } });
+    res.json({ saved: marks.length });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
+    next(err);
+  } finally { client.release(); }
+});
+
 // ── POST /api/admin/results/:event_id/:age_group_id/compute — persist ────────
 router.post('/results/:event_id/:age_group_id/compute', requireRole(...viewRoles), async (req, res, next) => {
   const client = await pool.connect();
@@ -250,6 +354,10 @@ router.post('/results/:event_id/:age_group_id/finalise', requireRole(...viewRole
     const eventId = Number(req.params.event_id), ag = Number(req.params.age_group_id);
     const data = await computeGroup(eventId, ag, cfg);
     if (!data.complete) return res.status(409).json({ error: 'All judges must finish scoring every participant before finalising.' });
+    // unresolved exact ties in prize positions need rule #8 tiebreaker marks first
+    if (data.tiebreak_needed) {
+      return res.status(409).json({ error: 'A placement tie could not be broken by criteria — resolve it with a tiebreaker (rule #8) before finalising.' });
+    }
     // diverging results need a Chairman review note first (rule #7)
     const divergent = data.results.filter((r) => r.divergence_flag).map((r) => r.registration_id);
     if (divergent.length) {

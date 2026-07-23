@@ -991,3 +991,36 @@ Always filter by `year_id` when querying categories or age_groups.
 ---
 
 #
+## Tiebreaker resolution (rule #8) — deferred item #2 (done)
+When a **prize-position** placement tie cannot be broken by the criteria order
+(same rank-sum AND identical C1..Cn totals), it needs the rule #8 tiebreaker.
+
+**Model (matches base schema):** Chairman **unlocks** a session (records who
+authorised — DB trigger `fn_check_tiebreaker_unlock` rejects any unlock whose
+owner isn't a Chairman), each judge gives every tied chest a **1–10 mark**, and
+an Admin **keys them in**. Higher **mark total** wins the higher place. Tables
+already existed in `db/schema.sql` (`tiebreaker_unlocks`, `tiebreaker_marks`) —
+**no migration** needed.
+
+**Backend** `admin.judging.routes.js`:
+- `tiebreakMarkSums(eventId)` — per participant, sum of judges' **latest** marks
+  (take `MAX(unlock_id)` per (reg,judge) so a re-run supersedes old marks).
+- `computeGroup` — sort tiebreak chain is now `rankSum asc → critTotals desc →
+  tbMark desc`. Detects **unresolved exact ties**: cluster keyed by
+  `rankSum|critTotals|tbMark`; `needs_tiebreak` when the cluster's min index is
+  inside a prize place (`< maxPlaces`). Returns `judge_meta [{judge_id,name}]`,
+  `tiebreak_needed`, and per-row `exact_tie / needs_tiebreak / mark_sum`.
+- `POST /results/:e/:ag/tiebreak/unlock` — **Chairman only** (403 otherwise),
+  blocked if published; inserts `tiebreaker_unlocks` → `{unlock_id}`.
+- `POST /results/:e/:ag/tiebreak/marks` — validates session open + marks 1–10,
+  upserts `tiebreaker_marks` (`approved_by_chairman` = session's `unlocked_by`,
+  `entered_by` = current user), then **locks** the session. Re-doing = new unlock.
+- `finalise` now also blocks on `tiebreak_needed` (alongside the divergence gate).
+
+**Frontend** `Results.jsx`: `showTiebreak = complete && tiebreak_needed` gates a
+red banner + "tie to resolve" badge + row highlight + `tiebreak` flag chip. A
+`TiebreakModal` (Chairman-only "Resolve tie" button) shows a tied-chest × judge
+1–10 grid; Save calls `tiebreakUnlock` then `tiebreakMarks` and reloads.
+`resultsApi.tiebreakUnlock/tiebreakMarks` added to `api/client.js`.
+
+Deferred judging items remaining: 3) Prize-eligibility rules, 4) Extra/consolation prizes.
