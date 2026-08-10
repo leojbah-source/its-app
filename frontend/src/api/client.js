@@ -250,6 +250,7 @@ export const resultsApi = {
   publish: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/publish`, { method: 'POST', token, body: {} }),
   tiebreakUnlock: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/tiebreak/unlock`, { method: 'POST', token, body: {} }),
   tiebreakMarks: (token, eventId, ag, unlock_id, marks) => request(`/api/admin/results/${eventId}/${ag}/tiebreak/marks`, { method: 'POST', token, body: { unlock_id, marks } }),
+  setExtraPrize: (token, eventId, ag, registration_id, extra_prize_type) => request(`/api/admin/results/${eventId}/${ag}/extra-prize`, { method: 'POST', token, body: { registration_id, extra_prize_type } }),
 };
 
 export const chestApi = {

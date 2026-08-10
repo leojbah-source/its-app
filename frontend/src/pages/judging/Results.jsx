@@ -66,6 +66,14 @@ export default function Results() {
   const tieRows = useMemo(() => (data?.results || []).filter((r) => r.needs_tiebreak), [data]);
   const showTiebreak = Boolean(data?.complete && data?.tiebreak_needed);
 
+  const EXTRA_LABEL = { additional_3rd: "Add'l 3rd", consolation: 'Consolation' };
+  async function setExtra(row, type) {
+    try {
+      await resultsApi.setExtraPrize(token, eventId, groupId, row.registration_id, type || null);
+      setFlash(type ? 'Extra/consolation prize awarded.' : 'Extra prize removed.');
+      loadResults();
+    } catch (e) { setFlash(e.message); }
+  }
   async function reviewDiv(row) {
     const note = window.prompt(`Chest ${row.chest_number} — judges' ranks diverge (±${data.absolute_threshold} ranks). Enter a Chairman review note:`, row.divergence_notes || '');
     if (note == null) return;
@@ -149,6 +157,7 @@ export default function Results() {
                       <th className="px-2 py-2 text-center">Avg %</th>
                       <th className="px-2 py-2 text-center">Grade</th>
                       <th className="px-2 py-2 text-center">Points</th>
+                      <th className="px-2 py-2 text-center">Extra</th>
                       <th className="px-2 py-2 text-center">Flags</th>
                     </tr>
                   </thead>
@@ -162,6 +171,18 @@ export default function Results() {
                         <td className="px-2 py-2 text-center text-slate-600">{r.avg_pct}</td>
                         <td className="px-2 py-2 text-center">{r.grade ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-navy-700">{r.grade}</span> : <span className="text-slate-300">—</span>}</td>
                         <td className="px-2 py-2 text-center text-slate-600">{r.total_points}</td>
+                        <td className="px-2 py-2 text-center">
+                          {isChairman && !state.published && !r.place ? (
+                            <select value={r.extra_prize_type || ''} onChange={(e) => setExtra(r, e.target.value)}
+                              className="rounded border border-slate-300 px-1 py-0.5 text-[11px] text-slate-600 focus:outline-none focus:ring-1 focus:ring-navy-300">
+                              <option value="">—</option>
+                              <option value="additional_3rd">Add&apos;l 3rd</option>
+                              <option value="consolation">Consolation</option>
+                            </select>
+                          ) : r.extra_prize_type ? (
+                            <span className="rounded bg-navy-100 px-1.5 py-0.5 text-[10px] font-medium text-navy-700">{EXTRA_LABEL[r.extra_prize_type]}</span>
+                          ) : <span className="text-slate-300">—</span>}
+                        </td>
                         <td className="px-2 py-2 text-center">
                           <div className="flex justify-center gap-1">
                             {showTiebreak && r.needs_tiebreak

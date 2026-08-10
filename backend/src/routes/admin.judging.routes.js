@@ -224,13 +224,17 @@ router.get('/results/:event_id/:age_group_id', requireRole(...viewRoles), async 
       `SELECT e.event_code, e.event_name, c.name AS category_name, ag.code AS age_group_code
        FROM events e LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN age_groups ag ON ag.id = $2 WHERE e.id = $1`, [req.params.event_id, req.params.age_group_id]);
-    // merge stored divergence review notes
+    // merge stored divergence review notes + extra/consolation prizes (rule #14)
     const regIds = data.results.map((r) => r.registration_id);
     if (regIds.length) {
       const { rows: stored } = await pool.query(
-        `SELECT registration_id, divergence_notes FROM event_results WHERE registration_id = ANY($1)`, [regIds]);
+        `SELECT registration_id, divergence_notes, extra_prize_type FROM event_results WHERE registration_id = ANY($1)`, [regIds]);
       const noteMap = new Map(stored.map((x) => [x.registration_id, x.divergence_notes]));
-      data.results.forEach((r) => { r.divergence_notes = noteMap.get(r.registration_id) || null; });
+      const extraMap = new Map(stored.map((x) => [x.registration_id, x.extra_prize_type]));
+      data.results.forEach((r) => {
+        r.divergence_notes = noteMap.get(r.registration_id) || null;
+        r.extra_prize_type = extraMap.get(r.registration_id) || null;
+      });
     }
     res.json({ ...data, event: ev[0] || null, state: await groupState(req.params.event_id, req.params.age_group_id) });
   } catch (err) { next(err); }
@@ -252,6 +256,55 @@ router.post('/results/:event_id/:age_group_id/divergence', requireRole(...viewRo
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'REVIEW_DIVERGENCE', entity: 'event_results', entityId: registration_id, details: { note } });
     res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/results/:event_id/:age_group_id/extra-prize (rule #14) ───
+// Chairman-only "4th place" additional/consolation prize, addable only BEFORE
+// Stage 2 publication and carrying NO rank points. Pass extra_prize_type = null
+// to remove it. The DB trigger fn_check_extra_prize_window enforces the window;
+// the CHECK constraint requires extra_prize_approved_by whenever a type is set.
+const EXTRA_TYPES = ['additional_3rd', 'consolation'];
+router.post('/results/:event_id/:age_group_id/extra-prize', requireRole(...viewRoles), async (req, res, next) => {
+  try {
+    if (req.user.role !== 'Chairman') {
+      return res.status(403).json({ error: 'Only the Chairman may award an extra/consolation prize (rule #14).' });
+    }
+    const { registration_id } = req.body;
+    let { extra_prize_type } = req.body;
+    if (!registration_id) return res.status(400).json({ error: 'registration_id required' });
+    if (extra_prize_type === '' || extra_prize_type === undefined) extra_prize_type = null;
+    if (extra_prize_type !== null && !EXTRA_TYPES.includes(extra_prize_type)) {
+      return res.status(400).json({ error: `extra_prize_type must be one of ${EXTRA_TYPES.join(', ')} or null.` });
+    }
+    const eventId = Number(req.params.event_id), ag = Number(req.params.age_group_id);
+    const st = await groupState(eventId, ag);
+    if (st.published) return res.status(409).json({ error: 'Results already published — extra prizes must be added before publishing (rule #14).' });
+
+    const { rows: reg } = await pool.query(
+      `SELECT r.event_id, er.prize_place, er.id AS result_id
+       FROM registrations r LEFT JOIN event_results er ON er.registration_id = r.id
+       WHERE r.id = $1`, [registration_id]);
+    if (!reg[0]) return res.status(404).json({ error: 'Registration not found' });
+    if (extra_prize_type !== null && reg[0].prize_place) {
+      return res.status(409).json({ error: 'This chest already holds a main prize place — an extra prize is for non-winners.' });
+    }
+
+    // ensure a row exists (compute usually created it), then set the type + approver
+    await pool.query(
+      `INSERT INTO event_results (registration_id, event_id, extra_prize_type, extra_prize_approved_by, rank_points)
+       VALUES ($1,$2,$3,$4,0)
+       ON CONFLICT (registration_id) DO UPDATE SET
+         extra_prize_type = EXCLUDED.extra_prize_type,
+         extra_prize_approved_by = CASE WHEN EXCLUDED.extra_prize_type IS NULL THEN NULL ELSE EXCLUDED.extra_prize_approved_by END,
+         updated_at = NOW()
+       WHERE event_results.is_published = FALSE`,
+      [registration_id, reg[0].event_id, extra_prize_type, extra_prize_type === null ? null : req.user.id]);
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: extra_prize_type ? 'AWARD_EXTRA_PRIZE' : 'REMOVE_EXTRA_PRIZE',
+      entity: 'event_results', entityId: registration_id, details: { extra_prize_type, age_group_id: ag } });
+    res.json({ ok: true, extra_prize_type });
   } catch (err) { next(err); }
 });
 

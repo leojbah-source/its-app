@@ -1049,3 +1049,24 @@ NOTE: the live results path is `admin.judging.routes.js` (`computeGroup`). The p
 and is NOT wired to the routes — left unchanged so its tests still pass.
 
 Deferred judging items remaining: 4) Extra/consolation prizes (rule #14).
+
+## Extra / consolation prizes (rule #14) — deferred item #4 (done)
+A Chairman-only "4th place" additional/consolation prize, addable only BEFORE
+Stage 2 (publish) and carrying NO rank points. Schema already had the columns
+(`extra_prize_type IN ('additional_3rd','consolation')`, `extra_prize_approved_by`)
+and the guard trigger `fn_check_extra_prize_window` — no migration.
+
+**Backend** `admin.judging.routes.js`:
+- GET results now merges `extra_prize_type` from `event_results` into each row.
+- `POST /results/:e/:ag/extra-prize` — **Chairman only** (403 otherwise); blocked
+  once published; refuses if the chest already holds a main `prize_place`.
+  Upserts `event_results`, setting `extra_prize_type` + `extra_prize_approved_by`
+  (approver nulled when the type is cleared to satisfy the CHECK). Pass
+  `extra_prize_type: null` to remove. Audited AWARD/REMOVE_EXTRA_PRIZE.
+
+**Frontend** `Results.jsx`: new **Extra** column. For Chairman + not-published +
+non-winner rows it's a dropdown (— / Add'l 3rd / Consolation); otherwise a chip
+or —. `resultsApi.setExtraPrize` added.
+
+All four deferred judging items are now complete (divergence review, tiebreaker,
+prize-eligibility, extra/consolation prizes).
