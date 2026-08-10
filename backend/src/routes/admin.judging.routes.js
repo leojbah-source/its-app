@@ -22,7 +22,7 @@ async function activeCfg() {
   const { rows } = await pool.query(
     `SELECT id, grade_a_pct, grade_b_pct, grade_c_pct, grade_a_pts, grade_b_pts, grade_c_pts,
             rank_pts_first, rank_pts_second, rank_pts_third, participation_bonus_pts,
-            divergence_threshold_pct
+            divergence_threshold_pct, no_prize_below, min_entries_threshold
      FROM year_config WHERE is_active = TRUE LIMIT 1`);
   return rows[0] || null;
 }
@@ -137,7 +137,13 @@ async function computeGroup(eventId, ageGroupId, cfg) {
   });
   const rankSumCount = {};
   rows.forEach((r) => { rankSumCount[r.rankSum] = (rankSumCount[r.rankSum] || 0) + 1; });
-  const maxPlaces = Math.min(3, participants.length);
+  // Prize eligibility (two-tier): fewer than no_prize_below entries → no prizes;
+  // fewer than min_entries_threshold → 1st & 2nd only; at/above → full top 3.
+  const noPrizeBelow = Number(cfg.no_prize_below) || 0;
+  const minEntriesFull = Number(cfg.min_entries_threshold) || 0;
+  const n = participants.length;
+  const prizeCap = n < noPrizeBelow ? 0 : (minEntriesFull && n < minEntriesFull ? 2 : 3);
+  const maxPlaces = Math.min(prizeCap, n);
 
   // Unresolved EXACT ties: identical rankSum AND identical criteria totals AND equal
   // tiebreaker marks — the automatic tiebreak cannot separate them. Only matters when
@@ -167,6 +173,7 @@ async function computeGroup(eventId, ageGroupId, cfg) {
     judge_meta: judges.map((j) => ({ judge_id: j.judge_id, name: j.full_name })),
     criteria, participant_count: participants.length,
     complete, divergence_threshold_pct: Number(cfg.divergence_threshold_pct), absolute_threshold: absThresh,
+    prize_cap: prizeCap, no_prize_below: noPrizeBelow, min_entries_threshold: minEntriesFull,
     tiebreak_needed: ordered.some((r) => r.needsTiebreak),
     results: ordered.map((r) => ({
       registration_id: r.registration_id, chest_number: r.chest_number, per_judge: r.perJudge,

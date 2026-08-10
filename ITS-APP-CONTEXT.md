@@ -1024,3 +1024,28 @@ red banner + "tie to resolve" badge + row highlight + `tiebreak` flag chip. A
 `resultsApi.tiebreakUnlock/tiebreakMarks` added to `api/client.js`.
 
 Deferred judging items remaining: 3) Prize-eligibility rules, 4) Extra/consolation prizes.
+
+## Prize-eligibility (two-tier) — deferred item #3 (done)
+Uses the two existing `year_config` columns (no new migration):
+`no_prize_below` (default 3) and `min_entries_threshold` (default 5).
+
+**Rule (user-chosen "two-tier"):** by the group's attended entry count `n`:
+- `n < no_prize_below` → **no prizes** (all `place = null`; participants still get
+  grade + participation points).
+- `no_prize_below ≤ n < min_entries_threshold` → **1st & 2nd only** (prizeCap 2).
+- `n ≥ min_entries_threshold` → **full 1st/2nd/3rd** (prizeCap 3).
+
+**Backend** `admin.judging.routes.js`:
+- `activeCfg()` now also selects `no_prize_below, min_entries_threshold`.
+- `computeGroup` derives `prizeCap` → `maxPlaces = min(prizeCap, n)`, which drives
+  both `place` assignment and the rule #8 `needsTiebreak` prize-position test.
+- Response adds `prize_cap`, `no_prize_below`, `min_entries_threshold`.
+
+**Frontend** `Results.jsx`: badges "no prizes · n < 3" / "1st & 2nd only · n < 5",
+and a footer sentence explaining the thresholds.
+
+NOTE: the live results path is `admin.judging.routes.js` (`computeGroup`). The pure
+`services/ranking.js` module is reference/unit-test code (floor-only prize model)
+and is NOT wired to the routes — left unchanged so its tests still pass.
+
+Deferred judging items remaining: 4) Extra/consolation prizes (rule #14).

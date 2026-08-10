@@ -112,6 +112,8 @@ export default function Results() {
               <Badge tone="navy">{data.participant_count} participants</Badge>
               <Badge tone={data.complete ? 'success' : 'danger'}>{data.complete ? 'scoring complete' : 'scoring incomplete'}</Badge>
               {flagged > 0 && <Badge tone="gold"><span className="inline-flex items-center gap-1"><AlertTriangle size={11} /> {flagged} flagged</span></Badge>}
+              {data.prize_cap === 0 && <Badge tone="danger">no prizes · {data.participant_count} &lt; {data.no_prize_below}</Badge>}
+              {data.prize_cap === 2 && <Badge tone="gold">1st &amp; 2nd only · {data.participant_count} &lt; {data.min_entries_threshold}</Badge>}
               {showTiebreak && <Badge tone="danger"><span className="inline-flex items-center gap-1"><Scale size={11} /> tie to resolve</span></Badge>}
               {state.published ? <Badge tone="success">published</Badge> : state.finalised ? <Badge tone="gold">finalised</Badge> : null}
               <div className="flex-1" />
@@ -180,6 +182,7 @@ export default function Results() {
             </Card>
             <p className="mt-2 text-xs text-slate-500">
               Placement = lowest sum of the {data.judges.length} judges' ranks (ties broken by C1 totals, then C2…, then tiebreaker marks). Grade from average %. Divergence threshold ±{data.absolute_threshold} ranks.
+              {' '}Prizes: none below {data.no_prize_below} entries; 1st &amp; 2nd only below {data.min_entries_threshold}; full top&nbsp;3 at {data.min_entries_threshold}+.
             </p>
           </>
         )}
