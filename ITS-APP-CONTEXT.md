@@ -1109,3 +1109,21 @@ prize-eligibility, extra/consolation prizes).
   + backend `node -c`. Run `npm run build` on Windows before deploy.
 - Legacy `admin.results.routes.js` (event-level finalise/publish/print-pdf) is
   partly shadowed by `admin.judging.routes.js` and unused by the frontend — left as-is.
+
+## Deployment for testing (Render, single-origin)
+- `backend/src/index.js` now serves `frontend/dist` (SPA fallback) when present →
+  the whole app is ONE origin/URL (no CORS/two-server split). CORS also accepts
+  extra origins via `CORS_ORIGINS`/`FRONTEND_URL` env for split deploys.
+- `frontend/src/api/client.js`: `API_BASE` = VITE_API_BASE_URL ?? (DEV? localhost:4000 : '')
+  so a production build talks to its own origin; dev unchanged.
+- `backend/package.json`: added `start` (node src/index.js) and `migrate` scripts.
+- `render.yaml` blueprint: free Postgres `its-db` + free web service `its-app`
+  (frankfurt), build = frontend build + backend install, start = `npm start`,
+  JWT_SECRET generateValue, JUDGE_OTP_BYPASS=true, DB_* injected fromDatabase,
+  DB_SSL=true. Deploys branch `feature/step-5-registrations`.
+- Guides: `DEPLOY-RENDER.md` (Leo: git push → Blueprint → pg_dump local `its_app`
+  → psql restore to Render external URL) and `TESTER-GUIDE.md` (fill-in-the-blank
+  URLs/logins one-pager for a non-technical tester).
+- GIT STATE at handoff: branch feature/step-5-registrations, working tree clean,
+  **55 commits unpushed** + today's deploy changes uncommitted → user must
+  `del .git\index.lock`, `git add -A && git commit && git push`.

@@ -1,0 +1,72 @@
+# Render Blueprint for KCA Indian Talent Scan (ITS)
+# ---------------------------------------------------------------------------
+# One free PostgreSQL database + one free Web Service that BOTH runs the API and
+# serves the built React app (single origin => one URL to share with testers).
+#
+# How to use: see DEPLOY-RENDER.md. In short: push this repo to GitHub, then in
+# Render click  New +  ->  Blueprint  ->  pick this repo  ->  Apply.
+# Render reads this file and creates everything below automatically.
+# ---------------------------------------------------------------------------
+
+databases:
+  - name: its-db
+    databaseName: kca_its
+    user: kca_its_user
+    plan: free
+    region: frankfurt          # closest Render region to Bahrain
+
+services:
+  - type: web
+    name: its-app
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: feature/step-5-registrations   # the branch Render deploys; change in Render if you merge to main
+    # Build the frontend, then install the backend. A fresh Linux install here
+    # pulls the correct native build binaries (unlike a Windows node_modules).
+    buildCommand: cd frontend && npm install && npm run build && cd ../backend && npm install
+    startCommand: cd backend && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # Auth
+      - key: JWT_SECRET
+        generateValue: true          # Render generates a strong random secret
+      - key: JWT_EXPIRES_IN
+        value: 12h
+      # TESTING ONLY: lets judges sign in with phone number, no OTP.
+      # Set to false (or delete) before going live.
+      - key: JUDGE_OTP_BYPASS
+        value: "true"
+      # OTP settings (unused while bypass is on, kept for completeness)
+      - key: OTP_LENGTH
+        value: "6"
+      - key: OTP_EXPIRY_MINUTES
+        value: "10"
+      # Database — SSL required on Render; the five values below are injected
+      # automatically from the its-db database created above.
+      - key: DB_SSL
+        value: "true"
+      - key: DB_HOST
+        fromDatabase:
+          name: its-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: its-db
+          property: port
+      - key: DB_USER
+        fromDatabase:
+          name: its-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: its-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: its-db
+          property: database

@@ -30,11 +30,14 @@ const path = require('path');
 
 const app = express();
 
+// Allowed browser origins. Extra origins (a deployed/tunnel frontend URL) can be
+// added via env without editing code: CORS_ORIGINS="https://a.com,https://b.com"
+// (FRONTEND_URL is also honoured). When the backend serves the built frontend
+// itself (single-origin, see bottom of file) CORS isn't needed at all.
+const envOrigins = (process.env.CORS_ORIGINS || process.env.FRONTEND_URL || '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
 app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'https://talentscan.kcabah.com'
-  ],
+  origin: ['http://localhost:5173', 'https://talentscan.kcabah.com', ...envOrigins],
   credentials: true
 }));
 
@@ -82,7 +85,22 @@ app.use('/api/public', publicRoutes);
 // --- Participant PWA (pwa-login JWT) ---
 app.use('/api/pwa', pwaRoutes);
 
-// 404 handler
+// --- Serve the built frontend (single-origin) so the whole app is one URL. ---
+// Enabled only when frontend/dist exists (i.e. after `npm run build`). In local
+// dev the frontend runs on Vite (5173) and this block is skipped, so /api 404s
+// still return JSON.
+const fs = require('fs');
+const distDir = path.join(__dirname, '../../frontend/dist');
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+  // SPA fallback: anything that isn't an API/uploads/health path returns the app.
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path === '/health') return next();
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
+
+// 404 handler (API paths, and everything when no build is present)
 app.use((req, res) => {
   res.status(404).json({ error: `No route found for ${req.method} ${req.originalUrl}` });
 });

@@ -4,6 +4,8 @@
   "description": "KCA Indian Talent Scan - core business logic services (ranking, membership, awards, scheduler)",
   "main": "index.js",
   "scripts": {
+    "start": "node src/index.js",
+    "migrate": "node scripts/run-migrations.js",
     "test": "jest --runInBand"
   },
   "license": "UNLICENSED",

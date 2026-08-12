@@ -1,6 +1,10 @@
 // Central API client for the ITS Admin Dashboard.
-// Base URL is read from VITE_API_BASE_URL, falling back to the local dev backend.
-export const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+// Base URL priority:
+//   1. VITE_API_BASE_URL if set (any environment)
+//   2. local dev  -> http://localhost:4000 (Vite on 5173 talking to the API)
+//   3. production -> '' (same origin: the backend serves this build, so /api/... is relative)
+export const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:4000' : '');
 
 class ApiError extends Error {
   constructor(message, status, data) {
