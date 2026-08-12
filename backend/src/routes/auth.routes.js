@@ -93,9 +93,14 @@ router.post('/pwa-login', async (req, res, next) => {
       return res.status(400).json({ error: 'name_prefix must be 4 chars and cpr_suffix must be 4 digits' });
     }
 
+    // Rule #21: match within the ACTIVE year only. name_prefix = first 4 chars of
+    // full_name, cpr_suffix = last 4 digits of cpr_number.
     const { rows } = await pool.query(
-      `SELECT id, name, cpr_number, age_group FROM children
-       WHERE LOWER(LEFT(name, 4)) = LOWER($1) AND RIGHT(cpr_number, 4) = $2`,
+      `SELECT p.id, p.full_name, ag.label AS age_group
+       FROM participants p
+       JOIN year_config y ON y.id = p.year_id AND y.is_active = TRUE
+       LEFT JOIN age_groups ag ON ag.id = p.age_group_id
+       WHERE LOWER(LEFT(p.full_name, 4)) = LOWER($1) AND RIGHT(p.cpr_number, 4) = $2`,
       [name_prefix, cpr_suffix]
     );
     if (!rows[0]) return res.status(401).json({ error: 'No matching participant found' });
@@ -104,9 +109,9 @@ router.post('/pwa-login', async (req, res, next) => {
       return res.status(409).json({ error: 'Multiple matches found, please contact the KCA ITS desk' });
     }
 
-    const child = rows[0];
-    const token = signToken({ childId: child.id, role: 'PWA', type: 'pwa' });
-    res.json({ token, child: { id: child.id, name: child.name, ageGroup: child.age_group } });
+    const p = rows[0];
+    const token = signToken({ participantId: p.id, id: p.id, role: 'PWA', type: 'pwa' });
+    res.json({ token, participant: { id: p.id, name: p.full_name, ageGroup: p.age_group } });
   } catch (err) {
     next(err);
   }

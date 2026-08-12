@@ -1070,3 +1070,42 @@ or —. `resultsApi.setExtraPrize` added.
 
 All four deferred judging items are now complete (divergence review, tiebreaker,
 prize-eligibility, extra/consolation prizes).
+
+## Printable result sheet + PWA (public + participant)
+### Printable result sheet (browser print)
+- Backend `admin.judging.routes.js`: `GET /results/:e/:ag/sheet` (Chairman/SuperAdmin)
+  returns branding (year label + logos), event meta, judges, and the FULL ranked
+  list WITH participant names + school, grades, points, and extra/consolation
+  prizes. (Names are OK here — this is the internal signed record, not the judge
+  portal.) `resultsApi.sheet` added.
+- Frontend `pages/judging/ResultSheet.jsx` at route
+  `/admin/judging/results/print/:eventId/:ageGroupId` — branded, print-optimised
+  page (KCA + sponsor logos, ranked table, judges' + Chairman signature lines,
+  PROVISIONAL/FINALISED/PUBLISHED status). Toolbar hidden on print via `@media print`.
+  Opened from a "Print sheet" button on the Results page (same tab → keeps token).
+
+### PWA — public board + participant app
+- **Stale scaffolding fixed:** `pwa.routes.js` and `auth.routes.js` `pwa-login` were
+  written against a non-existent `children`/`results`/`schedule_draft` schema.
+  Rewrote both against the real schema:
+  - `pwa-login` now matches `participants` (first 4 of full_name + last 4 of
+    cpr_number) within the ACTIVE year; token carries `participantId`.
+  - `GET /api/pwa/my-schedule` and `/my-results` use `registrations.participant_id`,
+    `event_results`, `schedule`, `event_time_slots`. No chest numbers (rule #22).
+- `public.routes.js`: added `GET /api/public/year` (active-year branding + id);
+  `/notices` now tolerates a missing `notices` table (returns [] on 42P01).
+  `/results` shows chest + name (per user's choice for the public board).
+- Frontend:
+  - `context/PwaAuthContext.jsx` (sessionStorage keys `its_pwa_token`/`its_pwa_participant`).
+  - `pages/pwa/PublicBoard.jsx` (route `/pwa`, no login) — tabs Results / Schedule /
+    Awards, branded header, link to participant login.
+  - `pages/pwa/PwaLogin.jsx` (`/pwa/login`) — 4-letter name + 4-digit CPR.
+  - `pages/pwa/MyPortal.jsx` (`/pwa/me`, PwaRoute-guarded) — My Results (grade/points
+    + running totals) + My Schedule.
+  - `publicApi` + `pwaApi` added to `api/client.js`; `App.jsx` wraps `PwaAuthProvider`
+    and adds the routes.
+- NOTE: `npm run build` can't run in the Linux sandbox (vite/rolldown ships a
+  Windows-only native binding); verified every changed file with `esbuild` transform
+  + backend `node -c`. Run `npm run build` on Windows before deploy.
+- Legacy `admin.results.routes.js` (event-level finalise/publish/print-pdf) is
+  partly shadowed by `admin.judging.routes.js` and unused by the frontend — left as-is.

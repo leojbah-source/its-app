@@ -5,7 +5,8 @@
 // cannot be broken by criteria order, a Chairman opens a tiebreaker (rule #8)
 // and the judges' 1–10 marks are keyed in to separate the tied chests.
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, Calculator, CheckCircle2, Send, AlertTriangle, Scale, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { RefreshCw, Calculator, CheckCircle2, Send, AlertTriangle, Scale, X, Printer } from 'lucide-react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { Card, Badge } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -15,6 +16,7 @@ import { scheduleApi, resultsApi } from '../../api/client';
 
 export default function Results() {
   const { token, user } = useAuth();
+  const navigate = useNavigate();
   const isChairman = user?.role === 'Chairman';
   const [events, setEvents] = useState([]);
   const [eventId, setEventId] = useState('');
@@ -126,6 +128,7 @@ export default function Results() {
               {state.published ? <Badge tone="success">published</Badge> : state.finalised ? <Badge tone="gold">finalised</Badge> : null}
               <div className="flex-1" />
               <Button variant="outline" icon={RefreshCw} onClick={loadResults}>Refresh</Button>
+              <Button variant="outline" icon={Printer} onClick={() => navigate(`/admin/judging/results/print/${eventId}/${groupId}`)}>Print sheet</Button>
               {!state.published && <Button variant="outline" icon={Calculator} loading={busy} onClick={() => act('compute')}>Compute &amp; save</Button>}
               {!state.finalised && <Button variant="primary" icon={CheckCircle2} loading={busy} disabled={!data.complete || unreviewedDiv > 0 || data.tiebreak_needed} onClick={() => act('finalise')}>Finalise</Button>}
               {state.finalised && !state.published && <Button variant="gold" icon={Send} loading={busy} onClick={() => act('publish')}>Publish</Button>}

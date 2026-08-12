@@ -455,4 +455,57 @@ router.post('/results/:event_id/:age_group_id/publish', requireRole(...publishRo
   } catch (err) { next(err); }
 });
 
+// ── GET /results/:event_id/:age_group_id/sheet — official printable sheet ─────
+// Full ranked list (name + chest), grades, points, extra prizes, judges &
+// branding for the signed result sheet (rule #13 Stage-1 print). This is the
+// internal official record, so it DOES show names (unlike the judge portal).
+router.get('/results/:event_id/:age_group_id/sheet', requireRole(...viewRoles), async (req, res, next) => {
+  try {
+    const cfg = await activeCfg();
+    if (!cfg) return res.status(400).json({ error: 'No active year' });
+    const eventId = Number(req.params.event_id), ag = Number(req.params.age_group_id);
+    const data = await computeGroup(eventId, ag, cfg);
+
+    const { rows: brand } = await pool.query(
+      `SELECT event_year_label, kca_logo_url, sponsor_logo_url, sponsor_name
+       FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    const { rows: ev } = await pool.query(
+      `SELECT e.event_code, e.event_name, c.name AS category_name,
+              ag.label AS age_group_label, ag.code AS age_group_code
+       FROM events e LEFT JOIN categories c ON c.id = e.category_id
+       LEFT JOIN age_groups ag ON ag.id = $2 WHERE e.id = $1`, [eventId, ag]);
+
+    const regIds = data.results.map((r) => r.registration_id);
+    const nameMap = new Map(), schoolMap = new Map(), extraMap = new Map();
+    if (regIds.length) {
+      const { rows: names } = await pool.query(
+        `SELECT r.id, COALESCE(p.full_name, t.team_name) AS name, s.name AS school
+         FROM registrations r
+         LEFT JOIN participants p ON p.id = r.participant_id
+         LEFT JOIN teams t ON t.id = r.team_id
+         LEFT JOIN schools s ON s.id = COALESCE(p.school_id, t.school_id)
+         WHERE r.id = ANY($1)`, [regIds]);
+      names.forEach((x) => { nameMap.set(x.id, x.name); schoolMap.set(x.id, x.school); });
+      const { rows: extra } = await pool.query(
+        `SELECT registration_id, extra_prize_type FROM event_results WHERE registration_id = ANY($1)`, [regIds]);
+      extra.forEach((x) => extraMap.set(x.registration_id, x.extra_prize_type));
+    }
+    // data.results is already in ranked (placement) order
+    const results = data.results.map((r, i) => ({
+      order: i + 1, place: r.place, chest_number: r.chest_number,
+      name: nameMap.get(r.registration_id) || null, school: schoolMap.get(r.registration_id) || null,
+      rank_sum: r.rank_sum, avg_pct: r.avg_pct, grade: r.grade,
+      rank_points: r.rank_points, grade_points: r.grade_points,
+      participation_bonus_pts: r.participation_bonus_pts, total_points: r.total_points,
+      extra_prize_type: extraMap.get(r.registration_id) || null,
+    }));
+    res.json({
+      branding: brand[0] || null, event: ev[0] || null,
+      judges: data.judge_meta || [], participant_count: data.participant_count,
+      complete: data.complete, state: await groupState(eventId, ag),
+      generated_at: new Date().toISOString(), results,
+    });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

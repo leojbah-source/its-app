@@ -66,6 +66,24 @@ export const authApi = {
     request('/api/auth/login', { method: 'POST', body: { email, password } }),
   sendOtp: (phone) => request('/api/auth/send-otp', { method: 'POST', body: { phone } }),
   verifyOtp: (phone, otp) => request('/api/auth/verify-otp', { method: 'POST', body: { phone, otp } }),
+  pwaLogin: (name_prefix, cpr_suffix) =>
+    request('/api/auth/pwa-login', { method: 'POST', body: { name_prefix, cpr_suffix } }),
+};
+
+// Public board (no auth) — only ever returns published data.
+export const publicApi = {
+  year: () => request('/api/public/year'),
+  schedule: (yearId) => request(`/api/public/schedule${qs({ year_id: yearId })}`),
+  results: (yearId, eventId) => request(`/api/public/results${qs({ year_id: yearId, event_id: eventId })}`),
+  resultCards: (yearId, eventId) => request(`/api/public/result-cards${qs({ year_id: yearId, event_id: eventId })}`),
+  notices: (yearId) => request(`/api/public/notices${qs({ year_id: yearId })}`),
+  awards: (yearId) => request(`/api/public/awards/${yearId}`),
+};
+
+// Participant PWA (token = pwa). Never exposes chest numbers (rule #22).
+export const pwaApi = {
+  mySchedule: (token) => request('/api/pwa/my-schedule', { token }),
+  myResults: (token) => request('/api/pwa/my-results', { token }),
 };
 
 // Judge-facing (token = judge). Chest numbers only; scoped per age group.
@@ -251,6 +269,7 @@ export const resultsApi = {
   tiebreakUnlock: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/tiebreak/unlock`, { method: 'POST', token, body: {} }),
   tiebreakMarks: (token, eventId, ag, unlock_id, marks) => request(`/api/admin/results/${eventId}/${ag}/tiebreak/marks`, { method: 'POST', token, body: { unlock_id, marks } }),
   setExtraPrize: (token, eventId, ag, registration_id, extra_prize_type) => request(`/api/admin/results/${eventId}/${ag}/extra-prize`, { method: 'POST', token, body: { registration_id, extra_prize_type } }),
+  sheet: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/sheet`, { token }),
 };
 
 export const chestApi = {

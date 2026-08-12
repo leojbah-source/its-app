@@ -34,6 +34,16 @@ async function resolveYearId(queryYearId) {
   return rows[0]?.id || null;
 }
 
+// GET /api/public/year — the active year's public branding + id (for /awards, headers)
+router.get('/year', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, year, event_year_label, kca_logo_url, sponsor_logo_url, sponsor_name
+       FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    res.json(rows[0] || null);
+  } catch (err) { next(err); }
+});
+
 // GET /api/public/schedule?year_id=
 router.get('/schedule', async (req, res, next) => {
   try {
@@ -159,6 +169,9 @@ router.get('/notices', async (req, res, next) => {
     );
     res.json(rows);
   } catch (err) {
+    // The notices table is optional — if it hasn't been created yet, the board
+    // should still work. Treat a missing relation as simply "no notices".
+    if (err && err.code === '42P01') return res.json([]);
     next(err);
   }
 });

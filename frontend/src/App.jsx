@@ -3,6 +3,7 @@ import { AuthProvider } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { ParentAuthProvider, useParentAuth } from './context/ParentAuthContext';
 import { JudgeAuthProvider, useJudgeAuth } from './context/JudgeAuthContext';
+import { PwaAuthProvider, usePwaAuth } from './context/PwaAuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
 // Admin pages
@@ -16,6 +17,7 @@ import EventDay from './pages/EventDay';
 import Judges from './pages/Judges';
 import Assignment from './pages/judging/Assignment';
 import Results from './pages/judging/Results';
+import ResultSheet from './pages/judging/ResultSheet';
 import McPortal from './pages/mc/McPortal';
 import TimerPortal from './pages/timer/TimerPortal';
 
@@ -30,6 +32,11 @@ import TeamRegister from './pages/register/TeamRegister';
 import JudgeLogin from './pages/judge/JudgeLogin';
 import JudgeApp from './pages/judge/JudgeApp';
 
+// Participant / public PWA pages
+import PublicBoard from './pages/pwa/PublicBoard';
+import PwaLogin from './pages/pwa/PwaLogin';
+import MyPortal from './pages/pwa/MyPortal';
+
 /** Redirects unauthenticated parents to the portal login. */
 function ParentRoute({ children }) {
   const { isAuthenticated } = useParentAuth();
@@ -43,12 +50,19 @@ function JudgeRoute({ children }) {
   return children;
 }
 
+function PwaRoute({ children }) {
+  const { isAuthenticated } = usePwaAuth();
+  if (!isAuthenticated) return <Navigate to="/pwa/login" replace />;
+  return children;
+}
+
 export default function App() {
   return (
     <AuthProvider>
       <ToastProvider>
         <ParentAuthProvider>
           <JudgeAuthProvider>
+          <PwaAuthProvider>
           <BrowserRouter>
             <Routes>
               {/* ── Admin routes ─────────────────────────────────────────── */}
@@ -90,6 +104,10 @@ export default function App() {
                 element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><Results /></ProtectedRoute>}
               />
               <Route
+                path="/admin/judging/results/print/:eventId/:ageGroupId"
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><ResultSheet /></ProtectedRoute>}
+              />
+              <Route
                 path="/mc"
                 element={<ProtectedRoute allowedRoles={['MC', 'SuperAdmin', 'Chairman']}><McPortal /></ProtectedRoute>}
               />
@@ -125,10 +143,16 @@ export default function App() {
               <Route path="/judge/login" element={<JudgeLogin />} />
               <Route path="/judge" element={<JudgeRoute><JudgeApp /></JudgeRoute>} />
 
+              {/* ── Participant / public PWA ─────────────────────────────── */}
+              <Route path="/pwa" element={<PublicBoard />} />
+              <Route path="/pwa/login" element={<PwaLogin />} />
+              <Route path="/pwa/me" element={<PwaRoute><MyPortal /></PwaRoute>} />
+
               {/* ── Fallback ─────────────────────────────────────────────── */}
               <Route path="*" element={<Navigate to="/admin/login" replace />} />
             </Routes>
           </BrowserRouter>
+          </PwaAuthProvider>
           </JudgeAuthProvider>
         </ParentAuthProvider>
       </ToastProvider>
