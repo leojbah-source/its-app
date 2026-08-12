@@ -24,7 +24,9 @@ services:
     branch: feature/step-5-registrations   # the branch Render deploys; change in Render if you merge to main
     # Build the frontend, then install the backend. A fresh Linux install here
     # pulls the correct native build binaries (unlike a Windows node_modules).
-    buildCommand: cd frontend && npm install && npm run build && cd ../backend && npm install
+    # --include=dev forces Vite + build tools to install even though NODE_ENV is
+    # production (npm would otherwise skip devDependencies and vite would be missing).
+    buildCommand: cd frontend && npm install --include=dev && npm run build && cd ../backend && npm install
     startCommand: cd backend && npm start
     healthCheckPath: /health
     envVars:
