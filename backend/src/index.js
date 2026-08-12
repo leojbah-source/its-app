@@ -93,8 +93,10 @@ const fs = require('fs');
 const distDir = path.join(__dirname, '../../frontend/dist');
 if (fs.existsSync(distDir)) {
   app.use(express.static(distDir));
-  // SPA fallback: anything that isn't an API/uploads/health path returns the app.
-  app.get('*', (req, res, next) => {
+  // SPA fallback as plain middleware (Express 5 no longer allows an app.get('*')
+  // wildcard route). Any GET that isn't an API/uploads/health path returns the app.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET') return next();
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path === '/health') return next();
     res.sendFile(path.join(distDir, 'index.html'));
   });
