@@ -1127,3 +1127,41 @@ prize-eligibility, extra/consolation prizes).
 - GIT STATE at handoff: branch feature/step-5-registrations, working tree clean,
   **55 commits unpushed** + today's deploy changes uncommitted → user must
   `del .git\index.lock`, `git add -A && git commit && git push`.
+
+## Awards, Notices, Finance modules (post-deploy build)
+### Awards (rules #15/#16/#24) — Chairman/SuperAdmin
+- `admin.awards.routes.js` REWRITTEN against real schema (old one used phantom
+  awards/children/results tables). Now reads the existing views
+  `v_school_award_totals` + `v_group_championship` (both aggregate FINALISED
+  results). `GET /:year_id/standings` (year_id may be 'active'), `GET /:year_id/export` (CSV).
+- Frontend `pages/Awards.jsx` at `/admin/awards`: school standings + group
+  championship (champion = top school per age group) + CSV export.
+- `awardsApi` in client.js.
+
+### Notices — public announcements
+- NEW migration `022_notices.sql` (notices table: year_id,title,body,is_active,posted_by,posted_at).
+- NEW `admin.notices.routes.js` mounted `/api/admin/notices` (CRUD; edit roles
+  SuperAdmin/Admin/Chairman). `public.routes` `/notices` already reads it (and is
+  42P01-tolerant).
+- Frontend `pages/Notices.jsx` at `/admin/notices` (post/hide/delete). Public
+  board `PublicBoard.jsx` shows active notices as a gold banner above the tabs.
+- `noticesApi` in client.js.
+
+### Finance — income & expenses
+- NEW migration `023_finance.sql` (finance_expense_heads, finance_income,
+  finance_expenses). The backend `admin.finance.routes.js` already existed and is
+  complete — it only lacked tables.
+- Frontend `pages/Finance.jsx` at `/admin/finance`: summary (income/expenses/net),
+  income CRUD, expense CRUD + expense-head management. Uses active year id from
+  `yearConfigApi.get`. `financeApi` in client.js.
+
+- `Sidebar.jsx`: Awards + Finance activated, Notices added, with per-item role
+  filtering. `App.jsx`: routes added with allowedRoles.
+
+### MIGRATIONS TO RUN (022, 023) — on BOTH local and the Render cloud DB
+Cloud (from C:\ITS-APP, paste External URL):
+  psql "<EXTERNAL_URL>" -f db\migrations\022_notices.sql
+  psql "<EXTERNAL_URL>" -f db\migrations\023_finance.sql
+Local: cd backend && npm run migrate  (runs all pending against .env DB)
+Verified: node -c (backend) + esbuild transform (all new frontend files). Full
+vite build still can't run in the Linux sandbox — Render builds it on deploy.

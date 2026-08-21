@@ -4,7 +4,7 @@
 // participant login for personal results.
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Trophy, CalendarDays, Award, UserRound } from 'lucide-react';
+import { Trophy, CalendarDays, Award, UserRound, Megaphone } from 'lucide-react';
 import { publicApi, API_BASE } from '../../api/client';
 
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
@@ -18,9 +18,11 @@ export default function PublicBoard() {
   const [results, setResults] = useState([]);
   const [schedule, setSchedule] = useState([]);
   const [awards, setAwards] = useState(null);
+  const [notices, setNotices] = useState([]);
   const [err, setErr] = useState('');
 
   useEffect(() => { publicApi.year().then(setYear).catch(() => {}); }, []);
+  useEffect(() => { publicApi.notices().then(setNotices).catch(() => {}); }, []);
   useEffect(() => {
     setErr('');
     if (tab === 'results') publicApi.results().then(setResults).catch((e) => setErr(e.message));
@@ -64,6 +66,19 @@ export default function PublicBoard() {
       </header>
 
       <main className="mx-auto max-w-3xl px-4 py-4">
+        {notices.length > 0 && (
+          <div className="mb-4 space-y-2">
+            {notices.map((n) => (
+              <div key={n.id} className="flex gap-2 rounded-xl border border-gold-200 bg-gold-50 px-3 py-2">
+                <Megaphone size={16} className="mt-0.5 shrink-0 text-gold-600" />
+                <div>
+                  <div className="text-sm font-semibold text-navy-800">{n.title}</div>
+                  {n.body && <div className="text-xs text-slate-600 whitespace-pre-wrap">{n.body}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="mb-4 flex gap-2">
           <TabBtn id="results" icon={Trophy} label="Results" />
           <TabBtn id="schedule" icon={CalendarDays} label="Schedule" />

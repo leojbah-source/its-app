@@ -90,6 +90,36 @@ export const pwaApi = {
   myResults: (token) => request('/api/pwa/my-results', { token }),
 };
 
+// Awards (Chairman/SuperAdmin). yearId may be 'active'.
+export const awardsApi = {
+  standings: (token, yearId = 'active') => request(`/api/admin/awards/${yearId}/standings`, { token }),
+  exportCsv: (token, yearId = 'active') => request(`/api/admin/awards/${yearId}/export`, { token }),
+};
+
+// Notices — admin CRUD (public read is publicApi.notices).
+export const noticesApi = {
+  list: (token, yearId = 'active') => request(`/api/admin/notices${qs({ year_id: yearId })}`, { token }),
+  create: (token, body) => request('/api/admin/notices', { method: 'POST', token, body }),
+  update: (token, id, body) => request(`/api/admin/notices/${id}`, { method: 'PUT', token, body }),
+  remove: (token, id) => request(`/api/admin/notices/${id}`, { method: 'DELETE', token }),
+};
+
+// Finance (income / expenses / heads). yearId is a numeric year_config id.
+export const financeApi = {
+  summary: (token, yearId) => request(`/api/admin/finance/summary${qs({ year_id: yearId })}`, { token }),
+  income: (token, yearId) => request(`/api/admin/finance/income${qs({ year_id: yearId })}`, { token }),
+  addIncome: (token, body) => request('/api/admin/finance/income', { method: 'POST', token, body }),
+  updateIncome: (token, id, body) => request(`/api/admin/finance/income/${id}`, { method: 'PUT', token, body }),
+  deleteIncome: (token, id) => request(`/api/admin/finance/income/${id}`, { method: 'DELETE', token }),
+  expenses: (token, yearId) => request(`/api/admin/finance/expenses${qs({ year_id: yearId })}`, { token }),
+  addExpense: (token, body) => request('/api/admin/finance/expenses', { method: 'POST', token, body }),
+  updateExpense: (token, id, body) => request(`/api/admin/finance/expenses/${id}`, { method: 'PUT', token, body }),
+  deleteExpense: (token, id) => request(`/api/admin/finance/expenses/${id}`, { method: 'DELETE', token }),
+  heads: (token, yearId) => request(`/api/admin/finance/expense-heads${qs({ year_id: yearId })}`, { token }),
+  addHead: (token, body) => request('/api/admin/finance/expense-heads', { method: 'POST', token, body }),
+  deleteHead: (token, id) => request(`/api/admin/finance/expense-heads/${id}`, { method: 'DELETE', token }),
+};
+
 // Judge-facing (token = judge). Chest numbers only; scoped per age group.
 export const judgeApi = {
   events: (token) => request('/api/judge/events', { token }),

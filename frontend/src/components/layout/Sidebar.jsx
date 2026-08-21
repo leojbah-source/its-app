@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   Settings, ListChecks, Users, Gavel, CalendarClock, Trophy, Wallet,
-  Sparkles, ClipboardList, ChevronDown, ClipboardCheck,
+  Sparkles, ClipboardList, ChevronDown, ClipboardCheck, Megaphone,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -21,8 +21,9 @@ const NAV_ITEMS = [
       { to: '/admin/judging/results', label: 'Results', active: true },
     ],
   },
-  { label: 'Awards', icon: Trophy, active: false, badge: 'Chairman' },
-  { label: 'Finance', icon: Wallet, active: false },
+  { to: '/admin/awards', label: 'Awards', icon: Trophy, active: true, roles: ['SuperAdmin', 'Chairman'] },
+  { to: '/admin/notices', label: 'Notices', icon: Megaphone, active: true, roles: ['SuperAdmin', 'Admin', 'Chairman'] },
+  { to: '/admin/finance', label: 'Finance', icon: Wallet, active: true, roles: ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'] },
 ];
 
 function NavGroup({ item }) {
@@ -89,6 +90,7 @@ export default function Sidebar() {
             if (item.roles && !item.roles.includes(role)) return null;
             return <NavGroup key={item.group} item={item} />;
           }
+          if (item.roles && !item.roles.includes(role)) return null;
           const Icon = item.icon;
           if (!item.active) {
             return (

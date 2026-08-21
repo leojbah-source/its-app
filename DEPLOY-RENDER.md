@@ -92,7 +92,7 @@ copy the **External Database URL**. It looks like:
 inside the quotes (add `?sslmode=require` at the end):
 
 ```
-psql "PASTE_EXTERNAL_URL_HERE?sslmode=require" -f its_dump.sql
+"C:\Program Files\PostgreSQL\18\bin\psql.exe" "PASTE_YOUR_EXTERNAL_DATABASE_URL_HERE" -f "%USERPROFILE%\its_dump.sql"
 ```
 
 It runs for a minute and scrolls a lot of `CREATE TABLE`, `COPY`, etc. When it
