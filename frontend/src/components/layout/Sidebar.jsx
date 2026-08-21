@@ -19,6 +19,7 @@ const NAV_ITEMS = [
       { to: '/admin/judging/judges', label: 'Judges', active: true },
       { to: '/admin/judging/assignment', label: 'Event assignment', active: true },
       { to: '/admin/judging/results', label: 'Results', active: true },
+      { to: '/admin/judging/judge-review', label: 'Judge review', active: true },
     ],
   },
   { to: '/admin/awards', label: 'Awards', icon: Trophy, active: true, roles: ['SuperAdmin', 'Chairman'] },

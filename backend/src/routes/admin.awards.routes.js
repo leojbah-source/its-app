@@ -18,6 +18,24 @@ async function resolveYearId(param) {
   return rows[0]?.id || null;
 }
 
+// Teacher Awards (rule #17): sum each named teacher's students' finalised total
+// points across dance_teacher + music_teacher. 'NOT_APPLICABLE'/blank excluded.
+const teacherSql = `
+  SELECT teacher AS teacher_name, ROUND(SUM(pts)::numeric, 2) AS total_points, COUNT(*) AS entries
+  FROM (
+    SELECT TRIM(reg.dance_teacher) AS teacher, er.total_points AS pts
+    FROM event_results er JOIN registrations reg ON reg.id = er.registration_id
+    WHERE reg.year_id = $1 AND er.is_finalised = TRUE
+      AND reg.dance_teacher IS NOT NULL AND reg.dance_teacher <> 'NOT_APPLICABLE' AND TRIM(reg.dance_teacher) <> ''
+    UNION ALL
+    SELECT TRIM(reg.music_teacher), er.total_points
+    FROM event_results er JOIN registrations reg ON reg.id = er.registration_id
+    WHERE reg.year_id = $1 AND er.is_finalised = TRUE
+      AND reg.music_teacher IS NOT NULL AND reg.music_teacher <> 'NOT_APPLICABLE' AND TRIM(reg.music_teacher) <> ''
+  ) t
+  GROUP BY teacher
+  ORDER BY total_points DESC NULLS LAST, teacher`;
+
 // GET /api/admin/awards/:year_id/standings   (year_id may be 'active')
 router.get('/:year_id/standings', async (req, res, next) => {
   try {
@@ -35,7 +53,9 @@ router.get('/:year_id/standings', async (req, res, next) => {
        FROM v_group_championship WHERE year_id = $1
        ORDER BY age_group_label, total_points DESC NULLS LAST`, [yearId]);
 
-    res.json({ year_id: yearId, school_awards: schoolAwards, group_championship: groupChampionship });
+    const { rows: teacherAwards } = await pool.query(teacherSql, [yearId]);
+
+    res.json({ year_id: yearId, school_awards: schoolAwards, group_championship: groupChampionship, teacher_awards: teacherAwards });
   } catch (err) { next(err); }
 });
 
@@ -59,6 +79,11 @@ router.get('/:year_id/export', async (req, res, next) => {
     lines.push('GROUP CHAMPIONSHIP (rule #15)');
     lines.push('age_group,school,total_points');
     groups.forEach((r) => lines.push([r.age_group_label, r.school_name, r.total_points].map(q).join(',')));
+    const { rows: teachers } = await pool.query(teacherSql, [yearId]);
+    lines.push('');
+    lines.push('TEACHER AWARDS (rule #17)');
+    lines.push('teacher,entries,total_points');
+    teachers.forEach((r) => lines.push([r.teacher_name, r.entries, r.total_points].map(q).join(',')));
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="awards_${yearId}.csv"`);
     res.send(lines.join('\n'));

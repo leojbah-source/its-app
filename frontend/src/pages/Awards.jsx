@@ -3,7 +3,8 @@
 // Group Championship per age group (rule #15), computed live from FINALISED
 // results. Read-only view + CSV export.
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, Download, Trophy, School } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { RefreshCw, Download, Trophy, School, GraduationCap, Award } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -13,6 +14,7 @@ import { awardsApi } from '../api/client';
 
 export default function Awards() {
   const { token } = useAuth();
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [flash, setFlash] = useState('');
@@ -56,6 +58,7 @@ export default function Awards() {
         <Badge tone="navy">Based on finalised results</Badge>
         <div className="flex-1" />
         <Button variant="outline" icon={RefreshCw} onClick={load}>Refresh</Button>
+        <Button variant="outline" icon={Award} onClick={() => navigate('/admin/awards/certificates')}>Certificates</Button>
         <Button variant="outline" icon={Download} onClick={exportCsv}>Export CSV</Button>
       </div>
 
@@ -123,8 +126,35 @@ export default function Awards() {
                 )}
             </Card>
 
+            <Card className="p-0 overflow-hidden">
+              <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2 text-sm font-semibold text-navy-800"><GraduationCap size={15} /> Teacher Awards (Best Teacher)</div>
+              {(data.teacher_awards || []).length === 0 ? <p className="px-4 py-6 text-center text-sm text-slate-400">No teacher-linked finalised results yet.</p>
+                : (
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-white text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2 text-left">#</th>
+                        <th className="px-3 py-2 text-left">Teacher</th>
+                        <th className="px-2 py-2 text-center">Entries</th>
+                        <th className="px-2 py-2 text-center">Total points</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {data.teacher_awards.map((t, i) => (
+                        <tr key={t.teacher_name} className={i === 0 ? 'bg-gold-50/40' : ''}>
+                          <td className="px-3 py-2">{i === 0 ? '🏆' : i + 1}</td>
+                          <td className="px-3 py-2 font-medium text-slate-800">{t.teacher_name}</td>
+                          <td className="px-2 py-2 text-center text-slate-600">{t.entries}</td>
+                          <td className="px-2 py-2 text-center font-semibold text-navy-800">{num(t.total_points)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+            </Card>
+
             <p className="text-xs text-slate-500">
-              School awards = sum of rank + grade + participation points per school (rule #16). Group Championship = the top school per age group from team events (rule #15). Figures use finalised results; publish them from the Results screen to show on the public board.
+              School awards = sum of rank + grade + participation points per school (rule #16). Group Championship = the top school per age group from team events (rule #15). Teacher Awards sum each teacher's students' points, excluding self-taught entries (rule #17). Figures use finalised results; publish them from the Results screen to show on the public board.
             </p>
           </div>
         )}

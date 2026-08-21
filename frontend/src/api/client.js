@@ -96,6 +96,12 @@ export const awardsApi = {
   exportCsv: (token, yearId = 'active') => request(`/api/admin/awards/${yearId}/export`, { token }),
 };
 
+// Branded print-outs (data only; the page renders + prints).
+export const printoutsApi = {
+  certificates: (token, yearId = 'active') => request(`/api/admin/printouts/certificates/${yearId}`, { token }),
+  judgeReview: (token, yearId = 'active') => request(`/api/admin/printouts/judge-review/${yearId}`, { token }),
+};
+
 // Notices — admin CRUD (public read is publicApi.notices).
 export const noticesApi = {
   list: (token, yearId = 'active') => request(`/api/admin/notices${qs({ year_id: yearId })}`, { token }),
@@ -118,6 +124,7 @@ export const financeApi = {
   heads: (token, yearId) => request(`/api/admin/finance/expense-heads${qs({ year_id: yearId })}`, { token }),
   addHead: (token, body) => request('/api/admin/finance/expense-heads', { method: 'POST', token, body }),
   deleteHead: (token, id) => request(`/api/admin/finance/expense-heads/${id}`, { method: 'DELETE', token }),
+  exportCsv: (token, yearId, type) => request(`/api/admin/finance/export${qs({ year_id: yearId, type })}`, { token }),
 };
 
 // Judge-facing (token = judge). Chest numbers only; scoped per age group.

@@ -23,6 +23,8 @@ import TimerPortal from './pages/timer/TimerPortal';
 import Awards from './pages/Awards';
 import Notices from './pages/Notices';
 import Finance from './pages/Finance';
+import CertificatesPrint from './pages/CertificatesPrint';
+import JudgeReview from './pages/JudgeReview';
 
 // Parent registration portal pages
 import Landing from './pages/register/Landing';
@@ -121,6 +123,14 @@ export default function App() {
               <Route
                 path="/admin/awards"
                 element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><Awards /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/awards/certificates"
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Chairman']}><CertificatesPrint /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/judging/judge-review"
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><JudgeReview /></ProtectedRoute>}
               />
               <Route
                 path="/admin/notices"

@@ -2,7 +2,7 @@
 // Income & expenses tracking for the active year. Summary (income / expenses /
 // net), income entries, expense entries by head, and expense-head management.
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Plus, Trash2, Wallet, TrendingUp, TrendingDown } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, Wallet, TrendingUp, TrendingDown, Download } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -66,6 +66,16 @@ export default function Finance() {
     try { await financeApi.addHead(token, { year_id: yearId, name: headName.trim() }); setHeadName(''); loadAll(yearId); }
     catch (err) { setFlash(err.message); }
   }
+  async function exportCsv(type) {
+    try {
+      const csv = await financeApi.exportCsv(token, yearId, type);
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `finance-${type || 'ledger'}.csv`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { setFlash(e.message); }
+  }
   async function delIncome(id) { try { await financeApi.deleteIncome(token, id); loadAll(yearId); } catch (e) { setFlash(e.message); } }
   async function delExpense(id) { try { await financeApi.deleteExpense(token, id); loadAll(yearId); } catch (e) { setFlash(e.message); } }
 
@@ -83,7 +93,12 @@ export default function Finance() {
         <Card><div className="flex items-center gap-3"><Wallet className="text-navy-600" size={22} /><div><div className={`text-lg font-bold ${Number(summary?.net) < 0 ? 'text-red-600' : 'text-navy-800'}`}>{money(summary?.net)}</div><div className="text-xs text-slate-500">Balance</div></div></div></Card>
       </div>
 
-      <div className="mb-2 flex justify-end"><Button variant="outline" icon={RefreshCw} onClick={() => loadAll(yearId)}>Refresh</Button></div>
+      <div className="mb-2 flex flex-wrap justify-end gap-2">
+        <Button variant="outline" icon={Download} onClick={() => exportCsv('income')}>Income CSV</Button>
+        <Button variant="outline" icon={Download} onClick={() => exportCsv('expenses')}>Expenses CSV</Button>
+        <Button variant="outline" icon={Download} onClick={() => exportCsv()}>Ledger CSV</Button>
+        <Button variant="outline" icon={RefreshCw} onClick={() => loadAll(yearId)}>Refresh</Button>
+      </div>
 
       {/* INCOME */}
       <Card className="mb-4">

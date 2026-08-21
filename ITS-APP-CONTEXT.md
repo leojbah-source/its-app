@@ -1165,3 +1165,27 @@ Cloud (from C:\ITS-APP, paste External URL):
 Local: cd backend && npm run migrate  (runs all pending against .env DB)
 Verified: node -c (backend) + esbuild transform (all new frontend files). Full
 vite build still can't run in the Linux sandbox — Render builds it on deploy.
+
+## Reports/listings completion (teacher awards, certificates, judge review, finance export)
+Audit found: Lists page (by-event/by-participant/final) works; the old
+`admin.reports.routes.js` PDF module is stale (children/results/chest_numbers/…)
+and unused. Built the genuinely-missing pieces as branded HTML prints instead of
+reviving pdfkit. NO migration (all use existing tables).
+
+- **Teacher Awards (rule #17):** `admin.awards.routes.js` standings now returns
+  `teacher_awards` (sum of each named teacher's students' finalised total_points
+  across dance_teacher+music_teacher, excluding 'NOT_APPLICABLE'/blank); included
+  in CSV export. Awards.jsx shows a Teacher Awards card.
+- **Winners' certificates:** NEW `admin.printouts.routes.js`
+  `GET /certificates/:year_id` (finalised prize_place 1-3, name via participant/team,
+  branding). Frontend `pages/CertificatesPrint.jsx` at `/admin/awards/certificates`
+  — one branded certificate per page, print/Save-PDF; "Certificates" button on Awards.
+- **Judge Review report (rule #9/#10):** `admin.printouts.routes.js`
+  `GET /judge-review/:year_id` (judge_flags + statements + blacklist, Chairman/SuperAdmin).
+  Frontend `pages/JudgeReview.jsx` at `/admin/judging/judge-review`; added to the
+  Judging nav group.
+- **Finance export buttons:** `financeApi.exportCsv(token,yearId,type)` +
+  Income/Expenses/Ledger CSV buttons on Finance.jsx (backend /export already existed).
+- `printoutsApi` added to client.js; `admin.printouts.routes` mounted at
+  `/api/admin/printouts`; App.jsx routes + Sidebar Judge-review item added.
+- Verified node -c + esbuild. Deploy = git push only (Render rebuilds); no DB change.
