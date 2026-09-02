@@ -30,7 +30,7 @@ function StatusChip({ status }) {
   );
 }
 
-export default function PaymentSection({ token, participantId, config, refreshKey }) {
+export default function PaymentSection({ token, participantId, config, refreshKey, onChanged }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -104,6 +104,7 @@ export default function PaymentSection({ token, participantId, config, refreshKe
       setShowForm(false);
       setProofUrl(''); setReference('');
       load();
+      if (onChanged) onChanged();
       setTimeout(() => setSubmitted(false), 10000);
     } catch (err) {
       setFormError(err.message || 'Payment submission failed.');

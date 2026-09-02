@@ -288,8 +288,10 @@ router.post('/participant', authenticate, async (req, res, next) => {
     const { cpr_number, full_name, dob, gender, school_id,
             guardian_name, guardian_phone, cpr_scan_url, cpr_scan_back_url, photo_url,
             cpr_verified_method } = req.body;
-    if (!cpr_number || !full_name || !dob)
-      return res.status(400).json({ error: 'cpr_number, full_name and dob are required' });
+    if (!cpr_number || !full_name || !dob || !gender)
+      return res.status(400).json({ error: 'cpr_number, full_name, dob and gender are required' });
+    if (!['M', 'F'].includes(gender))
+      return res.status(400).json({ error: 'gender must be M (male) or F (female)' });
 
     // CPR prefix must match the date of birth (YYMM#####, leading 0 may drop)
     const cprErr = cprDobMismatch(cpr_number, dob);
@@ -1393,6 +1395,15 @@ router.post('/participant/:id/confirm', authenticate, async (req, res, next) => 
     const feesTotal = items.reduce((t, r) => t + Number(r.fee_amount || 0), 0);
     const paidConfirmed = pays.filter((x) => x.status === 'confirmed')
       .reduce((t, x) => t + Number(x.amount), 0);
+    // A payment must have been made (submitted or confirmed) before the parent can
+    // confirm and receive the acknowledgement. Pending counts (KCA verifies later).
+    const paidSubmitted = pays.filter((x) => x.status === 'pending' || x.status === 'confirmed')
+      .reduce((t, x) => t + Number(x.amount), 0);
+    if (feesTotal > 0 && paidSubmitted + 0.0001 < feesTotal) {
+      return res.status(400).json({
+        error: `Please make a payment before confirming. Balance due: BD ${(feesTotal - paidSubmitted).toFixed(3)}.`,
+      });
+    }
 
     let email_sent = false;
     if (uRows[0]?.email) {

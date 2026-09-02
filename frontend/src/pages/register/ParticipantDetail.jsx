@@ -153,6 +153,7 @@ export default function ParticipantDetail() {
   // Final confirmation state
   const [confirming, setConfirming] = useState(false);
   const [confirmResult, setConfirmResult] = useState(null); // {events, email_sent}
+  const [balanceDue, setBalanceDue] = useState(null); // null = unknown, gate confirm when > 0
   const [confirmError, setConfirmError] = useState('');
 
   // Events save state
@@ -175,6 +176,10 @@ export default function ParticipantDetail() {
 
       const evs = await portalApi.events(part.age_group_id, part.gender, 'individual');
       setEvents(evs);
+
+      // Balance due — gates the Complete Registration button (payment required first).
+      try { const f = await portalApi.fees(token, id); setBalanceDue(f?.summary?.balance_due ?? 0); }
+      catch { setBalanceDue(null); }
 
       const activeRegs = (part.registrations || []).filter(
         (r) => r.status !== 'withdrawn' && r.status !== 'swapped',
@@ -599,6 +604,7 @@ export default function ParticipantDetail() {
             participantId={id}
             config={config}
             refreshKey={savedIds.size}
+            onChanged={load}
           />
         )}
 
@@ -705,7 +711,7 @@ export default function ParticipantDetail() {
                 {confirmError && <Alert variant="danger">{confirmError}</Alert>}
                 <button
                   onClick={handleConfirmRegistration}
-                  disabled={confirming || isDirty}
+                  disabled={confirming || isDirty || (balanceDue != null && balanceDue > 0)}
                   className="w-full rounded-xl bg-emerald-600 py-4 text-base font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
                 >
                   {confirming ? 'Confirming…' : 'Complete Registration ✓'}
@@ -713,7 +719,9 @@ export default function ParticipantDetail() {
                 <p className="text-xs text-slate-400 text-center">
                   {isDirty
                     ? 'Save your event selection first, then complete the registration.'
-                    : 'Confirms your registration and emails you the full summary.'}
+                    : (balanceDue != null && balanceDue > 0)
+                      ? 'Make the payment above first — registration completes once payment is submitted.'
+                      : 'Confirms your registration and emails you the full summary.'}
                 </p>
               </div>
             )}

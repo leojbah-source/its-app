@@ -1202,3 +1202,15 @@ event_name ILIKE '%boys%' and 'girls' where ILIKE '%girls%' (idempotent). Admins
 can override per event in Events → edit. RUN 024 on cloud + local (psql -f), like
 022/023. No code push needed for this fix. (Existing wrong-gender registrations,
 if any, aren't retro-removed — re-test with a fresh participant.)
+
+## Registration fixes: gender required + payment gate on confirm
+- **Gender required:** ParticipantAdd gender `<select>` now `required` (with *);
+  backend `POST /register/participant` rejects missing gender and enforces M/F.
+  (Existing gender-less participants remain until edited.)
+- **"Received without paying":** `POST /register/participant/:id/confirm` previously
+  sent the confirmation email/WhatsApp with only an events-selected check. Now it
+  blocks with "Please make a payment before confirming. Balance due: BD X." unless
+  submitted payments (pending+confirmed) cover the fees. Frontend: ParticipantDetail
+  fetches fee balance in load(), passes onChanged=load to PaymentSection (refreshes
+  balance right after a payment submit), and disables "Complete Registration" while
+  balance_due > 0 with a hint. Code-only; deploy = git push.

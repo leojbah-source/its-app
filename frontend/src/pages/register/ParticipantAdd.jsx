@@ -262,8 +262,9 @@ export default function ParticipantAdd() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Gender</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Gender <span className="text-red-500">*</span></label>
                 <select
+                  required
                   value={form.gender}
                   onChange={setField('gender')}
                   className={inputClass}
