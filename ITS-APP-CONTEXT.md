@@ -1189,3 +1189,16 @@ reviving pdfkit. NO migration (all use existing tables).
 - `printoutsApi` added to client.js; `admin.printouts.routes` mounted at
   `/api/admin/printouts`; App.jsx routes + Sidebar Judge-review item added.
 - Verified node -c + esbuild. Deploy = git push only (Render rebuilds); no DB change.
+
+## Gender eligibility fix (registration showed Boys AND Girls events)
+Root cause: NOT a code bug. `events.gender_split` (migration 003: none/boys/girls/common)
+drives registration gender filtering — backend `/register/events` filters and
+`/register/participant/:id/events` REJECTS mismatches (genderEligible), and the
+frontend already passes participant gender + the Events editor already has a
+"Gender split" dropdown. The gendered events were just left at default 'common',
+with Boys/Girls only in the NAME → everything passed.
+Fix: migration `024_event_gender_backfill.sql` sets gender_split='boys' where
+event_name ILIKE '%boys%' and 'girls' where ILIKE '%girls%' (idempotent). Admins
+can override per event in Events → edit. RUN 024 on cloud + local (psql -f), like
+022/023. No code push needed for this fix. (Existing wrong-gender registrations,
+if any, aren't retro-removed — re-test with a fresh participant.)
