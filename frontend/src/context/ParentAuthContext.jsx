@@ -9,7 +9,8 @@ import { createContext, useCallback, useContext, useMemo, useState, useEffect } 
 const SESSION_TOKEN_KEY = 'its_parent_token';
 const SESSION_USER_KEY  = 'its_parent_user';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:4000' : '');
 
 const ParentAuthContext = createContext(null);
 
