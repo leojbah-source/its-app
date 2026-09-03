@@ -53,7 +53,11 @@ export default function PaymentSection({ token, participantId, config, refreshKe
     try {
       const d = await portalApi.fees(token, participantId);
       setData(d);
-      setAmount(String(d.summary.balance_due > 0 ? d.summary.balance_due : ''));
+      // Default the amount to what's still to SUBMIT (fees minus already-submitted,
+      // i.e. pending + confirmed), not balance_due (which ignores pending payments).
+      const s = d.summary || {};
+      const toSubmit = Math.max(0, Number(s.fees_total || 0) - Number(s.paid_confirmed || 0) - Number(s.paid_pending || 0));
+      setAmount(toSubmit > 0 ? String(Number(toSubmit.toFixed(3))) : '');
     } catch (err) {
       setError(err.message || 'Failed to load fees');
     } finally {
@@ -131,6 +135,9 @@ export default function PaymentSection({ token, participantId, config, refreshKe
 
   const { items, payments, summary, membership } = data;
   const due = summary.balance_due;
+  // Amount still to submit (pending payments count). Drives the "Make a Payment" CTA
+  // so a partly-paid registration asks only for the remaining difference.
+  const toSubmit = Math.max(0, Number(summary.fees_total || 0) - Number(summary.paid_confirmed || 0) - Number(summary.paid_pending || 0));
 
   return (
     <section>
@@ -214,14 +221,14 @@ export default function PaymentSection({ token, participantId, config, refreshKe
           </p>
         )}
 
-        {/* ── Make a payment ── */}
-        {due > 0 && !showForm && (
+        {/* ── Make a payment (asks for the amount still to submit) ── */}
+        {toSubmit > 0 && !showForm && (
           <div className="px-4 py-3 border-t border-slate-200">
             <button
               onClick={() => setShowForm(true)}
               className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
             >
-              Make a Payment — {fmt(due)}
+              Make a Payment — {fmt(toSubmit)}
             </button>
           </div>
         )}

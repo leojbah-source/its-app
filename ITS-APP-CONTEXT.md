@@ -1216,3 +1216,19 @@ if any, aren't retro-removed — re-test with a fresh participant.)
   balance_due > 0 with a hint. Code-only; deploy = git push.
 
 - FOLLOWUP: Complete-Registration button now gates on submitted (pending+confirmed) >= fees, not on confirmed-only balance_due (which stays > 0 until the accountant verifies). Fixes button staying disabled after payment was submitted.
+
+## Payment amount = difference; refunds; failed-to-fetch
+- **"Make a Payment" now asks for the amount still to SUBMIT** (fees_total −
+  paid_confirmed − paid_pending), not balance_due (confirmed-only). Fixed in
+  PaymentSection: default amount + CTA label + CTA visibility all use `toSubmit`.
+  So adding events to a partly-paid participant asks only for the delta.
+- **Refund on event removal already works:** POST /register/participant/:id/events
+  sets removed regs to 'withdrawn' and INSERTs a pending row into the `refunds`
+  table (admin processes). Overpayment from removals is captured there.
+- **"Failed to fetch" on payment submit:** email.js short-circuits when SMTP unset
+  (no hang), so this is almost certainly a Render FREE-tier cold-start blip (first
+  request after the instance sleeps ~15 min). Retry succeeds. If it recurs
+  consistently, investigate (not reproduced in code review).
+- STILL MISSING (noted): an admin Payments verification screen to confirm/reject
+  pending payments (accountant) — payments sit 'pending' until then; balance_due
+  only drops on 'confirmed'.
