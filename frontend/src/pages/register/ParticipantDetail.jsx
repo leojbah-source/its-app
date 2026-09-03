@@ -177,9 +177,14 @@ export default function ParticipantDetail() {
       const evs = await portalApi.events(part.age_group_id, part.gender, 'individual');
       setEvents(evs);
 
-      // Balance due — gates the Complete Registration button (payment required first).
-      try { const f = await portalApi.fees(token, id); setBalanceDue(f?.summary?.balance_due ?? 0); }
-      catch { setBalanceDue(null); }
+      // Amount still to SUBMIT — gates the Complete Registration button. A payment
+      // that's submitted but not yet KCA-confirmed (pending) still counts, matching
+      // the server rule. (The "Balance due" figure shown in Payments is confirmed-only.)
+      try {
+        const s = (await portalApi.fees(token, id))?.summary || {};
+        const submitted = Number(s.paid_confirmed || 0) + Number(s.paid_pending || 0);
+        setBalanceDue(Math.max(0, Number(s.fees_total || 0) - submitted));
+      } catch { setBalanceDue(null); }
 
       const activeRegs = (part.registrations || []).filter(
         (r) => r.status !== 'withdrawn' && r.status !== 'swapped',

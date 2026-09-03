@@ -1212,5 +1212,7 @@ if any, aren't retro-removed — re-test with a fresh participant.)
   blocks with "Please make a payment before confirming. Balance due: BD X." unless
   submitted payments (pending+confirmed) cover the fees. Frontend: ParticipantDetail
   fetches fee balance in load(), passes onChanged=load to PaymentSection (refreshes
-  balance right after a payment submit), and disables "Complete Registration" while
+  balance right after a payment submit), and gates "Complete Registration" on SUBMITTED payments (pending+confirmed) covering fees — matching the server; not on confirmed-only balance_due — while
   balance_due > 0 with a hint. Code-only; deploy = git push.
+
+- FOLLOWUP: Complete-Registration button now gates on submitted (pending+confirmed) >= fees, not on confirmed-only balance_due (which stays > 0 until the accountant verifies). Fixes button staying disabled after payment was submitted.
