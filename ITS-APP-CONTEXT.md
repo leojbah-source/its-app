@@ -1257,3 +1257,5 @@ a redundant IF-NOT-EXISTS no-op).
 Reports available to accountant/Chairman now: Finance summary + CSV (income/expenses/
 ledger), Payments queue (verify online), Refunds queue + CSV export, per-participant
 fee summary (registration portal). RUN migration 025 on cloud + local; rest is code push.
+
+- FOLLOWUP: Finance /summary now includes confirmed registration fees (SUM payments WHERE status=confirmed) as cash income. Returns registrationFees + otherCashIncome; totalCashIncome = fees + other; net = totalCashIncome - expenses. Finance.jsx shows the breakdown note. Fixes "confirmed payments not reflected in Finance". No migration.

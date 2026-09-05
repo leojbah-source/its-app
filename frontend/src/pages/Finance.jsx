@@ -93,6 +93,11 @@ export default function Finance() {
         <Card><div className="flex items-center gap-3"><TrendingDown className="text-red-600" size={22} /><div><div className="text-lg font-bold text-navy-800">{money(summary?.totalExpenses)}</div><div className="text-xs text-slate-500">Total expenses</div></div></div></Card>
         <Card><div className="flex items-center gap-3"><Wallet className="text-navy-600" size={22} /><div><div className={`text-lg font-bold ${Number(summary?.net) < 0 ? 'text-red-600' : 'text-navy-800'}`}>{money(summary?.net)}</div><div className="text-xs text-slate-500">Cash balance</div></div></div></Card>
       </div>
+      {summary && (
+        <p className="mb-3 text-xs text-slate-500">
+          Cash income = {money(summary.registrationFees)} confirmed registration fees (from Payments) + {money(summary.otherCashIncome)} other cash entered below. In-kind is tracked at value only and does not affect the cash balance.
+        </p>
+      )}
 
       <div className="mb-2 flex flex-wrap justify-end gap-2">
         <Button variant="outline" icon={Download} onClick={() => exportCsv('income')}>Income CSV</Button>

@@ -246,14 +246,24 @@ router.get('/summary', requireRole(...staffRoles), async (req, res, next) => {
       [year_id]
     );
     const totalExpenses = expenseByHead.reduce((sum, r) => sum + Number(r.total), 0);
-    const totalCashIncome = Number(incomeRows[0].total_cash_income);
+    const otherCashIncome = Number(incomeRows[0].total_cash_income); // sponsor/other cash typed into Finance
     const totalInKind = Number(incomeRows[0].total_in_kind);
+
+    // Confirmed registration fees (from the payments table) are real cash income too.
+    const { rows: feeRows } = await pool.query(
+      `SELECT COALESCE(SUM(amount), 0) AS fees FROM payments
+       WHERE year_id = $1 AND status = 'confirmed'`, [year_id]);
+    const registrationFees = Number(feeRows[0].fees);
+
+    const totalCashIncome = registrationFees + otherCashIncome;
 
     res.json({
       yearId: Number(year_id),
-      totalCashIncome,
+      registrationFees,
+      otherCashIncome,
+      totalCashIncome,          // registration fees + other cash income
       totalInKind,
-      totalIncome: totalCashIncome, // cash only (kept for existing callers)
+      totalIncome: totalCashIncome, // kept for existing callers
       totalExpenses,
       net: totalCashIncome - totalExpenses, // cash balance; in-kind doesn't move cash
       expenseByHead,
