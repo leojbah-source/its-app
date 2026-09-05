@@ -1,10 +1,10 @@
 // src/pages/pwa/PublicBoard.jsx
-// Public, no-login board: published results (chest + name), the confirmed
-// schedule, and school/championship awards. Mobile-first. Links to the
-// participant login for personal results.
+// Public, no-login board: published results (chest + name) and the confirmed
+// schedule. Mobile-first. Links to the participant login for personal results.
+// (Awards are intentionally NOT shown here — announced separately after contests.)
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Trophy, CalendarDays, Award, UserRound, Megaphone } from 'lucide-react';
+import { Trophy, CalendarDays, UserRound, Megaphone } from 'lucide-react';
 import { publicApi, API_BASE } from '../../api/client';
 
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
@@ -17,7 +17,6 @@ export default function PublicBoard() {
   const [tab, setTab] = useState('results');
   const [results, setResults] = useState([]);
   const [schedule, setSchedule] = useState([]);
-  const [awards, setAwards] = useState(null);
   const [notices, setNotices] = useState([]);
   const [err, setErr] = useState('');
 
@@ -27,8 +26,7 @@ export default function PublicBoard() {
     setErr('');
     if (tab === 'results') publicApi.results().then(setResults).catch((e) => setErr(e.message));
     if (tab === 'schedule') publicApi.schedule().then(setSchedule).catch((e) => setErr(e.message));
-    if (tab === 'awards' && year?.id) publicApi.awards(year.id).then(setAwards).catch((e) => setErr(e.message));
-  }, [tab, year]);
+  }, [tab]);
 
   const resultGroups = useMemo(() => {
     const map = new Map();
@@ -82,7 +80,6 @@ export default function PublicBoard() {
         <div className="mb-4 flex gap-2">
           <TabBtn id="results" icon={Trophy} label="Results" />
           <TabBtn id="schedule" icon={CalendarDays} label="Schedule" />
-          <TabBtn id="awards" icon={Award} label="Awards" />
         </div>
 
         {err && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
@@ -128,41 +125,6 @@ export default function PublicBoard() {
                   </li>
                 ))}
               </ul>
-            </div>
-          )
-        )}
-
-        {tab === 'awards' && (
-          !awards ? <Empty text="Awards appear once results are published." />
-          : (
-            <div className="space-y-4">
-              <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                <div className="border-b border-slate-100 bg-slate-50 px-4 py-2 text-sm font-semibold text-navy-800">School awards</div>
-                {(!awards.school_award_totals || awards.school_award_totals.length === 0) ? <p className="px-4 py-4 text-sm text-slate-400">No school totals yet.</p>
-                  : <ul className="divide-y divide-slate-100">
-                      {awards.school_award_totals.map((s, i) => (
-                        <li key={i} className="flex items-center gap-3 px-4 py-2">
-                          <span className="w-5 text-center text-sm font-bold text-navy-700">{i + 1}</span>
-                          <span className="flex-1 text-sm font-medium text-slate-800">{s.school_name}</span>
-                          <span className="text-sm font-semibold text-navy-800">{Number(s.grand_total).toFixed(1)}</span>
-                        </li>
-                      ))}
-                    </ul>}
-              </section>
-              {awards.group_championship?.length > 0 && (
-                <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                  <div className="border-b border-slate-100 bg-slate-50 px-4 py-2 text-sm font-semibold text-navy-800">Group championship (team events)</div>
-                  <ul className="divide-y divide-slate-100">
-                    {awards.group_championship.map((g, i) => (
-                      <li key={i} className="flex items-center gap-3 px-4 py-2">
-                        <span className="w-16 shrink-0 text-xs font-medium text-slate-500">{g.age_group_label}</span>
-                        <span className="flex-1 text-sm font-medium text-slate-800">{g.school_name}</span>
-                        <span className="text-sm font-semibold text-navy-800">{Number(g.total_points).toFixed(1)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
             </div>
           )
         )}
