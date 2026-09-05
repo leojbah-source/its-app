@@ -127,6 +127,16 @@ export const financeApi = {
   exportCsv: (token, yearId, type) => request(`/api/admin/finance/export${qs({ year_id: yearId, type })}`, { token }),
 };
 
+// Payment & refund verification (accountant / Chairman / Admin).
+export const paymentsApi = {
+  list: (token, { yearId, status, q } = {}) => request(`/api/admin/payments${qs({ year_id: yearId, status, q })}`, { token }),
+  confirm: (token, id) => request(`/api/admin/payments/${id}/confirm`, { method: 'POST', token, body: {} }),
+  reject: (token, id, reason) => request(`/api/admin/payments/${id}/reject`, { method: 'POST', token, body: { reason } }),
+  refunds: (token, { yearId, status } = {}) => request(`/api/admin/refunds${qs({ year_id: yearId, status })}`, { token }),
+  refundConfirm: (token, id, body) => request(`/api/admin/refunds/${id}/confirm`, { method: 'POST', token, body }),
+  refundReject: (token, id) => request(`/api/admin/refunds/${id}/reject`, { method: 'POST', token, body: {} }),
+};
+
 // Judge-facing (token = judge). Chest numbers only; scoped per age group.
 export const judgeApi = {
   events: (token) => request('/api/judge/events', { token }),
@@ -243,12 +253,6 @@ export const participantsApi = {
 };
 
 // ── Teams (admin) ────────────────────────────────────────────────────────────
-export const paymentsApi = {
-  list: (token, params = {}) => request(`/api/admin/payments${qs(params)}`, { token }),
-  confirm: (token, id) => request(`/api/admin/payments/${id}/confirm`, { method: 'POST', token, body: {} }),
-  reject: (token, id, reason) => request(`/api/admin/payments/${id}/reject`, { method: 'POST', token, body: { reason } }),
-};
-
 export const teamsApi = {
   list: (token) => request('/api/admin/teams', { token }),
   members: (token, teamId) => request(`/api/admin/teams/${teamId}/members`, { token }),

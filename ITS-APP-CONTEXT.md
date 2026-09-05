@@ -1232,3 +1232,28 @@ if any, aren't retro-removed — re-test with a fresh participant.)
 - STILL MISSING (noted): an admin Payments verification screen to confirm/reject
   pending payments (accountant) — payments sit 'pending' until then; balance_due
   only drops on 'confirmed'.
+
+## Finance completion: payments verification screen + in-kind income
+Audit result: payments/refunds BACKEND was already complete (admin.payments.routes.js:
+list/confirm/reject payments, list/confirm/reject/export refunds) — only a UI was
+missing. Finance income/expense backend + tables existed (migration 001; my 023 was
+a redundant IF-NOT-EXISTS no-op).
+
+- **Payments & Refunds screen** (NEW `pages/Payments.jsx`, route `/admin/payments`,
+  nav item, roles SuperAdmin/Admin/Coordinator/Chairman): tabs Payments|Refunds,
+  status filter (default pending) + name/CPR search, proof link, Confirm/Reject
+  (reject → reason, notifies parent), refund Confirm (amount+method)/Reject.
+  `paymentsApi` in client.js (removed an older duplicate paymentsApi block).
+  Confirming a payment sets status='confirmed' → clears balance_due.
+- **Chairman can now confirm/correct money:** added 'Chairman' to editRoles in
+  admin.payments.routes.js AND admin.finance.routes.js.
+- **In-kind sponsorships:** migration `025_finance_income_inkind.sql` adds
+  finance_income.kind ('cash'|'in_kind', default cash) + item. Backend income POST
+  accepts kind/item; /summary now returns totalCashIncome, totalInKind, and net =
+  cash − expenses (in-kind doesn't move cash). Finance.jsx: income Type toggle
+  (Cash/In-kind) + Item field + hint; 4 summary cards (Cash income, In-kind value,
+  Expenses, Cash balance); in-kind badge in the income table.
+
+Reports available to accountant/Chairman now: Finance summary + CSV (income/expenses/
+ledger), Payments queue (verify online), Refunds queue + CSV export, per-participant
+fee summary (registration portal). RUN migration 025 on cloud + local; rest is code push.

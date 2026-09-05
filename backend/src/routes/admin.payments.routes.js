@@ -23,7 +23,7 @@ const router = express.Router();
 router.use(authenticate);
 
 const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
-const editRoles = ['SuperAdmin', 'Admin', 'Coordinator'];
+const editRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 
 function toCsv(rows, columns) {
   const header = columns.join(',');

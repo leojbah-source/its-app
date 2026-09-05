@@ -7,7 +7,7 @@ const { logAudit } = require('../utils/audit');
 const router = express.Router();
 router.use(authenticate);
 const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
-const editRoles = ['SuperAdmin', 'Admin', 'Coordinator'];
+const editRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 
 function toCsv(rows, columns) {
   const header = columns.join(',');
@@ -35,14 +35,15 @@ router.get('/income', requireRole(...staffRoles), async (req, res, next) => {
 // POST /api/admin/finance/income
 router.post('/income', requireRole(...editRoles), async (req, res, next) => {
   try {
-    const { year_id, source, amount, date, notes } = req.body;
+    const { year_id, source, amount, date, notes, item } = req.body;
+    const kind = req.body.kind === 'in_kind' ? 'in_kind' : 'cash';
     if (!year_id || !source || amount == null || !date) {
       return res.status(400).json({ error: 'year_id, source, amount and date are required' });
     }
     const { rows } = await pool.query(
-      `INSERT INTO finance_income (year_id, source, amount, date, notes, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [year_id, source, amount, date, notes || null, req.user.id]
+      `INSERT INTO finance_income (year_id, source, amount, date, notes, created_by, kind, item)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [year_id, source, amount, date, notes || null, req.user.id, kind, item || null]
     );
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'CREATE_INCOME', entity: 'finance_income', entityId: rows[0].id, details: { source, amount } });
     res.status(201).json(rows[0]);
@@ -229,7 +230,10 @@ router.get('/summary', requireRole(...staffRoles), async (req, res, next) => {
     if (!year_id) return res.status(400).json({ error: 'year_id query parameter is required' });
 
     const { rows: incomeRows } = await pool.query(
-      `SELECT COALESCE(SUM(amount), 0) AS total_income FROM finance_income WHERE year_id = $1`,
+      `SELECT COALESCE(SUM(amount) FILTER (WHERE kind = 'cash'), 0)    AS total_cash_income,
+              COALESCE(SUM(amount) FILTER (WHERE kind = 'in_kind'), 0) AS total_in_kind,
+              COALESCE(SUM(amount), 0) AS total_income
+       FROM finance_income WHERE year_id = $1`,
       [year_id]
     );
     const { rows: expenseByHead } = await pool.query(
@@ -242,13 +246,16 @@ router.get('/summary', requireRole(...staffRoles), async (req, res, next) => {
       [year_id]
     );
     const totalExpenses = expenseByHead.reduce((sum, r) => sum + Number(r.total), 0);
-    const totalIncome = Number(incomeRows[0].total_income);
+    const totalCashIncome = Number(incomeRows[0].total_cash_income);
+    const totalInKind = Number(incomeRows[0].total_in_kind);
 
     res.json({
       yearId: Number(year_id),
-      totalIncome,
+      totalCashIncome,
+      totalInKind,
+      totalIncome: totalCashIncome, // cash only (kept for existing callers)
       totalExpenses,
-      net: totalIncome - totalExpenses,
+      net: totalCashIncome - totalExpenses, // cash balance; in-kind doesn't move cash
       expenseByHead,
     });
   } catch (err) {

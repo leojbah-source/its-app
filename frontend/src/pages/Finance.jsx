@@ -2,7 +2,7 @@
 // Income & expenses tracking for the active year. Summary (income / expenses /
 // net), income entries, expense entries by head, and expense-head management.
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Plus, Trash2, Wallet, TrendingUp, TrendingDown, Download } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, Wallet, TrendingUp, TrendingDown, Download, Gift } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -23,7 +23,7 @@ export default function Finance() {
   const [loading, setLoading] = useState(true);
   const [flash, setFlash] = useState('');
 
-  const [inc, setInc] = useState({ source: '', amount: '', date: today(), notes: '' });
+  const [inc, setInc] = useState({ source: '', amount: '', date: today(), notes: '', kind: 'cash', item: '' });
   const [exp, setExp] = useState({ expense_head_id: '', amount: '', date: today(), vendor: '', notes: '' });
   const [headName, setHeadName] = useState('');
 
@@ -49,7 +49,7 @@ export default function Finance() {
     if (!inc.source.trim() || !inc.amount || !inc.date) return;
     try {
       await financeApi.addIncome(token, { year_id: yearId, ...inc, amount: Number(inc.amount) });
-      setInc({ source: '', amount: '', date: today(), notes: '' }); loadAll(yearId);
+      setInc({ source: '', amount: '', date: today(), notes: '', kind: 'cash', item: '' }); loadAll(yearId);
     } catch (err) { setFlash(err.message); }
   }
   async function addExpense(e) {
@@ -87,10 +87,11 @@ export default function Finance() {
     <AdminLayout title="Finance" subtitle="Income and expenses for the active year.">
       {flash && <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{flash}</div>}
 
-      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Card><div className="flex items-center gap-3"><TrendingUp className="text-green-600" size={22} /><div><div className="text-lg font-bold text-navy-800">{money(summary?.totalIncome)}</div><div className="text-xs text-slate-500">Total income</div></div></div></Card>
+      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Card><div className="flex items-center gap-3"><TrendingUp className="text-green-600" size={22} /><div><div className="text-lg font-bold text-navy-800">{money(summary?.totalCashIncome)}</div><div className="text-xs text-slate-500">Cash income</div></div></div></Card>
+        <Card><div className="flex items-center gap-3"><Gift className="text-gold-600" size={22} /><div><div className="text-lg font-bold text-navy-800">{money(summary?.totalInKind)}</div><div className="text-xs text-slate-500">In-kind value</div></div></div></Card>
         <Card><div className="flex items-center gap-3"><TrendingDown className="text-red-600" size={22} /><div><div className="text-lg font-bold text-navy-800">{money(summary?.totalExpenses)}</div><div className="text-xs text-slate-500">Total expenses</div></div></div></Card>
-        <Card><div className="flex items-center gap-3"><Wallet className="text-navy-600" size={22} /><div><div className={`text-lg font-bold ${Number(summary?.net) < 0 ? 'text-red-600' : 'text-navy-800'}`}>{money(summary?.net)}</div><div className="text-xs text-slate-500">Balance</div></div></div></Card>
+        <Card><div className="flex items-center gap-3"><Wallet className="text-navy-600" size={22} /><div><div className={`text-lg font-bold ${Number(summary?.net) < 0 ? 'text-red-600' : 'text-navy-800'}`}>{money(summary?.net)}</div><div className="text-xs text-slate-500">Cash balance</div></div></div></Card>
       </div>
 
       <div className="mb-2 flex flex-wrap justify-end gap-2">
@@ -104,12 +105,20 @@ export default function Finance() {
       <Card className="mb-4">
         <h2 className="mb-2 text-sm font-semibold text-navy-800">Income</h2>
         <form onSubmit={addIncome} className="mb-3 flex flex-wrap items-end gap-2">
-          <input value={inc.source} onChange={(e) => setInc({ ...inc, source: e.target.value })} placeholder="Source (e.g. Entry fees)" className={`${input} flex-1 min-w-[10rem]`} />
-          <input value={inc.amount} onChange={(e) => setInc({ ...inc, amount: e.target.value })} type="number" step="0.001" min="0" placeholder="Amount" className={`${input} w-28`} />
+          <select value={inc.kind} onChange={(e) => setInc({ ...inc, kind: e.target.value })} className={input} title="Cash or in-kind sponsorship">
+            <option value="cash">Cash</option>
+            <option value="in_kind">In-kind</option>
+          </select>
+          <input value={inc.source} onChange={(e) => setInc({ ...inc, source: e.target.value })} placeholder={inc.kind === 'in_kind' ? 'Sponsor name' : 'Source (e.g. Entry fees)'} className={`${input} flex-1 min-w-[9rem]`} />
+          {inc.kind === 'in_kind' && (
+            <input value={inc.item} onChange={(e) => setInc({ ...inc, item: e.target.value })} placeholder="Item (e.g. Drinking water)" className={`${input} flex-1 min-w-[9rem]`} />
+          )}
+          <input value={inc.amount} onChange={(e) => setInc({ ...inc, amount: e.target.value })} type="number" step="0.001" min="0" placeholder={inc.kind === 'in_kind' ? 'Value' : 'Amount'} className={`${input} w-28`} />
           <input value={inc.date} onChange={(e) => setInc({ ...inc, date: e.target.value })} type="date" className={input} />
-          <input value={inc.notes} onChange={(e) => setInc({ ...inc, notes: e.target.value })} placeholder="Notes" className={`${input} flex-1 min-w-[8rem]`} />
+          <input value={inc.notes} onChange={(e) => setInc({ ...inc, notes: e.target.value })} placeholder="Notes" className={`${input} flex-1 min-w-[7rem]`} />
           <Button type="submit" variant="primary" icon={Plus}>Add</Button>
         </form>
+        {inc.kind === 'in_kind' && <p className="mb-2 -mt-1 text-xs text-gold-700">In-kind: enter the equivalent dinar value of the goods/services (no cash changes hands).</p>}
         {income.length === 0 ? <p className="text-sm text-slate-400">No income entries yet.</p>
           : (
             <div className="overflow-x-auto">
@@ -119,8 +128,11 @@ export default function Finance() {
                   {income.map((r) => (
                     <tr key={r.id}>
                       <td className="px-2 py-1 text-slate-500">{String(r.date).slice(0, 10)}</td>
-                      <td className="px-2 py-1 font-medium">{r.source}</td>
-                      <td className="px-2 py-1 text-right text-green-700">{money(r.amount)}</td>
+                      <td className="px-2 py-1 font-medium">
+                        {r.source}
+                        {r.kind === 'in_kind' && <span className="ml-2 rounded bg-gold-100 px-1.5 py-0.5 text-[10px] font-medium text-gold-700">in-kind{r.item ? `: ${r.item}` : ''}</span>}
+                      </td>
+                      <td className={`px-2 py-1 text-right ${r.kind === 'in_kind' ? 'text-gold-700' : 'text-green-700'}`}>{money(r.amount)}</td>
                       <td className="px-2 py-1 text-slate-500">{r.notes || ''}</td>
                       <td className="px-2 py-1 text-right"><button onClick={() => delIncome(r.id)} className="text-slate-400 hover:text-red-600" title="Delete"><Trash2 size={15} /></button></td>
                     </tr>

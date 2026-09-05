@@ -23,6 +23,7 @@ import TimerPortal from './pages/timer/TimerPortal';
 import Awards from './pages/Awards';
 import Notices from './pages/Notices';
 import Finance from './pages/Finance';
+import Payments from './pages/Payments';
 import CertificatesPrint from './pages/CertificatesPrint';
 import JudgeReview from './pages/JudgeReview';
 
@@ -139,6 +140,10 @@ export default function App() {
               <Route
                 path="/admin/finance"
                 element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer']}><Finance /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/payments"
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Coordinator', 'Chairman']}><Payments /></ProtectedRoute>}
               />
               <Route path="/admin/judges" element={<Navigate to="/admin/judging/judges" replace />} />
               <Route path="/admin" element={<Navigate to="/admin/config/year" replace />} />
