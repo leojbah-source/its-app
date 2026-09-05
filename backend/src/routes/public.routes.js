@@ -161,7 +161,7 @@ router.get('/notices', async (req, res, next) => {
   try {
     const yearId = await resolveYearId(req.query.year_id);
     const { rows } = await pool.query(
-      `SELECT id, title, body, posted_at AS published_at
+      `SELECT id, title, body, attachment_url, attachment_type, posted_at AS published_at
        FROM notices
        WHERE ($1::int IS NULL OR year_id = $1) AND is_active = TRUE
        ORDER BY posted_at DESC LIMIT 100`,

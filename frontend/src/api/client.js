@@ -108,6 +108,11 @@ export const noticesApi = {
   create: (token, body) => request('/api/admin/notices', { method: 'POST', token, body }),
   update: (token, id, body) => request(`/api/admin/notices/${id}`, { method: 'PUT', token, body }),
   remove: (token, id) => request(`/api/admin/notices/${id}`, { method: 'DELETE', token }),
+  uploadFile: (token, file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return request('/api/admin/notices/upload', { method: 'POST', token, body: fd, isFormData: true });
+  },
 };
 
 // Finance (income / expenses / heads). yearId is a numeric year_config id.

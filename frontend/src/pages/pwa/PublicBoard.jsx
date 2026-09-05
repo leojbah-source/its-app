@@ -4,7 +4,7 @@
 // (Awards are intentionally NOT shown here — announced separately after contests.)
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Trophy, CalendarDays, UserRound, Megaphone } from 'lucide-react';
+import { Trophy, CalendarDays, UserRound, Megaphone, FileText } from 'lucide-react';
 import { publicApi, API_BASE } from '../../api/client';
 
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
@@ -69,9 +69,16 @@ export default function PublicBoard() {
             {notices.map((n) => (
               <div key={n.id} className="flex gap-2 rounded-xl border border-gold-200 bg-gold-50 px-3 py-2">
                 <Megaphone size={16} className="mt-0.5 shrink-0 text-gold-600" />
-                <div>
+                <div className="min-w-0">
                   <div className="text-sm font-semibold text-navy-800">{n.title}</div>
                   {n.body && <div className="text-xs text-slate-600 whitespace-pre-wrap">{n.body}</div>}
+                  {n.attachment_url && (
+                    <div className="mt-1.5">
+                      {n.attachment_type === 'image'
+                        ? <a href={asset(n.attachment_url)} target="_blank" rel="noreferrer"><img src={asset(n.attachment_url)} alt={n.title} className="max-h-60 w-auto rounded-lg border border-gold-200" /></a>
+                        : <a href={asset(n.attachment_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-gold-300 bg-white px-2.5 py-1 text-xs font-medium text-navy-700"><FileText size={13} /> View PDF</a>}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

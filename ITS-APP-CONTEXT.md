@@ -1259,3 +1259,15 @@ ledger), Payments queue (verify online), Refunds queue + CSV export, per-partici
 fee summary (registration portal). RUN migration 025 on cloud + local; rest is code push.
 
 - FOLLOWUP: Finance /summary now includes confirmed registration fees (SUM payments WHERE status=confirmed) as cash income. Returns registrationFees + otherCashIncome; totalCashIncome = fees + other; net = totalCashIncome - expenses. Finance.jsx shows the breakdown note. Fixes "confirmed payments not reflected in Finance". No migration.
+
+## Notice attachments (PDF / JPEG-PNG) — public
+- Migration `026_notice_attachments.sql`: notices.attachment_url + attachment_type ('pdf'|'image').
+- Backend `admin.notices.routes.js`: multer upload POST /api/admin/notices/upload
+  (PDF/JPEG/PNG, 10MB) → { url:'/uploads/..', type }; create/update accept
+  attachment_url/type; list returns them. public.routes /notices returns them too.
+- Frontend: Notices.jsx file input (uploads then creates) + shows image thumb / PDF
+  link in the admin list. PublicBoard notices banner renders image inline or a
+  "View PDF" link. `noticesApi.uploadFile` (multipart).
+- CAVEAT: files save to public/uploads (local disk) served at /uploads — EPHEMERAL
+  on Render free tier (lost on redeploy), same as payment proofs. Go-live needs S3.
+- RUN migration 026 on cloud + local; rest is code push.
