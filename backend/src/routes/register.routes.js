@@ -160,7 +160,7 @@ const proofUpload = multer({
 // POST /api/register/upload — parent uploads a payment proof screenshot.
 router.post('/upload', authenticate, proofUpload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No image received (png/jpg/webp, max 5 MB)' });
-  res.json({ url: `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}` });
+  res.json({ url: `/uploads/${req.file.filename}` });
 });
 
 // Documents (CPR scans etc.): images OR PDFs, up to 10 MB — team bulk scans
@@ -1337,7 +1337,7 @@ router.post('/team/:id/documents', authenticate, docUpload.single('file'), async
     const team = await loadOwnTeam(pool, req.params.id, req.user);
     if (!req.file)
       return res.status(400).json({ error: 'No file received (image or PDF, max 10 MB)' });
-    const url = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    const url = `/uploads/${req.file.filename}`;
     const { rows } = await pool.query(
       `INSERT INTO team_documents (team_id, url, original_name, uploaded_by)
        VALUES ($1, $2, $3, $4) RETURNING *`,

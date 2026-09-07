@@ -31,6 +31,8 @@ const adminPrintoutsRoutes = require('./routes/admin.printouts.routes');
 const path = require('path');
 
 const app = express();
+// Behind Render's proxy — makes req.protocol/req.secure reflect the real HTTPS.
+app.set('trust proxy', 1);
 
 // Allowed browser origins. Extra origins (a deployed/tunnel frontend URL) can be
 // added via env without editing code: CORS_ORIGINS="https://a.com,https://b.com"

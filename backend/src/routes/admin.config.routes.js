@@ -299,9 +299,9 @@ router.post('/init-year', requireRole('SuperAdmin', 'Admin'), async (req, res, n
 router.post('/config/upload', requireRole('SuperAdmin', 'Admin'), upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file received' });
-    const protocol = req.protocol;
-    const host = req.get('host');
-    const url = `${protocol}://${host}/uploads/${req.file.filename}`;
+    // Relative URL — works on http and https and any host (behind a proxy the
+    // absolute form saved an http:// URL that HTTPS pages block as mixed content).
+    const url = `/uploads/${req.file.filename}`;
     res.json({ url, name: req.file.originalname });
   } catch (err) { next(err); }
 });
