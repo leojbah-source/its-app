@@ -97,6 +97,18 @@ export default function EventDay() {
     return selectedEvent.sessions.find((s) => (s.age_groups || '').split(', ').includes(selectedGroupCode)) || selectedEvent.sessions[0] || null;
   }, [selectedEvent, selectedGroupCode]);
 
+  // Only the age groups scheduled for THIS event on THIS date (from the schedule's
+  // per-session age_groups) — not every group that merely has entries for the event.
+  const scheduledCodes = useMemo(() => {
+    const set = new Set();
+    if (selectedEvent) for (const s of selectedEvent.sessions)
+      for (const c of (s.age_groups || '').split(',').map((x) => x.trim()).filter(Boolean)) set.add(c);
+    return set;
+  }, [selectedEvent]);
+  const visibleGroups = useMemo(
+    () => (scheduledCodes.size ? groups.filter((g) => scheduledCodes.has(g.code)) : groups),
+    [groups, scheduledCodes]);
+
   useEffect(() => { setEventId(''); setGroups([]); setGroupId(''); setRoster([]); }, [date]);
   useEffect(() => {
     setGroupId(''); setRoster([]); setGroups([]);
@@ -184,8 +196,8 @@ export default function EventDay() {
           <div className="mt-3">
             <label className="block text-xs font-medium text-slate-600 mb-1.5">Age group (each is a separate contest)</label>
             <div className="flex flex-wrap gap-1.5">
-              {groups.length === 0 && <span className="text-xs text-slate-400">No groups with entries.</span>}
-              {groups.map((g) => (
+              {visibleGroups.length === 0 && <span className="text-xs text-slate-400">No groups scheduled on this day.</span>}
+              {visibleGroups.map((g) => (
                 <button key={g.age_group_id} type="button" onClick={() => setGroupId(g.age_group_id)}
                   className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                     String(groupId) === String(g.age_group_id) ? 'border-navy-600 bg-navy-600 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}>
