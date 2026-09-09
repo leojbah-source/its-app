@@ -35,7 +35,7 @@ router.get('/script/:event_id', async (req, res, next) => {
        FROM events e LEFT JOIN categories c ON c.id = e.category_id WHERE e.id = $1`, [req.params.event_id]);
     if (!ev[0]) return res.status(404).json({ error: 'Event not found' });
     const { rows: judges } = await pool.query(
-      `SELECT j.full_name, j.detailed_bio, j.bio, j.expertise
+      `SELECT DISTINCT j.full_name, j.detailed_bio, j.bio, j.expertise
        FROM judge_assignments ja JOIN judges j ON j.id = ja.judge_id
        WHERE ja.event_id = $1 ORDER BY j.full_name`, [req.params.event_id]);
     const { rows: criteria } = await pool.query(

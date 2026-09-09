@@ -56,6 +56,7 @@ function EventsList({ events, onOpen }) {
       {events.map((e) => (
         <button key={e.assignment_id} onClick={() => onOpen(e)} className="flex w-full items-center justify-between rounded-xl bg-white p-4 text-left shadow-sm hover:bg-slate-50">
           <div><div className="font-medium text-navy-800"><span className="font-mono text-xs text-navy-500 mr-1.5">{e.event_code}</span>{e.event_name}
+            {e.age_group_code && <span className="ml-2 rounded bg-navy-50 px-1.5 py-0.5 text-[10px] font-semibold text-navy-700">{e.age_group_code}</span>}
             {e.is_active && <span className="ml-2 rounded-full bg-gold-100 px-2 py-0.5 text-[10px] font-semibold text-gold-700">current</span>}</div>
           <div className="text-xs text-slate-500">{e.category_name}</div></div><ChevronLeft className="rotate-180 text-slate-400" size={18} /></button>))}
     </div>

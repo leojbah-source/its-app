@@ -1271,3 +1271,33 @@ fee summary (registration portal). RUN migration 025 on cloud + local; rest is c
 - CAVEAT: files save to public/uploads (local disk) served at /uploads — EPHEMERAL
   on Render free tier (lost on redeploy), same as payment proofs. Go-live needs S3.
 - RUN migration 026 on cloud + local; rest is code push.
+
+## Judge assignment per (event + age group) — major refactor
+Requirement: assign judges per age group of an event (different judges for G2/G3/G5),
+listed by schedule date; don't club an event's groups across dates. Everything
+downstream (chest, scoring, results) was already group-scoped; only assignment was
+event-wide.
+
+- Migration `027_judge_assignments_per_group.sql`: **clears scores + judge_assignments
+  (operator chose "start fresh")**, adds `judge_assignments.age_group_id`, replaces
+  UNIQUE(judge,event,time_slot) with UNIQUE(judge,event,age_group). Resets judging
+  test data only; recompute results after re-scoring.
+- `admin.judges.routes.js`: `/assign` requires age_group_id (3 per group);
+  `/event-assignments` now returns ONE ROW per (schedule date, event, age group) via
+  LATERAL unnest of schedule.age_groups (not clubbed across dates), with per-group
+  entries + per-group judges; `/candidates` + `/event/:id` + `send-otps` take
+  age_group_id.
+- `admin.judging.routes.js` computeGroup: judges filtered by `ja.age_group_id`.
+- `judge.routes.js`: each assignment = one (event, age group). loadOwnAssignment +
+  agreementStatus + /events + /groups + /sheet + /scores all scoped to the
+  assignment's age_group. Weightages remain event-level (event_criteria shared);
+  agreement + scoring gate are per group; a weightage change still resets all groups
+  (shared criteria) and locks once any group scores.
+- `mc.routes.js`: judge-bio query DISTINCT (a judge may cover multiple groups).
+- Frontend: `Assignment.jsx` rebuilt to per (date,event,age group) rows; assign/OTP
+  per group; MC/Timer stay per event. `JudgeApp.jsx` shows the age-group code in the
+  judge's event list. `client.js` judgesApi.candidates/sendEventOtps take ageGroupId;
+  assign body carries age_group_id.
+- NOTE: `admin.tiebreaker.routes.js` is stale/unused (references s.assignment_id) —
+  left as-is; live tiebreaker is in admin.judging.routes.js.
+- RUN migration 027 on cloud + local (WIPES scores + judge assignments); code push.

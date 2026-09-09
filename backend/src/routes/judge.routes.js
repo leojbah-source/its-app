@@ -20,7 +20,7 @@ router.use(authenticate, requireType('judge'));
 
 async function loadOwnAssignment(assignmentId, judgeId) {
   const { rows } = await pool.query(
-    `SELECT id, judge_id, event_id, time_slot_id FROM judge_assignments
+    `SELECT id, judge_id, event_id, age_group_id, time_slot_id FROM judge_assignments
      WHERE id = $1 AND judge_id = $2`, [assignmentId, judgeId]);
   return rows[0] || null;
 }
@@ -30,13 +30,13 @@ async function eventScored(eventId) {
                     WHERE r.event_id = $1) AS x`, [eventId]);
   return rows[0].x;
 }
-// Weightage agreement across ALL of an event's judges.
-async function agreementStatus(eventId, myAssignmentId) {
+// Weightage agreement across this (event + age group)'s judges only.
+async function agreementStatus(eventId, ageGroupId, myAssignmentId) {
   const { rows } = await pool.query(
     `SELECT COUNT(*)::int AS total,
             COUNT(weightages_agreed_at)::int AS agreed,
-            bool_or(id = $2 AND weightages_agreed_at IS NOT NULL) AS i_agreed
-     FROM judge_assignments WHERE event_id = $1`, [eventId, myAssignmentId]);
+            bool_or(id = $3 AND weightages_agreed_at IS NOT NULL) AS i_agreed
+     FROM judge_assignments WHERE event_id = $1 AND age_group_id = $2`, [eventId, ageGroupId, myAssignmentId]);
   const r = rows[0];
   return { total: r.total, agreed: r.agreed, i_agreed: !!r.i_agreed, all_agreed: r.total > 0 && r.agreed === r.total };
 }
@@ -47,6 +47,7 @@ router.get('/events', async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT ja.id AS assignment_id, e.id AS event_id, e.event_code, e.event_name,
               c.name AS category_name,
+              ja.age_group_id, ag.code AS age_group_code, ag.label AS age_group_label,
               (e.id = j.active_event_id) AS is_active,
               (SELECT COUNT(*)::int FROM event_criteria ec WHERE ec.event_id = e.id) AS criteria_count,
               (SELECT COALESCE(SUM(ec.max_score),0)::int FROM event_criteria ec WHERE ec.event_id = e.id) AS criteria_total
@@ -54,8 +55,9 @@ router.get('/events', async (req, res, next) => {
        JOIN events e ON e.id = ja.event_id
        JOIN judges j ON j.id = ja.judge_id
        LEFT JOIN categories c ON c.id = e.category_id
+       LEFT JOIN age_groups ag ON ag.id = ja.age_group_id
        WHERE ja.judge_id = $1
-       ORDER BY (e.id = j.active_event_id) DESC NULLS LAST, e.event_code`, [req.user.judgeId]);
+       ORDER BY (e.id = j.active_event_id) DESC NULLS LAST, e.event_code, ag.sort_order`, [req.user.judgeId]);
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -75,7 +77,7 @@ router.get('/briefing/:assignment_id', async (req, res, next) => {
     res.json({
       assignment_id: asg.id, event: ev[0] || null, criteria,
       weightages_locked: await eventScored(asg.event_id),
-      agreement: await agreementStatus(asg.event_id, asg.id),
+      agreement: await agreementStatus(asg.event_id, asg.age_group_id, asg.id),
     });
   } catch (err) { next(err); }
 });
@@ -93,9 +95,9 @@ router.get('/events/:assignment_id/groups', async (req, res, next) => {
        JOIN age_groups ag ON ag.id = r.age_group_id
        JOIN chest_assignments ca ON ca.registration_id = r.id
        LEFT JOIN scores s ON s.registration_id = r.id AND s.judge_assignment_id = $2
-       WHERE r.event_id = $1 AND r.status = 'attended'
+       WHERE r.event_id = $1 AND r.status = 'attended' AND ag.id = $3
        GROUP BY ag.id, ag.code, ag.label, ag.sort_order
-       ORDER BY ag.sort_order, ag.code`, [asg.event_id, asg.id]);
+       ORDER BY ag.sort_order, ag.code`, [asg.event_id, asg.id, asg.age_group_id]);
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -105,8 +107,9 @@ router.get('/sheet/:assignment_id', async (req, res, next) => {
   try {
     const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
     if (!asg) return res.status(404).json({ error: 'Assignment not found' });
-    const ag = req.query.age_group_id ? Number(req.query.age_group_id) : null;
-    if (!ag) return res.status(400).json({ error: 'age_group_id is required' });
+    // The assignment IS a single age group now — always score that group.
+    const ag = asg.age_group_id || (req.query.age_group_id ? Number(req.query.age_group_id) : null);
+    if (!ag) return res.status(400).json({ error: 'assignment has no age group' });
 
     const { rows: ev } = await pool.query(
       `SELECT e.id, e.event_code, e.event_name, c.name AS category_name,
@@ -135,7 +138,7 @@ router.get('/sheet/:assignment_id', async (req, res, next) => {
       criteria,
       weightages_locked: await eventScored(asg.event_id),
       weightage_total: criteria.reduce((t, c) => t + Number(c.max_score), 0),
-      agreement: await agreementStatus(asg.event_id, asg.id),
+      agreement: await agreementStatus(asg.event_id, asg.age_group_id, asg.id),
       participants,
       scores,
     });
@@ -209,7 +212,7 @@ router.post('/criteria/:assignment_id/agree', async (req, res, next) => {
     await pool.query(`UPDATE judge_assignments SET weightages_agreed_at = NOW() WHERE id = $1`, [asg.id]);
     await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge',
       action: 'AGREE_WEIGHTAGES', entity: 'judge_assignments', entityId: asg.id });
-    res.json({ agreement: await agreementStatus(asg.event_id, asg.id) });
+    res.json({ agreement: await agreementStatus(asg.event_id, asg.age_group_id, asg.id) });
   } catch (err) { next(err); }
 });
 
@@ -220,9 +223,9 @@ router.post('/scores/:assignment_id', async (req, res, next) => {
   try {
     const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
     if (!asg) return res.status(404).json({ error: 'Assignment not found' });
-    const agree = await agreementStatus(asg.event_id, asg.id);
+    const agree = await agreementStatus(asg.event_id, asg.age_group_id, asg.id);
     if (!agree.all_agreed)
-      return res.status(409).json({ error: `All ${agree.total} judges must agree the criteria weightages before scoring (${agree.agreed}/${agree.total} agreed).` });
+      return res.status(409).json({ error: `All ${agree.total} judges of this age group must agree the criteria weightages before scoring (${agree.agreed}/${agree.total} agreed).` });
     const list = req.body?.scores;
     if (!Array.isArray(list) || !list.length) return res.status(400).json({ error: 'scores array is required' });
 
@@ -232,7 +235,7 @@ router.post('/scores/:assignment_id', async (req, res, next) => {
     // Valid = attended entries with a chest number in this event.
     const { rows: valid } = await client.query(
       `SELECT r.id FROM registrations r JOIN chest_assignments ca ON ca.registration_id = r.id
-       WHERE r.event_id = $1 AND r.status = 'attended'`, [asg.event_id]);
+       WHERE r.event_id = $1 AND r.age_group_id = $2 AND r.status = 'attended'`, [asg.event_id, asg.age_group_id]);
     const validRegs = new Set(valid.map((v) => v.id));
 
     for (const s of list) {

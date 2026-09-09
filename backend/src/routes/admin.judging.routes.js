@@ -64,7 +64,8 @@ async function computeGroup(eventId, ageGroupId, cfg) {
      ORDER BY ca.chest_number`, [eventId, ageGroupId]);
   const { rows: judges } = await pool.query(
     `SELECT ja.id AS assignment_id, ja.judge_id, j.full_name FROM judge_assignments ja
-     JOIN judges j ON j.id = ja.judge_id WHERE ja.event_id = $1 ORDER BY j.full_name`, [eventId]);
+     JOIN judges j ON j.id = ja.judge_id
+     WHERE ja.event_id = $1 AND ja.age_group_id = $2 ORDER BY j.full_name`, [eventId, ageGroupId]);
   const { rows: criteria } = await pool.query(
     `SELECT id, criterion_name AS label, max_score, sequence_order
      FROM event_criteria WHERE event_id = $1 ORDER BY sequence_order, id`, [eventId]);

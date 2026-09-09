@@ -1,8 +1,9 @@
 // src/pages/judging/Assignment.jsx
-// Judging → Event assignment. One row per scheduled event (earliest date
-// first) with venue/time/age-group/entries summary and 3 judge slots. Assign
-// picks judges whose expertise matches the event's category (strict); briefing
-// OTPs for an event's judges are sent from here. Chairman/SuperAdmin only.
+// Judging → Event assignment. ONE ROW per (schedule date, event, age group) —
+// each age group of an event is judged separately, listed by date (events across
+// different dates are not clubbed). Assign 3 judges per age group (expertise must
+// match the category); briefing OTPs are sent per (event, age group). MC/Timer
+// are assigned per event. Chairman/SuperAdmin only.
 import { useEffect, useState, useCallback } from 'react';
 import { RefreshCw, UserPlus, KeyRound, Mic, Timer } from 'lucide-react';
 import AdminLayout from '../../components/layout/AdminLayout';
@@ -13,6 +14,8 @@ import { PageLoader, ErrorBanner } from '../../components/ui/States';
 import { useAuth } from '../../context/AuthContext';
 import { judgesApi, eventStaffApi } from '../../api/client';
 
+const rowKey = (r) => `${r.event_id}:${r.age_group_id}:${r.event_date}`;
+
 export default function Assignment() {
   const { token } = useAuth();
   const [rows, setRows] = useState([]);
@@ -22,7 +25,7 @@ export default function Assignment() {
   const [sendingId, setSendingId] = useState(null);
   const [otpInfo, setOtpInfo] = useState(null);
 
-  const [modalEvent, setModalEvent] = useState(null);
+  const [modalRow, setModalRow] = useState(null);
   const [candidates, setCandidates] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [busy, setBusy] = useState(false);
@@ -44,13 +47,13 @@ export default function Assignment() {
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
-  async function openAssign(ev) {
-    setModalEvent(ev); setModalErr(''); setCandidates([]);
-    setSelected(new Set(ev.judges.map((j) => j.judge_id)));
+  async function openAssign(row) {
+    setModalRow(row); setModalErr(''); setCandidates([]);
+    setSelected(new Set(row.judges.map((j) => j.judge_id)));
     try {
-      const r = await judgesApi.candidates(token, ev.event_id);
+      const r = await judgesApi.candidates(token, row.event_id, row.age_group_id);
       const ids = new Set(r.candidates.map((c) => c.id));
-      const extra = ev.judges.filter((j) => !ids.has(j.judge_id))
+      const extra = row.judges.filter((j) => !ids.has(j.judge_id))
         .map((j) => ({ id: j.judge_id, full_name: j.full_name, is_blacklisted: j.is_blacklisted, has_phone: j.has_phone, assigned: true, off_category: true }));
       setCandidates([...r.candidates, ...extra]);
     } catch (err) { setModalErr(err.message); }
@@ -65,34 +68,36 @@ export default function Assignment() {
   }
 
   async function saveAssign() {
-    if (!modalEvent) return;
+    if (!modalRow) return;
     setBusy(true); setModalErr('');
-    const asgMap = new Map(modalEvent.judges.map((j) => [j.judge_id, j.assignment_id]));
+    const ev = modalRow;
+    const asgMap = new Map(ev.judges.map((j) => [j.judge_id, j.assignment_id]));
     const currentIds = new Set(asgMap.keys());
     const toAssign = [...selected].filter((id) => !currentIds.has(id));
     const toRemove = [...currentIds].filter((id) => !selected.has(id));
+    const base = { event_id: ev.event_id, age_group_id: ev.age_group_id };
     try {
       for (const id of toAssign) {
         try {
-          await judgesApi.assign(token, { judge_id: id, event_id: modalEvent.event_id });
+          await judgesApi.assign(token, { judge_id: id, ...base });
         } catch (err) {
           if (err.data?.requiresChairmanConfirmation
               && window.confirm(`${err.data.warning}\n\nAssign anyway?`)) {
-            await judgesApi.assign(token, { judge_id: id, event_id: modalEvent.event_id, chairman_confirmed: true });
+            await judgesApi.assign(token, { judge_id: id, ...base, chairman_confirmed: true });
           } else throw err;
         }
       }
       for (const id of toRemove) await judgesApi.unassign(token, asgMap.get(id));
-      setModalEvent(null); setFlash('Judges updated.'); load();
+      setModalRow(null); setFlash('Judges updated.'); load();
     } catch (err) { setModalErr(err.message); }
     finally { setBusy(false); }
   }
 
-  async function sendOtps(ev) {
-    setSendingId(ev.event_id); setFlash('');
+  async function sendOtps(row) {
+    setSendingId(rowKey(row)); setFlash('');
     try {
-      const r = await judgesApi.sendEventOtps(token, ev.event_id);
-      setOtpInfo({ event: `${ev.event_code} · ${ev.event_name}`, ...r });
+      const r = await judgesApi.sendEventOtps(token, row.event_id, row.age_group_id);
+      setOtpInfo({ event: `${row.event_code} · ${row.event_name} · ${row.age_group_code}`, ...r });
     } catch (err) { setFlash(err.message); }
     finally { setSendingId(null); }
   }
@@ -125,7 +130,7 @@ export default function Assignment() {
 
   return (
     <AdminLayout title="Event assignment"
-      subtitle="Assign 3 judges per event (matched to the event's category), then send their briefing OTPs."
+      subtitle="Assign 3 judges per age group (matched to the event's category), then send their briefing OTPs. Each age group is a separate contest, listed by date."
       actions={<Button variant="outline" icon={RefreshCw} onClick={load}>Refresh</Button>}>
 
       {flash && <div className="mb-3 rounded-md border border-navy-200 bg-navy-50 px-3 py-2 text-sm text-navy-700">{flash}</div>}
@@ -144,7 +149,7 @@ export default function Assignment() {
                     <th className="px-3 py-2">Time</th>
                     <th className="px-3 py-2">Venue</th>
                     <th className="px-3 py-2">Event</th>
-                    <th className="px-3 py-2">Ages</th>
+                    <th className="px-3 py-2">Age group</th>
                     <th className="px-3 py-2">Entries</th>
                     <th className="px-3 py-2">Judge 1</th>
                     <th className="px-3 py-2">Judge 2</th>
@@ -154,27 +159,24 @@ export default function Assignment() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {rows.map((ev) => (
-                    <tr key={ev.event_id} className="hover:bg-slate-50 align-top">
+                    <tr key={rowKey(ev)} className="hover:bg-slate-50 align-top">
                       <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-600">
-                        {ev.earliest_date}
+                        {ev.event_date}
                         {!ev.published && <span className="ml-1 text-[10px] text-amber-600">(draft)</span>}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-slate-600">
-                        {ev.first_start || '—'}
-                        {ev.session_count > 1 && <span className="ml-1 text-[10px] text-slate-400">+{ev.session_count - 1}</span>}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-slate-600">{ev.venues || '—'}</td>
+                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-slate-600">{ev.start_time || '—'}</td>
+                      <td className="px-3 py-2 text-xs text-slate-600">{ev.venue || '—'}</td>
                       <td className="px-3 py-2">
                         <div>
                           <span className="font-mono text-xs text-navy-700 mr-1.5">{ev.event_code}</span>
                           <span className="font-medium text-slate-800">{ev.event_name}</span>
-                          <Badge tone={ev.judges.length === 3 ? 'success' : ev.judges.length > 3 ? 'gold' : 'slate'} className="ml-2">
-                            {ev.judges.length}/3
-                          </Badge>
                         </div>
                         <div className="text-[11px] text-slate-400">{ev.category_name || '—'}</div>
                       </td>
-                      <td className="px-3 py-2 text-xs text-slate-600">{ev.age_groups || '—'}</td>
+                      <td className="px-3 py-2">
+                        <span className="rounded bg-navy-50 px-1.5 py-0.5 text-xs font-semibold text-navy-700">{ev.age_group_code}</span>
+                        <Badge tone={ev.judges.length === 3 ? 'success' : ev.judges.length > 3 ? 'gold' : 'slate'} className="ml-2">{ev.judges.length}/3</Badge>
+                      </td>
                       <td className="px-3 py-2"><Badge tone="navy">{ev.entries ?? 0}</Badge></td>
                       <td className="px-3 py-2 text-xs">{slot(ev.judges, 0)}</td>
                       <td className="px-3 py-2 text-xs">{slot(ev.judges, 1)}</td>
@@ -185,12 +187,12 @@ export default function Assignment() {
                       <td className="px-3 py-2">
                         <div className="flex items-center justify-end gap-1.5">
                           <Button size="sm" variant="outline" icon={UserPlus} onClick={() => openAssign(ev)}>Assign</Button>
-                          <Button size="sm" variant="ghost" icon={KeyRound} loading={sendingId === ev.event_id}
-                            disabled={ev.judges.length === 0} onClick={() => sendOtps(ev)} title="Send briefing OTPs to this event's judges">OTP</Button>
+                          <Button size="sm" variant="ghost" icon={KeyRound} loading={sendingId === rowKey(ev)}
+                            disabled={ev.judges.length === 0} onClick={() => sendOtps(ev)} title="Send briefing OTPs to this group's judges">OTP</Button>
                           <Button size="sm" variant={ev.mc_name ? 'gold' : 'ghost'} icon={Mic} onClick={() => openStaff(ev, 'MC')}
-                            title={ev.mc_name ? `MC: ${ev.mc_name}` : 'Assign an MC to this event'}>{ev.mc_name ? 'MC \u2713' : 'MC'}</Button>
+                            title={ev.mc_name ? `MC: ${ev.mc_name}` : 'Assign an MC to this event'}>{ev.mc_name ? 'MC ✓' : 'MC'}</Button>
                           <Button size="sm" variant={ev.timer_name ? 'gold' : 'ghost'} icon={Timer} onClick={() => openStaff(ev, 'Timer')}
-                            title={ev.timer_name ? `Timer: ${ev.timer_name}` : 'Assign a Timer to this event'}>{ev.timer_name ? 'Timer \u2713' : 'Timer'}</Button>
+                            title={ev.timer_name ? `Timer: ${ev.timer_name}` : 'Assign a Timer to this event'}>{ev.timer_name ? 'Timer ✓' : 'Timer'}</Button>
                         </div>
                       </td>
                     </tr>
@@ -202,11 +204,11 @@ export default function Assignment() {
       </Card>
 
       <ConfirmDialog
-        open={!!modalEvent}
-        title={modalEvent ? `Assign judges — ${modalEvent.event_code} ${modalEvent.event_name}` : ''}
-        description={modalEvent ? `Category: ${modalEvent.category_name || '—'}. Showing judges whose expertise matches; pick 3.` : ''}
+        open={!!modalRow}
+        title={modalRow ? `Judges — ${modalRow.event_code} ${modalRow.event_name} · ${modalRow.age_group_code}` : ''}
+        description={modalRow ? `${modalRow.event_date} · Category: ${modalRow.category_name || '—'}. Showing judges whose expertise matches; pick 3 for this age group.` : ''}
         confirmLabel="Save" variant="primary" loading={busy}
-        onCancel={() => setModalEvent(null)} onConfirm={saveAssign}>
+        onCancel={() => setModalRow(null)} onConfirm={saveAssign}>
         <div className="max-h-72 overflow-y-auto rounded-md border border-slate-200 divide-y divide-slate-100">
           {candidates.length === 0 && (
             <p className="px-3 py-4 text-xs text-slate-400">
@@ -224,7 +226,7 @@ export default function Assignment() {
             </label>
           ))}
         </div>
-        <p className="mt-2 text-xs text-slate-500">{selected.size} selected · 3 per event recommended.</p>
+        <p className="mt-2 text-xs text-slate-500">{selected.size} selected · 3 per age group recommended.</p>
         {modalErr && <p className="mt-1 text-xs text-red-600">{modalErr}</p>}
       </ConfirmDialog>
 
@@ -267,6 +269,7 @@ export default function Assignment() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setMcEvent(null)}>
           <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-base font-semibold text-navy-900">{staffRole} — {mcEvent.event_code} {mcEvent.event_name}</h3>
+            <p className="mt-0.5 text-xs text-slate-500">MC / Timer cover the whole event (all age groups).</p>
             {mcMsg && <p className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-700">{mcMsg}</p>}
             <div className="mt-3">
               <p className="mb-1 text-xs font-medium text-slate-500">Assigned {staffRole}</p>

@@ -201,9 +201,9 @@ router.post('/:id/send-otp', requireRole(...assignRoles), async (req, res, next)
 // body: { judge_id, event_id, time_slot_id?, chairman_confirmed? }
 router.post('/assign', requireRole(...assignRoles), async (req, res, next) => {
   try {
-    const { judge_id, event_id, time_slot_id, chairman_confirmed } = req.body;
-    if (!judge_id || !event_id)
-      return res.status(400).json({ error: 'judge_id and event_id are required' });
+    const { judge_id, event_id, age_group_id, time_slot_id, chairman_confirmed } = req.body;
+    if (!judge_id || !event_id || !age_group_id)
+      return res.status(400).json({ error: 'judge_id, event_id and age_group_id are required' });
 
     const { rows: jr } = await pool.query(`SELECT is_blacklisted FROM judges WHERE id = $1`, [judge_id]);
     if (!jr[0]) return res.status(404).json({ error: 'Judge not found' });
@@ -216,28 +216,29 @@ router.post('/assign', requireRole(...assignRoles), async (req, res, next) => {
       return res.status(403).json({ error: 'Only the Chairman or SuperAdmin can assign a blacklisted judge' });
 
     const { rows: existing } = await pool.query(
-      `SELECT COUNT(*)::int AS c FROM judge_assignments WHERE event_id = $1`, [event_id]);
+      `SELECT COUNT(*)::int AS c FROM judge_assignments WHERE event_id = $1 AND age_group_id = $2`,
+      [event_id, age_group_id]);
 
     let inserted;
     try {
       const { rows } = await pool.query(
-        `INSERT INTO judge_assignments (judge_id, event_id, time_slot_id, assigned_by)
-         VALUES ($1,$2,$3,$4) RETURNING *`,
-        [judge_id, event_id, n(time_slot_id), req.user.id]);
+        `INSERT INTO judge_assignments (judge_id, event_id, age_group_id, time_slot_id, assigned_by)
+         VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+        [judge_id, event_id, age_group_id, n(time_slot_id), req.user.id]);
       inserted = rows[0];
     } catch (e) {
-      if (e.code === '23505') return res.status(409).json({ error: 'This judge is already assigned to this event/slot' });
+      if (e.code === '23505') return res.status(409).json({ error: 'This judge is already assigned to this event + age group' });
       throw e;
     }
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'ASSIGN_JUDGE', entity: 'judge_assignments', entityId: inserted.id,
-      details: { judge_id, event_id, wasBlacklisted: jr[0].is_blacklisted } });
+      details: { judge_id, event_id, age_group_id, wasBlacklisted: jr[0].is_blacklisted } });
     res.status(201).json({
       assignment: inserted,
-      event_judge_count: existing[0].c + 1,
-      note: existing[0].c + 1 > 3 ? 'More than 3 judges now on this event.'
-        : existing[0].c + 1 < 3 ? `${3 - (existing[0].c + 1)} more judge(s) needed (3 per event).` : '3 judges assigned — complete.',
+      group_judge_count: existing[0].c + 1,
+      note: existing[0].c + 1 > 3 ? 'More than 3 judges now on this age group.'
+        : existing[0].c + 1 < 3 ? `${3 - (existing[0].c + 1)} more judge(s) needed (3 per age group).` : '3 judges assigned — complete.',
     });
   } catch (err) { next(err); }
 });
@@ -260,13 +261,14 @@ router.delete('/assign/:assignmentId', requireRole(...assignRoles), async (req, 
 // ── GET /api/admin/judges/event/:eventId — judges assigned to an event ───────
 router.get('/event/:eventId', requireRole(...staffRoles), async (req, res, next) => {
   try {
+    const ag = req.query.age_group_id ? Number(req.query.age_group_id) : null;
     const { rows } = await pool.query(
-      `SELECT ja.id AS assignment_id, ja.time_slot_id, j.id AS judge_id,
+      `SELECT ja.id AS assignment_id, ja.time_slot_id, ja.age_group_id, j.id AS judge_id,
               j.full_name, j.is_blacklisted
        FROM judge_assignments ja
        JOIN judges j ON j.id = ja.judge_id
-       WHERE ja.event_id = $1
-       ORDER BY j.full_name`, [req.params.eventId]);
+       WHERE ja.event_id = $1 AND ($2::int IS NULL OR ja.age_group_id = $2)
+       ORDER BY j.full_name`, [req.params.eventId, ag]);
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -305,35 +307,37 @@ router.get('/candidates/:eventId', requireRole(...staffRoles), async (req, res, 
       [req.params.eventId]);
     if (!ev[0]) return res.status(404).json({ error: 'Event not found' });
     const code = ev[0].category_code;
+    const ag = req.query.age_group_id ? Number(req.query.age_group_id) : null;
     const { rows } = await pool.query(
       `SELECT j.id, j.full_name, j.is_blacklisted, (j.phone IS NOT NULL) AS has_phone,
               EXISTS (SELECT 1 FROM judge_assignments ja
-                      WHERE ja.judge_id = j.id AND ja.event_id = $2) AS assigned
+                      WHERE ja.judge_id = j.id AND ja.event_id = $2
+                        AND ($3::int IS NULL OR ja.age_group_id = $3)) AS assigned
        FROM judges j
        WHERE $1 = ANY (j.expertise)
-       ORDER BY j.full_name`, [code, req.params.eventId]);
+       ORDER BY j.full_name`, [code, req.params.eventId, ag]);
     res.json({ category_code: code, category_name: ev[0].category_name, candidates: rows });
   } catch (err) { next(err); }
 });
 
-// ── GET /api/admin/judges/event-assignments — scheduled events + their judges ─
-// One row per event in the schedule, EARLIEST DATE FIRST, with the assigned
-// judges. Drives the Event-Judges table on the Schedule page.
+// ── GET /api/admin/judges/event-assignments — scheduled (event × age group) rows ─
+// ONE ROW per (schedule session date, event, age group), by date — an event
+// scheduled across different dates is NOT clubbed. Each row is judged separately.
+// Drives the Event assignment table.
 router.get('/event-assignments', requireRole(...staffRoles), async (req, res, next) => {
   try {
     const { rows: yc } = await pool.query(`SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`);
     if (!yc[0]) return res.json([]);
-    const { rows: events } = await pool.query(
+    // Expand each schedule row's comma-separated age_groups into one row per group.
+    const { rows } = await pool.query(
       `SELECT e.id AS event_id, e.event_code, e.event_name,
               c.code AS category_code, c.name AS category_name,
-              to_char(MIN(s.event_date), 'YYYY-MM-DD') AS earliest_date,
-              to_char(MIN(s.start_time), 'HH24:MI') AS first_start,
-              COUNT(DISTINCT s.id)::int AS session_count,
-              string_agg(DISTINCT NULLIF(s.venue, ''), ', ') AS venues,
-              string_agg(DISTINCT NULLIF(s.age_groups, ''), ' | ') AS age_groups,
-              bool_or(s.status = 'confirmed') AS published,
+              to_char(s.event_date, 'YYYY-MM-DD') AS event_date,
+              to_char(s.start_time, 'HH24:MI') AS start_time,
+              s.venue, (s.status = 'confirmed') AS published,
+              ag.id AS age_group_id, ag.code AS age_group_code, ag.label AS age_group_label, ag.sort_order,
               (SELECT COUNT(*)::int FROM registrations r
-               WHERE r.event_id = e.id AND r.status NOT IN ('withdrawn','swapped')) AS entries,
+               WHERE r.event_id = e.id AND r.age_group_id = ag.id AND r.status NOT IN ('withdrawn','swapped')) AS entries,
               (SELECT string_agg(u.full_name, ', ') FROM mc_assignments ma
                JOIN users u ON u.id = ma.user_id WHERE ma.event_id = e.id) AS mc_name,
               (SELECT string_agg(u.full_name, ', ') FROM timer_assignments tia
@@ -341,30 +345,36 @@ router.get('/event-assignments', requireRole(...staffRoles), async (req, res, ne
        FROM schedule s
        JOIN events e ON e.id = s.event_id
        LEFT JOIN categories c ON c.id = e.category_id
-       WHERE s.year_id = $1
-       GROUP BY e.id, e.event_code, e.event_name, c.code, c.name
-       ORDER BY MIN(s.event_date), e.event_code`, [yc[0].id]);
-    const ids = events.map((e) => e.event_id);
-    const byEvent = {};
-    if (ids.length) {
+       CROSS JOIN LATERAL unnest(string_to_array(COALESCE(NULLIF(s.age_groups, ''), s.age_groups), ', ')) AS grp(code)
+       JOIN age_groups ag ON ag.year_id = s.year_id AND ag.code = trim(grp.code)
+       WHERE s.year_id = $1 AND COALESCE(s.age_groups, '') <> ''
+       ORDER BY s.event_date, s.start_time NULLS LAST, e.event_code, ag.sort_order`, [yc[0].id]);
+
+    // judges per (event, age group)
+    const byKey = {};
+    const pairs = [...new Set(rows.map((r) => `${r.event_id}:${r.age_group_id}`))];
+    if (pairs.length) {
       const { rows: asg } = await pool.query(
-        `SELECT ja.id AS assignment_id, ja.event_id, j.id AS judge_id, j.full_name,
+        `SELECT ja.id AS assignment_id, ja.event_id, ja.age_group_id, j.id AS judge_id, j.full_name,
                 j.is_blacklisted, (j.phone IS NOT NULL) AS has_phone
          FROM judge_assignments ja JOIN judges j ON j.id = ja.judge_id
-         WHERE ja.event_id = ANY($1) ORDER BY j.full_name`, [ids]);
-      for (const a of asg) (byEvent[a.event_id] ??= []).push(a);
+         WHERE ja.age_group_id IS NOT NULL ORDER BY j.full_name`);
+      for (const a of asg) (byKey[`${a.event_id}:${a.age_group_id}`] ??= []).push(a);
     }
-    res.json(events.map((e) => ({ ...e, judges: byEvent[e.event_id] || [] })));
+    res.json(rows.map((r) => ({ ...r, judges: byKey[`${r.event_id}:${r.age_group_id}`] || [] })));
   } catch (err) { next(err); }
 });
 
 // ── POST /api/admin/judges/event/:eventId/send-otps — OTP all assigned judges ─
 router.post('/event/:eventId/send-otps', requireRole(...assignRoles), async (req, res, next) => {
   try {
+    const ag = req.body?.age_group_id ? Number(req.body.age_group_id) : null;
     const { rows: judges } = await pool.query(
-      `SELECT j.id, j.full_name, j.phone FROM judge_assignments ja
-       JOIN judges j ON j.id = ja.judge_id WHERE ja.event_id = $1`, [req.params.eventId]);
-    if (!judges.length) return res.status(400).json({ error: 'No judges assigned to this event yet' });
+      `SELECT DISTINCT j.id, j.full_name, j.phone FROM judge_assignments ja
+       JOIN judges j ON j.id = ja.judge_id
+       WHERE ja.event_id = $1 AND ($2::int IS NULL OR ja.age_group_id = $2)`,
+      [req.params.eventId, ag]);
+    if (!judges.length) return res.status(400).json({ error: 'No judges assigned to this event/age group yet' });
     const dev = process.env.OTP_DEV_ECHO === 'true' || process.env.NODE_ENV !== 'production';
     let delivered = 0; const skipped = []; const links = []; const devCodes = [];
     for (const j of judges) {
