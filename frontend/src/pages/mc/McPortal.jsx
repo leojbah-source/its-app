@@ -1,58 +1,55 @@
 // src/pages/mc/McPortal.jsx
-// MC portal (staff MC role). Assigned event → MC SCRIPT (judges' bios auto-
-// filled + criteria + timing) and Participants. Participants: pick an age GROUP
-// (chest numbers restart per group), then chest numbers WITH names in chest
-// order. When the Timer finishes a chest it shows a green ✓ and a "call next"
-// banner so the MC calls the next number correctly.
+// MC portal (staff MC role). Assigned per (event + age group): the MC sees each
+// assigned event · group as its own entry → MC SCRIPT (judges' bios + criteria +
+// timing) and Participants (chest numbers WITH names, in chest order) for THAT
+// group. When the Timer finishes a chest it shows a green ✓ + "call next" banner.
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Mic, LogOut, ChevronLeft, Users, ScrollText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { mcApi } from '../../api/client';
 
 const mmss = (s) => (s == null ? '—' : `${Math.floor(s / 60)}m${s % 60 ? ` ${s % 60}s` : ''}`);
+const selKey = (e) => `${e.event_id}:${e.age_group_id}`;
 
 export default function McPortal() {
   const { token, user, logout } = useAuth();
   const [events, setEvents] = useState([]);
-  const [eventId, setEventId] = useState(null);
+  const [sel, setSel] = useState(null);          // selected (event + group) row
   const [tab, setTab] = useState('script');
   const [script, setScript] = useState(null);
-  const [groups, setGroups] = useState(null);   // grouped participants [{age_group, participants}]
-  const [mcGroup, setMcGroup] = useState(null);  // selected age_group code
+  const [groups, setGroups] = useState(null);    // grouped participants [{age_group, participants}]
   const [flash, setFlash] = useState('');
   const [doneBanner, setDoneBanner] = useState('');
   const prevDone = useRef(new Set());
 
+  const mcGroup = sel?.age_group_code || null;
+
   useEffect(() => {
-    mcApi.myEvents(token).then((evs) => { setEvents(evs); if (evs.length === 1) setEventId(evs[0].event_id); }).catch((e) => setFlash(e.message));
+    mcApi.myEvents(token).then((evs) => { setEvents(evs); if (evs.length === 1) setSel(evs[0]); }).catch((e) => setFlash(e.message));
   }, [token]);
 
-  const loadScript = useCallback(() => { if (eventId) mcApi.script(token, eventId).then(setScript).catch((e) => setFlash(e.message)); }, [token, eventId]);
+  const loadScript = useCallback(() => { if (sel) mcApi.script(token, sel.event_id).then(setScript).catch((e) => setFlash(e.message)); }, [token, sel]);
   const loadParticipants = useCallback(async () => {
-    if (!eventId) return;
+    if (!sel) return;
     try {
-      const gs = await mcApi.participants(token, eventId);
+      const gs = await mcApi.participants(token, sel.event_id);
       setGroups(gs);
-      if (mcGroup) {
-        const g = gs.find((x) => x.age_group === mcGroup);
-        const nowDone = new Set((g?.participants || []).filter((p) => p.done).map((p) => p.chest_number));
-        const newly = [...nowDone].filter((c) => !prevDone.current.has(c));
-        if (prevDone.current.size > 0 && newly.length > 0) setDoneBanner(`Chest ${newly.sort((a, b) => a - b).join(', ')} finished — call the next number.`);
-        prevDone.current = nowDone;
-      }
+      const g = gs.find((x) => x.age_group === mcGroup);
+      const nowDone = new Set((g?.participants || []).filter((p) => p.done).map((p) => p.chest_number));
+      const newly = [...nowDone].filter((c) => !prevDone.current.has(c));
+      if (prevDone.current.size > 0 && newly.length > 0) setDoneBanner(`Chest ${newly.sort((a, b) => a - b).join(', ')} finished — call the next number.`);
+      prevDone.current = nowDone;
     } catch (e) { setFlash(e.message); }
-  }, [token, eventId, mcGroup]);
+  }, [token, sel, mcGroup]);
 
-  useEffect(() => { if (eventId) { setScript(null); setGroups(null); setMcGroup(null); setTab('script'); loadScript(); } }, [eventId, loadScript]);
-  useEffect(() => { prevDone.current = new Set(); setDoneBanner(''); }, [mcGroup, eventId]);
+  useEffect(() => { if (sel) { setScript(null); setGroups(null); setTab('script'); prevDone.current = new Set(); setDoneBanner(''); loadScript(); } }, [sel, loadScript]);
   useEffect(() => {
-    if (tab !== 'participants' || !eventId) return;
+    if (tab !== 'participants' || !sel) return;
     loadParticipants();
     const iv = setInterval(loadParticipants, 5000);
     return () => clearInterval(iv);
-  }, [tab, eventId, loadParticipants]);
+  }, [tab, sel, loadParticipants]);
 
-  const currentEv = events.find((e) => e.event_id === eventId);
   const groupData = groups?.find((g) => g.age_group === mcGroup);
 
   return (
@@ -66,13 +63,14 @@ export default function McPortal() {
       <main className="mx-auto max-w-3xl p-4">
         {flash && <div className="mb-3 rounded-md border border-navy-200 bg-white px-3 py-2 text-sm text-navy-700">{flash}</div>}
 
-        {!eventId ? (
+        {!sel ? (
           <div className="space-y-2">
             <h1 className="mb-2 text-lg font-semibold text-navy-900">Your events</h1>
-            {events.length === 0 && <p className="py-8 text-center text-sm text-slate-500">No event assigned to you yet.</p>}
+            {events.length === 0 && <p className="py-8 text-center text-sm text-slate-500">No event/age group assigned to you yet.</p>}
             {events.map((e) => (
-              <button key={e.event_id} onClick={() => setEventId(e.event_id)} className="flex w-full items-center justify-between rounded-xl bg-white p-4 text-left shadow-sm hover:bg-slate-50">
-                <div><div className="font-medium text-navy-800"><span className="font-mono text-xs text-navy-500 mr-1.5">{e.event_code}</span>{e.event_name}</div>
+              <button key={selKey(e)} onClick={() => setSel(e)} className="flex w-full items-center justify-between rounded-xl bg-white p-4 text-left shadow-sm hover:bg-slate-50">
+                <div><div className="font-medium text-navy-800"><span className="font-mono text-xs text-navy-500 mr-1.5">{e.event_code}</span>{e.event_name}
+                  {e.age_group_code && <span className="ml-2 rounded bg-navy-50 px-1.5 py-0.5 text-[10px] font-semibold text-navy-700">{e.age_group_code}</span>}</div>
                 <div className="text-xs text-slate-500">{e.category_name}</div></div>
                 <ChevronLeft className="rotate-180 text-slate-400" size={18} />
               </button>
@@ -80,11 +78,11 @@ export default function McPortal() {
           </div>
         ) : (
           <div>
-            {events.length > 1 && <button onClick={() => setEventId(null)} className="mb-3 inline-flex items-center gap-1 text-sm text-navy-600 hover:underline"><ChevronLeft size={16} /> Events</button>}
-            {/* Clear event header */}
+            {events.length > 1 && <button onClick={() => setSel(null)} className="mb-3 inline-flex items-center gap-1 text-sm text-navy-600 hover:underline"><ChevronLeft size={16} /> Events</button>}
             <div className="mb-3 rounded-xl bg-navy-700 p-3 text-white">
-              <div className="text-xs uppercase tracking-wide text-navy-200">{currentEv?.category_name}</div>
-              <div className="font-semibold"><span className="font-mono text-sm text-navy-200 mr-1.5">{currentEv?.event_code}</span>{currentEv?.event_name}</div>
+              <div className="text-xs uppercase tracking-wide text-navy-200">{sel.category_name}</div>
+              <div className="font-semibold"><span className="font-mono text-sm text-navy-200 mr-1.5">{sel.event_code}</span>{sel.event_name}
+                <span className="ml-2 rounded-full bg-gold-500 px-2 py-0.5 text-xs font-semibold">{sel.age_group_code}</span></div>
             </div>
 
             <div className="mb-3 flex gap-1 rounded-lg bg-white p-1 shadow-sm">
@@ -94,41 +92,29 @@ export default function McPortal() {
 
             {tab === 'script' ? <Script data={script} /> : (
               !groups ? <p className="py-8 text-center text-sm text-slate-500">Loading…</p>
-              : !mcGroup ? (
+              : (
                 <div>
-                  <p className="mb-2 text-sm text-slate-500">Select the age group you are announcing.</p>
-                  {groups.length === 0 ? <p className="rounded-lg bg-white p-4 text-sm text-slate-500 shadow-sm">No chest numbers assigned yet.</p>
-                    : <div className="grid gap-2 sm:grid-cols-2">{groups.map((g) => {
-                        const done = g.participants.filter((p) => p.done).length;
-                        return (
-                          <button key={g.age_group} onClick={() => setMcGroup(g.age_group)} className="rounded-xl bg-white p-4 text-left shadow-sm hover:bg-slate-50">
-                            <div className="text-base font-semibold text-navy-800">Group {g.age_group}</div>
-                            <div className="text-xs text-slate-500">{g.participants.length} participants · {done} done</div>
-                          </button>); })}</div>}
-                </div>
-              ) : (
-                <div>
-                  <div className="mb-3 flex items-center justify-between">
-                    <button onClick={() => { const inc = groupData ? groupData.participants.some((p) => !p.done) : false; if (inc && !window.confirm(`Group ${mcGroup} isn\u2019t finished. Leave this group?`)) return; setMcGroup(null); }} className="inline-flex items-center gap-1 text-sm text-navy-600 hover:underline"><ChevronLeft size={16} /> Groups</button>
-                    <span className="rounded-full bg-gold-500 px-3 py-0.5 text-sm font-semibold text-white">Group {mcGroup}</span>
-                  </div>
                   {doneBanner && (
                     <div className="mb-3 flex items-center justify-between rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">
                       <span>{doneBanner}</span>
                       <button onClick={() => setDoneBanner('')} className="text-xs text-green-700 hover:underline">Dismiss</button>
                     </div>
                   )}
-                  <div className="rounded-xl bg-white p-3 shadow-sm">
-                    <div className="divide-y divide-slate-100">
-                      {(groupData?.participants || []).map((p) => (
-                        <div key={p.chest_number} className="flex items-center gap-3 px-1 py-2">
-                          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-navy-100 font-mono text-base font-bold text-navy-800">{p.chest_number}</span>
-                          <span className={`text-base ${p.done ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{p.name}</span>
-                          {p.done && <span className="ml-auto inline-flex items-center gap-1 text-sm font-medium text-green-600">{'✓'} done</span>}
+                  {!groupData || groupData.participants.length === 0
+                    ? <p className="rounded-lg bg-white p-4 text-sm text-slate-500 shadow-sm">No chest numbers assigned for {mcGroup} yet.</p>
+                    : (
+                      <div className="rounded-xl bg-white p-3 shadow-sm">
+                        <div className="divide-y divide-slate-100">
+                          {groupData.participants.map((p) => (
+                            <div key={p.chest_number} className="flex items-center gap-3 px-1 py-2">
+                              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-navy-100 font-mono text-base font-bold text-navy-800">{p.chest_number}</span>
+                              <span className={`text-base ${p.done ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{p.name}</span>
+                              {p.done && <span className="ml-auto inline-flex items-center gap-1 text-sm font-medium text-green-600">✓ done</span>}
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  </div>
+                      </div>
+                    )}
                 </div>
               )
             )}

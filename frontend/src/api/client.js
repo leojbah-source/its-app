@@ -304,7 +304,7 @@ export const mcApi = {
 export const eventStaffApi = {
   users: (token, role) => request(`/api/admin/event-staff/users?role=${role}`, { token }),
   createUser: (token, body) => request('/api/admin/event-staff/users', { method: 'POST', token, body }),
-  forEvent: (token, eventId) => request(`/api/admin/event-staff/event/${eventId}`, { token }),
+  forEvent: (token, eventId, ageGroupId) => request(`/api/admin/event-staff/event/${eventId}${qs({ age_group_id: ageGroupId })}`, { token }),
   assign: (token, body) => request('/api/admin/event-staff/assign', { method: 'POST', token, body }),
   unassign: (token, role, assignmentId) => request(`/api/admin/event-staff/assign/${role}/${assignmentId}`, { method: 'DELETE', token }),
 };

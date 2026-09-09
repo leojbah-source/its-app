@@ -1301,3 +1301,20 @@ event-wide.
 - NOTE: `admin.tiebreaker.routes.js` is stale/unused (references s.assignment_id) —
   left as-is; live tiebreaker is in admin.judging.routes.js.
 - RUN migration 027 on cloud + local (WIPES scores + judge assignments); code push.
+
+## MC / Timer assignment per (event + age group) — migration 028
+Mirrors the judge per-group change so an MC/Timer is assigned to a specific age
+group (same person can cover G2 & G3 in one hall; G5/G4 get their own).
+- Migration `028_event_staff_per_group.sql`: clears mc_assignments + timer_assignments
+  (re-assign per group), adds age_group_id to both, UNIQUE(user,event,age_group).
+- `admin.eventstaff.routes.js`: /assign requires age_group_id; /event/:id accepts
+  ?age_group_id and returns age_group_id.
+- `mc.routes` + `timer.routes` /my-events now return per (event, age group) with
+  age_group_id/code/label.
+- `admin.judges.routes.js` event-assignments: mc_name/timer_name scoped to ag.id
+  (so each per-group row shows its own MC/Timer).
+- Frontend: `Assignment.jsx` MC/Timer modal passes age_group_id (title shows group);
+  `McPortal.jsx` + `TimerPortal.jsx` rebuilt — each assigned (event · group) is its
+  own entry, participants/stopwatch scoped to that group (no all-groups picker).
+  `client.js` eventStaffApi.forEvent takes ageGroupId; assign body carries age_group_id.
+- RUN migration 028 on cloud + local (clears MC/Timer assignments); code push.

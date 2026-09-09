@@ -26,11 +26,13 @@ async function latestTiming(reg, event) {
 router.get('/my-events', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ta.event_id, e.event_code, e.event_name, c.name AS category_name,
+      `SELECT ta.event_id, ta.age_group_id, ag.code AS age_group_code, ag.label AS age_group_label,
+              e.event_code, e.event_name, c.name AS category_name,
               e.allotted_time_seconds, e.grace_period_seconds, e.yellow_alert_seconds
        FROM timer_assignments ta JOIN events e ON e.id = ta.event_id
        LEFT JOIN categories c ON c.id = e.category_id
-       WHERE ta.user_id = $1 ORDER BY e.event_code`, [req.user.id]);
+       LEFT JOIN age_groups ag ON ag.id = ta.age_group_id
+       WHERE ta.user_id = $1 ORDER BY e.event_code, ag.sort_order`, [req.user.id]);
     res.json(rows);
   } catch (err) { next(err); }
 });

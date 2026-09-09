@@ -46,12 +46,15 @@ router.post('/users', requireRole(...manageRoles), async (req, res, next) => {
 // GET /event/:eventId — who is MC/Timer for this event
 router.get('/event/:eventId', requireRole(...manageRoles), async (req, res, next) => {
   try {
+    const ag = req.query.age_group_id ? Number(req.query.age_group_id) : null;
     const { rows: mc } = await pool.query(
-      `SELECT ma.id AS assignment_id, u.id AS user_id, u.full_name, u.email
-       FROM mc_assignments ma JOIN users u ON u.id = ma.user_id WHERE ma.event_id = $1 ORDER BY u.full_name`, [req.params.eventId]);
+      `SELECT ma.id AS assignment_id, ma.age_group_id, u.id AS user_id, u.full_name, u.email
+       FROM mc_assignments ma JOIN users u ON u.id = ma.user_id
+       WHERE ma.event_id = $1 AND ($2::int IS NULL OR ma.age_group_id = $2) ORDER BY u.full_name`, [req.params.eventId, ag]);
     const { rows: timer } = await pool.query(
-      `SELECT ta.id AS assignment_id, u.id AS user_id, u.full_name, u.email
-       FROM timer_assignments ta JOIN users u ON u.id = ta.user_id WHERE ta.event_id = $1 ORDER BY u.full_name`, [req.params.eventId]);
+      `SELECT ta.id AS assignment_id, ta.age_group_id, u.id AS user_id, u.full_name, u.email
+       FROM timer_assignments ta JOIN users u ON u.id = ta.user_id
+       WHERE ta.event_id = $1 AND ($2::int IS NULL OR ta.age_group_id = $2) ORDER BY u.full_name`, [req.params.eventId, ag]);
     res.json({ mc, timer });
   } catch (err) { next(err); }
 });
@@ -59,21 +62,22 @@ router.get('/event/:eventId', requireRole(...manageRoles), async (req, res, next
 // POST /assign — { role, user_id, event_id }
 router.post('/assign', requireRole(...manageRoles), async (req, res, next) => {
   try {
-    const { role, user_id, event_id } = req.body;
-    if (!EVENT_ROLES.includes(role) || !user_id || !event_id) return res.status(400).json({ error: 'role, user_id, event_id required' });
+    const { role, user_id, event_id, age_group_id } = req.body;
+    if (!EVENT_ROLES.includes(role) || !user_id || !event_id || !age_group_id)
+      return res.status(400).json({ error: 'role, user_id, event_id, age_group_id required' });
     const { rows: ev } = await pool.query(`SELECT year_id FROM events WHERE id = $1`, [event_id]);
     if (!ev[0]) return res.status(404).json({ error: 'Event not found' });
     const { rows: u } = await pool.query(`SELECT role FROM users WHERE id = $1`, [user_id]);
     if (!u[0] || u[0].role !== role) return res.status(400).json({ error: `User must hold the ${role} role` });
     try {
       const { rows } = await pool.query(
-        `INSERT INTO ${tableFor(role)} (user_id, event_id, year_id, assigned_by) VALUES ($1,$2,$3,$4) RETURNING id`,
-        [user_id, event_id, ev[0].year_id, req.user.id]);
+        `INSERT INTO ${tableFor(role)} (user_id, event_id, age_group_id, year_id, assigned_by) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+        [user_id, event_id, age_group_id, ev[0].year_id, req.user.id]);
       await logAudit({ actorId: req.user.id, actorRole: req.user.role,
-        action: 'ASSIGN_EVENT_STAFF', entity: tableFor(role), entityId: rows[0].id, details: { role, user_id, event_id } });
+        action: 'ASSIGN_EVENT_STAFF', entity: tableFor(role), entityId: rows[0].id, details: { role, user_id, event_id, age_group_id } });
       res.status(201).json({ assignment_id: rows[0].id });
     } catch (e) {
-      if (e.code === '23505') return res.status(409).json({ error: `Already assigned as ${role} for this event` });
+      if (e.code === '23505') return res.status(409).json({ error: `Already assigned as ${role} for this event + age group` });
       throw e;
     }
   } catch (err) { next(err); }

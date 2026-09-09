@@ -17,10 +17,12 @@ router.use((req, res, next) => {
 router.get('/my-events', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ma.event_id, e.event_code, e.event_name, c.name AS category_name
+      `SELECT ma.event_id, ma.age_group_id, ag.code AS age_group_code, ag.label AS age_group_label,
+              e.event_code, e.event_name, c.name AS category_name
        FROM mc_assignments ma JOIN events e ON e.id = ma.event_id
        LEFT JOIN categories c ON c.id = e.category_id
-       WHERE ma.user_id = $1 ORDER BY e.event_code`, [req.user.id]);
+       LEFT JOIN age_groups ag ON ag.id = ma.age_group_id
+       WHERE ma.user_id = $1 ORDER BY e.event_code, ag.sort_order`, [req.user.id]);
     res.json(rows);
   } catch (err) { next(err); }
 });

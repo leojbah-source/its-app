@@ -104,17 +104,17 @@ export default function Assignment() {
 
   async function openStaff(ev, role) {
     setMcEvent(ev); setStaffRole(role); setMcPick(''); setNewMc({ full_name: '', email: '', password: '' }); setMcMsg('');
-    try { const [d, u] = await Promise.all([eventStaffApi.forEvent(token, ev.event_id), eventStaffApi.users(token, role)]); setMcData(d); setMcUsers(u); }
+    try { const [d, u] = await Promise.all([eventStaffApi.forEvent(token, ev.event_id, ev.age_group_id), eventStaffApi.users(token, role)]); setMcData(d); setMcUsers(u); }
     catch (e) { setMcMsg(e.message); }
   }
   async function assignMc() {
     if (!mcPick) return; setMcBusy(true);
-    try { await eventStaffApi.assign(token, { role: staffRole, user_id: Number(mcPick), event_id: mcEvent.event_id });
-      setMcData(await eventStaffApi.forEvent(token, mcEvent.event_id)); setMcPick(''); setMcMsg(`${staffRole} assigned.`); load(); }
+    try { await eventStaffApi.assign(token, { role: staffRole, user_id: Number(mcPick), event_id: mcEvent.event_id, age_group_id: mcEvent.age_group_id });
+      setMcData(await eventStaffApi.forEvent(token, mcEvent.event_id, mcEvent.age_group_id)); setMcPick(''); setMcMsg(`${staffRole} assigned.`); load(); }
     catch (e) { setMcMsg(e.message); } finally { setMcBusy(false); }
   }
   async function unassignMc(assignmentId) {
-    try { await eventStaffApi.unassign(token, staffRole, assignmentId); setMcData(await eventStaffApi.forEvent(token, mcEvent.event_id)); setMcMsg('Removed.'); load(); }
+    try { await eventStaffApi.unassign(token, staffRole, assignmentId); setMcData(await eventStaffApi.forEvent(token, mcEvent.event_id, mcEvent.age_group_id)); setMcMsg('Removed.'); load(); }
     catch (e) { setMcMsg(e.message); }
   }
   async function createMc() {
@@ -268,8 +268,8 @@ export default function Assignment() {
       {mcEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setMcEvent(null)}>
           <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-base font-semibold text-navy-900">{staffRole} — {mcEvent.event_code} {mcEvent.event_name}</h3>
-            <p className="mt-0.5 text-xs text-slate-500">MC / Timer cover the whole event (all age groups).</p>
+            <h3 className="text-base font-semibold text-navy-900">{staffRole} — {mcEvent.event_code} {mcEvent.event_name} · {mcEvent.age_group_code}</h3>
+            <p className="mt-0.5 text-xs text-slate-500">Assigned for this age group. Assign the same person to another group if they cover it too.</p>
             {mcMsg && <p className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-700">{mcMsg}</p>}
             <div className="mt-3">
               <p className="mb-1 text-xs font-medium text-slate-500">Assigned {staffRole}</p>
