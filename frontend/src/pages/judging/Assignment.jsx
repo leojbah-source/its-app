@@ -4,7 +4,7 @@
 // different dates are not clubbed). Assign 3 judges per age group (expertise must
 // match the category); briefing OTPs are sent per (event, age group). MC/Timer
 // are assigned per event. Chairman/SuperAdmin only.
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { RefreshCw, UserPlus, KeyRound, Mic, Timer } from 'lucide-react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { Card, Badge } from '../../components/ui/Card';
@@ -19,6 +19,7 @@ const rowKey = (r) => `${r.event_id}:${r.age_group_id}:${r.event_date}`;
 export default function Assignment() {
   const { token } = useAuth();
   const [rows, setRows] = useState([]);
+  const [dateFilter, setDateFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [flash, setFlash] = useState('');
@@ -46,6 +47,11 @@ export default function Assignment() {
     finally { setLoading(false); }
   }, [token]);
   useEffect(() => { load(); }, [load]);
+
+  const dates = useMemo(() => [...new Set(rows.map((r) => r.event_date))].sort(), [rows]);
+  // Default to the first scheduled date so the page isn't 150+ rows on open.
+  useEffect(() => { if (!dateFilter && dates.length) setDateFilter(dates[0]); }, [dates, dateFilter]);
+  const visibleRows = useMemo(() => (dateFilter ? rows.filter((r) => r.event_date === dateFilter) : rows), [rows, dateFilter]);
 
   async function openAssign(row) {
     setModalRow(row); setModalErr(''); setCandidates([]);
@@ -131,7 +137,16 @@ export default function Assignment() {
   return (
     <AdminLayout title="Event assignment"
       subtitle="Assign 3 judges per age group (matched to the event's category), then send their briefing OTPs. Each age group is a separate contest, listed by date."
-      actions={<Button variant="outline" icon={RefreshCw} onClick={load}>Refresh</Button>}>
+      actions={
+        <div className="flex items-center gap-2">
+          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300">
+            <option value="">All dates</option>
+            {dates.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+          <Button variant="outline" icon={RefreshCw} onClick={load}>Refresh</Button>
+        </div>
+      }>
 
       {flash && <div className="mb-3 rounded-md border border-navy-200 bg-navy-50 px-3 py-2 text-sm text-navy-700">{flash}</div>}
 
@@ -158,7 +173,10 @@ export default function Assignment() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {rows.map((ev) => (
+                  {visibleRows.length === 0 && (
+                    <tr><td colSpan={10} className="px-3 py-8 text-center text-sm text-slate-400">No events scheduled on {dateFilter || 'this selection'}.</td></tr>
+                  )}
+                  {visibleRows.map((ev) => (
                     <tr key={rowKey(ev)} className="hover:bg-slate-50 align-top">
                       <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-600">
                         {ev.event_date}
@@ -185,7 +203,7 @@ export default function Assignment() {
                         {ev.judges.length > 3 && <span className="ml-1 text-[10px] text-slate-400">+{ev.judges.length - 3}</span>}
                       </td>
                       <td className="px-3 py-2">
-                        <div className="flex items-center justify-end gap-1.5">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
                           <Button size="sm" variant="outline" icon={UserPlus} onClick={() => openAssign(ev)}>Assign</Button>
                           <Button size="sm" variant="ghost" icon={KeyRound} loading={sendingId === rowKey(ev)}
                             disabled={ev.judges.length === 0} onClick={() => sendOtps(ev)} title="Send briefing OTPs to this group's judges">OTP</Button>

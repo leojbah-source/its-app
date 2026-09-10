@@ -18,7 +18,8 @@ export default function Results() {
   const { token, user } = useAuth();
   const navigate = useNavigate();
   const isChairman = user?.role === 'Chairman';
-  const [events, setEvents] = useState([]);
+  const [schedule, setSchedule] = useState([]);
+  const [date, setDate] = useState('');
   const [eventId, setEventId] = useState('');
   const [groups, setGroups] = useState([]);
   const [groupId, setGroupId] = useState('');
@@ -28,13 +29,19 @@ export default function Results() {
   const [busy, setBusy] = useState(false);
   const [tbOpen, setTbOpen] = useState(false);
 
-  useEffect(() => {
-    scheduleApi.list(token).then((rows) => {
-      const map = new Map();
-      for (const r of rows) if (!map.has(r.event_id)) map.set(r.event_id, { event_id: r.event_id, code: r.event_code, name: r.event_name });
-      setEvents([...map.values()].sort((a, b) => a.code.localeCompare(b.code)));
-    }).catch(() => {});
-  }, [token]);
+  useEffect(() => { scheduleApi.list(token).then(setSchedule).catch(() => {}); }, [token]);
+  const dates = useMemo(() => [...new Set(schedule.map((r) => String(r.event_date).slice(0, 10)))].sort(), [schedule]);
+  useEffect(() => { if (!date && dates.length) setDate(dates[0]); }, [dates, date]);
+  // Events scheduled on the selected date (deduped), like the Event assignment page.
+  const events = useMemo(() => {
+    const map = new Map();
+    for (const r of schedule) {
+      if (date && String(r.event_date).slice(0, 10) !== date) continue;
+      if (!map.has(r.event_id)) map.set(r.event_id, { event_id: r.event_id, code: r.event_code, name: r.event_name });
+    }
+    return [...map.values()].sort((a, b) => a.code.localeCompare(b.code));
+  }, [schedule, date]);
+  useEffect(() => { setEventId(''); setGroups([]); setGroupId(''); setData(null); }, [date]);
 
   const loadGroups = useCallback(() => {
     if (!eventId) { setGroups([]); return; }
@@ -88,10 +95,17 @@ export default function Results() {
     <AdminLayout title="Results" subtitle="Compute placements (rank aggregation), review, finalise, then publish. Chairman/SuperAdmin only.">
       <Card className="mb-4">
         <div className="flex flex-wrap items-end gap-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Date</label>
+            <select value={date} onChange={(e) => setDate(e.target.value)} className={sel}>
+              <option value="">All dates</option>
+              {dates.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
           <div className="min-w-[16rem] flex-1">
             <label className="block text-xs font-medium text-slate-600 mb-1">Event</label>
             <select value={eventId} onChange={(e) => setEventId(e.target.value)} className={`${sel} w-full`}>
-              <option value="">Select an event…</option>
+              <option value="">{events.length ? 'Select an event…' : 'No events on this date'}</option>
               {events.map((e) => <option key={e.event_id} value={e.event_id}>{e.code} · {e.name}</option>)}
             </select>
           </div>

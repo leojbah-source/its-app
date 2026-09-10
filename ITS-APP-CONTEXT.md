@@ -1318,3 +1318,16 @@ group (same person can cover G2 & G3 in one hall; G5/G4 get their own).
   own entry, participants/stopwatch scoped to that group (no all-groups picker).
   `client.js` eventStaffApi.forEvent takes ageGroupId; assign body carries age_group_id.
 - RUN migration 028 on cloud + local (clears MC/Timer assignments); code push.
+
+## Date filters on Event assignment + Results (usability)
+- `Assignment.jsx`: added a Date dropdown (defaults to the first scheduled date so
+  the 150+ rows aren't all shown); rows filtered to the selected date ("All dates"
+  option too). Action buttons row set to flex-wrap so Assign/OTP/MC/Timer never get
+  cut off by horizontal scroll (the Timer button is the stopwatch icon after MC).
+- `Results.jsx`: event selection now mirrors Event assignment — a Date dropdown
+  (defaults to first scheduled date) then an Event dropdown filtered to that date,
+  then the age-group buttons. Uses scheduleApi.list (stored raw) to derive dates +
+  per-date events. No backend/migration change — code push only.
+- NOTE: these two edits were made while the bash sandbox was unavailable, so they
+  were NOT esbuild-verified here — confirm with `npm run build` (Render will build
+  on deploy). Changes are small/pattern-consistent.
