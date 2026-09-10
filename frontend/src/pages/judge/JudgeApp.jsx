@@ -238,7 +238,7 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr><th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 text-left">Chest</th>
-                {criteria.map((c, i) => <th key={c.id} className="px-2 py-2 text-center font-medium" title={c.label}><div>C{i + 1}</div><div className="text-[10px] font-normal normal-case text-slate-400">max {c.max_score}</div></th>)}
+                {criteria.map((c, i) => <th key={c.id} className="px-2 py-2 text-center font-medium align-bottom" title={c.label}><div className="text-[11px] font-semibold normal-case text-navy-700">{c.label}</div><div className="text-[10px] font-normal normal-case text-slate-400">C{i + 1} · max {c.max_score}</div></th>)}
                 <th className="px-2 py-2 text-center">Total</th><th className="px-2 py-2 text-center">Rank</th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
