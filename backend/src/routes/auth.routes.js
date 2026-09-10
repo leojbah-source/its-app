@@ -1,5 +1,6 @@
 // src/routes/auth.routes.js  (mounted at /api/auth)
 const express = require('express');
+const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../db');
@@ -75,7 +76,11 @@ router.post('/verify-otp', async (req, res, next) => {
     const judge = rows[0];
     if (!judge) return res.status(404).json({ error: 'Judge not found' });
 
-    const token = signToken({ id: judge.id, judgeId: judge.id, role: 'Judge', type: 'judge', phone });
+    // Single active session: stamp a new session token; older screens (with a
+    // different sid) are signed out on their next request (see judge.routes guard).
+    const sid = crypto.randomUUID();
+    await pool.query(`UPDATE judges SET active_session = $1 WHERE id = $2`, [sid, judge.id]);
+    const token = signToken({ id: judge.id, judgeId: judge.id, role: 'Judge', type: 'judge', phone, sid });
     res.json({ token, judge: { id: judge.id, name: judge.full_name, isBlacklisted: judge.is_blacklisted } });
   } catch (err) {
     next(err);

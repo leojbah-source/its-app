@@ -155,6 +155,8 @@ export const judgeApi = {
     request(`/api/judge/criteria/${assignmentId}/agree`, { method: 'POST', token, body: {} }),
   saveScores: (token, assignmentId, scores) =>
     request(`/api/judge/scores/${assignmentId}`, { method: 'POST', token, body: { scores } }),
+  markDone: (token, assignmentId) => request(`/api/judge/done/${assignmentId}`, { method: 'POST', token, body: {} }),
+  undoDone: (token, assignmentId) => request(`/api/judge/done/${assignmentId}/undo`, { method: 'POST', token, body: {} }),
 };
 
 export const yearConfigApi = {

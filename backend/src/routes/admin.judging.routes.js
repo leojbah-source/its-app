@@ -63,7 +63,8 @@ async function computeGroup(eventId, ageGroupId, cfg) {
      WHERE r.event_id = $1 AND r.age_group_id = $2 AND r.status = 'attended'
      ORDER BY ca.chest_number`, [eventId, ageGroupId]);
   const { rows: judges } = await pool.query(
-    `SELECT ja.id AS assignment_id, ja.judge_id, j.full_name FROM judge_assignments ja
+    `SELECT ja.id AS assignment_id, ja.judge_id, j.full_name,
+            (ja.scoring_done_at IS NOT NULL) AS done FROM judge_assignments ja
      JOIN judges j ON j.id = ja.judge_id
      WHERE ja.event_id = $1 AND ja.age_group_id = $2 ORDER BY j.full_name`, [eventId, ageGroupId]);
   const { rows: criteria } = await pool.query(
@@ -176,6 +177,9 @@ async function computeGroup(eventId, ageGroupId, cfg) {
     complete, divergence_threshold_pct: Number(cfg.divergence_threshold_pct), absolute_threshold: absThresh,
     prize_cap: prizeCap, no_prize_below: noPrizeBelow, min_entries_threshold: minEntriesFull,
     tiebreak_needed: ordered.some((r) => r.needsTiebreak),
+    judges_total: judges.length,
+    judges_done: judges.filter((j) => j.done).length,
+    all_done: judges.length > 0 && judges.every((j) => j.done),
     results: ordered.map((r) => ({
       registration_id: r.registration_id, chest_number: r.chest_number, per_judge: r.perJudge,
       rank_sum: r.rankSum, avg_pct: r.avgPct, place: r.place, grade: r.grade,
@@ -415,6 +419,7 @@ router.post('/results/:event_id/:age_group_id/finalise', requireRole(...viewRole
     const eventId = Number(req.params.event_id), ag = Number(req.params.age_group_id);
     const data = await computeGroup(eventId, ag, cfg);
     if (!data.complete) return res.status(409).json({ error: 'All judges must finish scoring every participant before finalising.' });
+    if (!data.all_done) return res.status(409).json({ error: `All assigned judges must mark 'Done scoring' before finalising (${data.judges_done}/${data.judges_total} done).` });
     // unresolved exact ties in prize positions need rule #8 tiebreaker marks first
     if (data.tiebreak_needed) {
       return res.status(409).json({ error: 'A placement tie could not be broken by criteria — resolve it with a tiebreaker (rule #8) before finalising.' });

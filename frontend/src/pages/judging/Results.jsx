@@ -135,6 +135,7 @@ export default function Results() {
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <Badge tone="navy">{data.participant_count} participants</Badge>
               <Badge tone={data.complete ? 'success' : 'danger'}>{data.complete ? 'scoring complete' : 'scoring incomplete'}</Badge>
+              {data.judges_total > 0 && <Badge tone={data.all_done ? 'success' : 'gold'}>judges done {data.judges_done}/{data.judges_total}</Badge>}
               {flagged > 0 && <Badge tone="gold"><span className="inline-flex items-center gap-1"><AlertTriangle size={11} /> {flagged} flagged</span></Badge>}
               {data.prize_cap === 0 && <Badge tone="danger">no prizes · {data.participant_count} &lt; {data.no_prize_below}</Badge>}
               {data.prize_cap === 2 && <Badge tone="gold">1st &amp; 2nd only · {data.participant_count} &lt; {data.min_entries_threshold}</Badge>}
@@ -144,11 +145,12 @@ export default function Results() {
               <Button variant="outline" icon={RefreshCw} onClick={loadResults}>Refresh</Button>
               <Button variant="outline" icon={Printer} onClick={() => navigate(`/admin/judging/results/print/${eventId}/${groupId}`)}>Print sheet</Button>
               {!state.published && <Button variant="outline" icon={Calculator} loading={busy} onClick={() => act('compute')}>Compute &amp; save</Button>}
-              {!state.finalised && <Button variant="primary" icon={CheckCircle2} loading={busy} disabled={!data.complete || unreviewedDiv > 0 || data.tiebreak_needed} onClick={() => act('finalise')}>Finalise</Button>}
+              {!state.finalised && <Button variant="primary" icon={CheckCircle2} loading={busy} disabled={!data.complete || unreviewedDiv > 0 || data.tiebreak_needed || (data.judges_total > 0 && !data.all_done)} onClick={() => act('finalise')}>Finalise</Button>}
               {state.finalised && !state.published && <Button variant="gold" icon={Send} loading={busy} onClick={() => act('publish')}>Publish</Button>}
             </div>
 
             {!data.complete && <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">Not all judges have scored every participant yet — you can compute a preview, but finalising is disabled until scoring is complete.</div>}
+            {data.complete && data.judges_total > 0 && !data.all_done && <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">Judges are still finishing — {data.judges_done}/{data.judges_total} have clicked “Done scoring”. Finalise unlocks once all judges mark done.</div>}
             {data.complete && unreviewedDiv > 0 && <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{unreviewedDiv} result(s) have diverging judge ranks — click “review diverge” on each and add a note before finalising.</div>}
             {showTiebreak && (
               <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">

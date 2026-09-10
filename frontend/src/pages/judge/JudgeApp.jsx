@@ -17,7 +17,12 @@ export default function JudgeApp() {
   const [phase, setPhase] = useState('briefing'); // 'briefing' | 'score'
   const [groups, setGroups] = useState([]);
   const [groupId, setGroupId] = useState(null);
-  const [flash, setFlash] = useState('');
+  const [flash, setFlashRaw] = useState('');
+  // If the server reports this judge signed in on another screen, sign this one out.
+  const setFlash = useCallback((msg) => {
+    if (typeof msg === 'string' && /signed in on another screen/i.test(msg)) { logout(); return; }
+    setFlashRaw(msg);
+  }, [logout]);
 
   async function openEvent(ev) {
     setCurrent(ev); setPhase('briefing'); setGroups([]); setGroupId(null); setFlash('');
@@ -203,6 +208,7 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
   const criteria = useMemo(() => (sheet ? [...sheet.criteria].sort((a, b) => a.sequence_order - b.sequence_order) : []), [sheet]);
   const maxByCrit = useMemo(() => Object.fromEntries(criteria.map((c) => [c.id, Number(c.max_score)])), [criteria]);
   const canScore = sheet?.agreement?.all_agreed;
+  const isDone = !!sheet?.done?.i_done;
   const totalFor = useCallback((reg) => criteria.reduce((t, c) => { const v = Number(saved[`${reg}:${c.id}`]); return t + (Number.isFinite(v) ? v : 0); }, 0), [criteria, saved]);
   const rankMap = useMemo(() => {
     if (!sheet) return {};
@@ -219,6 +225,14 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
     setSavingCell(key);
     try { await judgeApi.saveScores(token, current.assignment_id, [{ registration_id: reg, criterion_id: crit, score_value: v }]); setSaved((m) => ({ ...m, [key]: String(v) })); reloadGroups(); }
     catch (e) { setFlash(e.message); revert(key); } finally { setSavingCell(null); }
+  }
+  async function markDone() {
+    try { await judgeApi.markDone(token, current.assignment_id); setFlash('Scoring submitted — awaiting the result.'); load(); }
+    catch (e) { setFlash(e.message); }
+  }
+  async function undoDone() {
+    try { await judgeApi.undoDone(token, current.assignment_id); load(); }
+    catch (e) { setFlash(e.message); }
   }
 
   if (loading || !sheet) return <p className="py-10 text-center text-sm text-slate-500">Loading scoresheet…</p>;
@@ -247,7 +261,7 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
                   <td className="sticky left-0 z-10 bg-white px-3 py-2"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-navy-100 font-mono text-base font-bold text-navy-800">{p.chest_number}</span></td>
                   {criteria.map((c) => { const key = `${reg}:${c.id}`; return (
                     <td key={c.id} className="px-1 py-1 text-center">
-                      <input type="number" min={0} max={c.max_score} inputMode="numeric" disabled={!canScore} value={vals[key] ?? ''}
+                      <input type="number" min={0} max={c.max_score} inputMode="numeric" disabled={!canScore || isDone} value={vals[key] ?? ''}
                         onChange={(e) => setVals((m) => ({ ...m, [key]: e.target.value }))} onBlur={() => saveCell(reg, c.id)}
                         className={`w-14 rounded-md border px-1 py-2 text-center text-base disabled:bg-slate-100 disabled:text-slate-400 ${savingCell === key ? 'border-gold-400' : 'border-slate-300'}`} />
                     </td>); })}
@@ -258,6 +272,17 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
           </table>
         </div>)}
       <p className="mt-2 text-xs text-slate-500">Scores can't exceed a criterion's weightage. They save as you leave each box; Total &amp; Rank (only you see it) update live.</p>
+
+      {canScore && sheet.participants.length > 0 && (
+        isDone ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-green-300 bg-green-50 p-3">
+            <div className="text-sm text-green-800"><b>Scoring submitted.</b> Awaiting the result — {sheet.done?.done}/{sheet.done?.total} judges done.</div>
+            <button onClick={undoDone} className="rounded-md border border-green-400 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100">Undo &amp; edit</button>
+          </div>
+        ) : (
+          <button onClick={markDone} className="mt-3 w-full rounded-xl bg-navy-600 py-3 text-sm font-semibold text-white hover:bg-navy-700">Done scoring — submit my marks</button>
+        )
+      )}
     </div>
   );
 }

@@ -1331,3 +1331,23 @@ group (same person can cover G2 & G3 in one hall; G5/G4 get their own).
 - NOTE: these two edits were made while the bash sandbox was unavailable, so they
   were NOT esbuild-verified here — confirm with `npm run build` (Render will build
   on deploy). Changes are small/pattern-consistent.
+
+## Judge single-session login + "Done scoring" gate (migration 029)
+Also made while the bash sandbox was DOWN → NOT node -c/esbuild verified. Confirm
+via Render build + a quick judge test. RUN migration 029 BEFORE deploying the code
+(the code queries the new columns; running code first would 500 judge/results).
+- Migration `029_judge_session_and_done.sql`: judges.active_session TEXT +
+  judge_assignments.scoring_done_at TIMESTAMPTZ.
+- **Single session:** auth verify-otp stamps a random `sid` into judges.active_session
+  and the judge JWT (crypto.randomUUID). judge.routes has a guard middleware: if the
+  token's sid != judges.active_session → 401 {error:'SESSION_SUPERSEDED', message:
+  '…signed in on another screen.'}. A new OTP login rotates the sid, signing out the
+  old screen. Frontend JudgeApp wraps setFlash: any message matching "signed in on
+  another screen" calls logout(). Legacy tokens (no sid) are allowed (transition).
+- **Done scoring:** judge.routes POST /done/:assignment_id (requires every chest×
+  criterion scored) sets scoring_done_at; POST /done/:id/undo clears it. Sheet returns
+  `done {i_done,done,total,all_done}`. JudgeApp ScoreGrid: "Done scoring" button →
+  grid read-only + "awaiting result" banner + Undo. computeGroup returns judges_total/
+  judges_done/all_done; admin.judging finalise BLOCKS unless all_done; Results.jsx
+  shows "judges done X/Y" badge, a note, and disables Finalise until all_done.
+- Also: judge criterion column headers now show the criterion NAME (not just C1).

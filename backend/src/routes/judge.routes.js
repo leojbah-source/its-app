@@ -18,6 +18,19 @@ const { logAudit } = require('../utils/audit');
 const router = express.Router();
 router.use(authenticate, requireType('judge'));
 
+// Single active session: a judge's token carries a `sid`; a newer OTP login
+// rotates judges.active_session, so an older screen is signed out here.
+router.use(async (req, res, next) => {
+  try {
+    if (!req.user?.sid) return next(); // legacy token (pre-feature) — allow
+    const { rows } = await pool.query(`SELECT active_session FROM judges WHERE id = $1`, [req.user.judgeId]);
+    if (rows[0] && rows[0].active_session && rows[0].active_session !== req.user.sid) {
+      return res.status(401).json({ error: 'SESSION_SUPERSEDED', message: 'Signed out — this judge signed in on another screen.' });
+    }
+    next();
+  } catch (e) { next(e); }
+});
+
 async function loadOwnAssignment(assignmentId, judgeId) {
   const { rows } = await pool.query(
     `SELECT id, judge_id, event_id, age_group_id, time_slot_id FROM judge_assignments
@@ -39,6 +52,16 @@ async function agreementStatus(eventId, ageGroupId, myAssignmentId) {
      FROM judge_assignments WHERE event_id = $1 AND age_group_id = $2`, [eventId, ageGroupId, myAssignmentId]);
   const r = rows[0];
   return { total: r.total, agreed: r.agreed, i_agreed: !!r.i_agreed, all_agreed: r.total > 0 && r.agreed === r.total };
+}
+
+// "Done scoring" status across this (event + age group)'s judges.
+async function doneStatus(eventId, ageGroupId, myAssignmentId) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS total, COUNT(scoring_done_at)::int AS done,
+            bool_or(id = $3 AND scoring_done_at IS NOT NULL) AS i_done
+     FROM judge_assignments WHERE event_id = $1 AND age_group_id = $2`, [eventId, ageGroupId, myAssignmentId]);
+  const r = rows[0];
+  return { total: r.total, done: r.done, i_done: !!r.i_done, all_done: r.total > 0 && r.done === r.total };
 }
 
 // ── GET /api/judge/events — this judge's assigned events ─────────────────────
@@ -139,6 +162,7 @@ router.get('/sheet/:assignment_id', async (req, res, next) => {
       weightages_locked: await eventScored(asg.event_id),
       weightage_total: criteria.reduce((t, c) => t + Number(c.max_score), 0),
       agreement: await agreementStatus(asg.event_id, asg.age_group_id, asg.id),
+      done: await doneStatus(asg.event_id, asg.age_group_id, asg.id),
       participants,
       scores,
     });
@@ -265,6 +289,39 @@ router.post('/scores/:assignment_id', async (req, res, next) => {
     await client.query('ROLLBACK').catch(() => null);
     next(err);
   } finally { client.release(); }
+});
+
+// ── POST /api/judge/done/:assignment_id — mark this judge's scoring finished ──
+router.post('/done/:assignment_id', async (req, res, next) => {
+  try {
+    const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
+    if (!asg) return res.status(404).json({ error: 'Assignment not found' });
+    const { rows: cc } = await pool.query(`SELECT COUNT(*)::int AS n FROM event_criteria WHERE event_id = $1`, [asg.event_id]);
+    const { rows: pc } = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM registrations r JOIN chest_assignments ca ON ca.registration_id = r.id
+       WHERE r.event_id = $1 AND r.age_group_id = $2 AND r.status = 'attended'`, [asg.event_id, asg.age_group_id]);
+    const { rows: scc } = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM scores s JOIN registrations r ON r.id = s.registration_id
+       WHERE s.judge_assignment_id = $1 AND r.age_group_id = $2`, [asg.id, asg.age_group_id]);
+    if (pc[0].n === 0) return res.status(400).json({ error: 'No participants to score yet.' });
+    const expected = cc[0].n * pc[0].n;
+    if (scc[0].n < expected)
+      return res.status(400).json({ error: `Score every chest on every criterion first (${scc[0].n}/${expected} entered).` });
+    await pool.query(`UPDATE judge_assignments SET scoring_done_at = NOW() WHERE id = $1`, [asg.id]);
+    await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge', action: 'SCORING_DONE', entity: 'judge_assignments', entityId: asg.id });
+    res.json({ done: await doneStatus(asg.event_id, asg.age_group_id, asg.id) });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/judge/done/:assignment_id/undo — reopen scoring for edits ───────
+router.post('/done/:assignment_id/undo', async (req, res, next) => {
+  try {
+    const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
+    if (!asg) return res.status(404).json({ error: 'Assignment not found' });
+    await pool.query(`UPDATE judge_assignments SET scoring_done_at = NULL WHERE id = $1`, [asg.id]);
+    await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge', action: 'SCORING_REOPEN', entity: 'judge_assignments', entityId: asg.id });
+    res.json({ done: await doneStatus(asg.event_id, asg.age_group_id, asg.id) });
+  } catch (err) { next(err); }
 });
 
 module.exports = router;
