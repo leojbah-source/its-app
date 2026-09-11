@@ -43,6 +43,10 @@ import PublicBoard from './pages/pwa/PublicBoard';
 import PwaLogin from './pages/pwa/PwaLogin';
 import MyPortal from './pages/pwa/MyPortal';
 
+// Organiser roles allowed in the admin operational screens (everyone EXCEPT the
+// day-of MC/Timer roles, who have their own portals at /mc and /timer).
+const ORG_ROLES = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
+
 /** Redirects unauthenticated parents to the portal login. */
 function ParentRoute({ children }) {
   const { isAuthenticated } = useParentAuth();
@@ -75,27 +79,27 @@ export default function App() {
               <Route path="/admin/login" element={<Login />} />
               <Route
                 path="/admin/config/year"
-                element={<ProtectedRoute><YearConfig /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={ORG_ROLES}><YearConfig /></ProtectedRoute>}
               />
               <Route
                 path="/admin/events"
-                element={<ProtectedRoute><Events /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={ORG_ROLES}><Events /></ProtectedRoute>}
               />
               <Route
                 path="/admin/registrations"
-                element={<ProtectedRoute><Registrations /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={ORG_ROLES}><Registrations /></ProtectedRoute>}
               />
               <Route
                 path="/admin/lists"
-                element={<ProtectedRoute><Lists /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={ORG_ROLES}><Lists /></ProtectedRoute>}
               />
               <Route
                 path="/admin/schedule"
-                element={<ProtectedRoute><Schedule /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={ORG_ROLES}><Schedule /></ProtectedRoute>}
               />
               <Route
                 path="/admin/event-day"
-                element={<ProtectedRoute><EventDay /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={ORG_ROLES}><EventDay /></ProtectedRoute>}
               />
               <Route
                 path="/admin/judging/judges"

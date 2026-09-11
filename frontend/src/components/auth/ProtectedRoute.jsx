@@ -10,6 +10,10 @@ export default function ProtectedRoute({ children, allowedRoles }) {
   }
 
   if (allowedRoles && user?.role && !allowedRoles.includes(user.role)) {
+    // Day-of roles have their own dedicated portals — send them there rather
+    // than showing an admin dead-end.
+    if (user.role === 'MC') return <Navigate to="/mc" replace />;
+    if (user.role === 'Timer') return <Navigate to="/timer" replace />;
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50 px-6">
         <div className="max-w-sm rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">

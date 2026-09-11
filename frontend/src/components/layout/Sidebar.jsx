@@ -6,13 +6,16 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
+// Organiser roles (everyone EXCEPT the day-of MC/Timer roles, who use /mc, /timer).
+const ORG = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
+
 const NAV_ITEMS = [
-  { to: '/admin/config/year', label: 'Year Setup', icon: Settings, active: true },
-  { to: '/admin/events', label: 'Events', icon: ListChecks, active: true },
-  { to: '/admin/registrations', label: 'Registrations', icon: Users, active: true },
-  { to: '/admin/lists', label: 'Lists', icon: ClipboardList, active: true },
-  { to: '/admin/schedule', label: 'Schedule', icon: CalendarClock, active: true },
-  { to: '/admin/event-day', label: 'Event Day', icon: ClipboardCheck, active: true },
+  { to: '/admin/config/year', label: 'Year Setup', icon: Settings, active: true, roles: ORG },
+  { to: '/admin/events', label: 'Events', icon: ListChecks, active: true, roles: ORG },
+  { to: '/admin/registrations', label: 'Registrations', icon: Users, active: true, roles: ORG },
+  { to: '/admin/lists', label: 'Lists', icon: ClipboardList, active: true, roles: ORG },
+  { to: '/admin/schedule', label: 'Schedule', icon: CalendarClock, active: true, roles: ORG },
+  { to: '/admin/event-day', label: 'Event Day', icon: ClipboardCheck, active: true, roles: ORG },
   {
     group: 'Judging', icon: Gavel, roles: ['SuperAdmin', 'Chairman'],
     children: [

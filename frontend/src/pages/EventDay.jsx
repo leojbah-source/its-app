@@ -15,6 +15,7 @@ import { scheduleApi, chestApi } from '../api/client';
 const MARK_ROLES = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 const MANUAL_ROLES = ['SuperAdmin', 'Chairman'];
 const today = () => new Date().toLocaleDateString('en-CA');
+const fmtDay = (d) => (d ? new Date(d + 'T00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : d);
 
 // ── Dramatized chest-number draw (projector-friendly) ────────────────────────
 function BigReveal({ item }) {
@@ -77,6 +78,12 @@ export default function EventDay() {
 
   const scheduleDates = useMemo(() =>
     [...new Set(schedule.map((r) => String(r.event_date).slice(0, 10)))].sort(), [schedule]);
+
+  // Default to the first scheduled date (today usually has no events).
+  useEffect(() => {
+    if (scheduleDates.length && !scheduleDates.includes(date)) setDate(scheduleDates[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduleDates]);
 
   const eventsOnDate = useMemo(() => {
     const map = new Map();
@@ -180,8 +187,10 @@ export default function EventDay() {
         <div className="flex flex-wrap items-end gap-4">
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Day</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={sel} list="sched-dates" />
-            <datalist id="sched-dates">{scheduleDates.map((d) => <option key={d} value={d} />)}</datalist>
+            <select value={date} onChange={(e) => setDate(e.target.value)} className={sel}>
+              {scheduleDates.length === 0 && <option value="">No scheduled dates yet</option>}
+              {scheduleDates.map((d) => <option key={d} value={d}>{fmtDay(d)}</option>)}
+            </select>
           </div>
           <div className="min-w-[18rem] flex-1">
             <label className="block text-xs font-medium text-slate-600 mb-1">Event {eventsOnDate.length ? `(${eventsOnDate.length})` : ''}</label>
