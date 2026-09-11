@@ -67,9 +67,18 @@ async function computeGroup(eventId, ageGroupId, cfg) {
             (ja.scoring_done_at IS NOT NULL) AS done FROM judge_assignments ja
      JOIN judges j ON j.id = ja.judge_id
      WHERE ja.event_id = $1 AND ja.age_group_id = $2 ORDER BY j.full_name`, [eventId, ageGroupId]);
+  // Per-age-group effective weightages (override where set, else event default).
+  // Only the C1..Cn ORDER matters here (tie-break: C1 totals, then C2 …); the
+  // max values don't feed the computation, but they follow the group too.
   const { rows: criteria } = await pool.query(
-    `SELECT id, criterion_name AS label, max_score, sequence_order
-     FROM event_criteria WHERE event_id = $1 ORDER BY sequence_order, id`, [eventId]);
+    `SELECT ec.id, ec.criterion_name AS label,
+            COALESCE(w.max_score, ec.max_score)           AS max_score,
+            COALESCE(w.sequence_order, ec.sequence_order) AS sequence_order
+     FROM event_criteria ec
+     LEFT JOIN event_criteria_weightages w
+       ON w.criterion_id = ec.id AND w.event_id = ec.event_id AND w.age_group_id = $2
+     WHERE ec.event_id = $1
+     ORDER BY COALESCE(w.sequence_order, ec.sequence_order), ec.id`, [eventId, ageGroupId]);
   const critIds = criteria.map((c) => c.id);
   const regIds = participants.map((p) => p.registration_id);
   const asgIds = judges.map((j) => j.assignment_id);

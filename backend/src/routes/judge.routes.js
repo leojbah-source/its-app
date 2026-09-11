@@ -1,14 +1,19 @@
 // src/routes/judge.routes.js  (mounted at /api/judge)
 // Judge-facing scoring. Rule #5: judges see CHEST NUMBERS ONLY, never names.
-// Scoping is per AGE GROUP (chest numbers restart at 1 per group). Panel agrees
-// criteria weightages (sum 100) on the day; weightages lock once scoring starts.
+// Scoping is per AGE GROUP (chest numbers restart at 1 per group). Each age
+// group agrees its OWN criteria weightages (sum 100) on the day and may set
+// different weightage values from other groups of the same event (migration
+// 030: event_criteria_weightages); weightages lock once that group's scoring
+// starts, and edits lock once the group's result is published.
 //
 // Real schema (verified):
 //   scores(id, judge_assignment_id, registration_id, criterion_id, score_value,
 //     entered_by, entered_at, updated_at,
 //     UNIQUE(judge_assignment_id, registration_id, criterion_id))
 //   event_criteria(id, event_id, criterion_name, max_score, sequence_order)
-//     — trg_event_criteria_check enforces the max_score values sum to 100.
+//     — event-level DEFAULT weightages; trg_event_criteria_check enforces sum 100.
+//   event_criteria_weightages(event_id, age_group_id, criterion_id, max_score,
+//     sequence_order) — per-age-group OVERRIDE; trg_ecw_check enforces sum 100.
 //   chest_assignments(registration_id, chest_number, age_group_id, ...)
 const express = require('express');
 const pool = require('../db');
@@ -18,8 +23,11 @@ const { logAudit } = require('../utils/audit');
 const router = express.Router();
 router.use(authenticate, requireType('judge'));
 
-// Single active session: a judge's token carries a `sid`; a newer OTP login
-// rotates judges.active_session, so an older screen is signed out here.
+// Single active session: a judge's token carries a `sid`. Only the session that
+// matches judges.active_session is valid; any other screen is signed out here.
+// (A second login is blocked outright in auth.routes verify-otp, so normally the
+// first/only session stays valid; this also signs out an old screen after an
+// admin reset + fresh login.)
 router.use(async (req, res, next) => {
   try {
     if (!req.user?.sid) return next(); // legacy token (pre-feature) — allow
@@ -37,12 +45,44 @@ async function loadOwnAssignment(assignmentId, judgeId) {
      WHERE id = $1 AND judge_id = $2`, [assignmentId, judgeId]);
   return rows[0] || null;
 }
-async function eventScored(eventId) {
+
+// Effective criteria for a (event, age group): the per-age-group weightage
+// override where set, else the event-level default. C1..Cn order follows the
+// group's own sequence_order.
+async function effectiveCriteria(eventId, ageGroupId) {
+  const { rows } = await pool.query(
+    `SELECT ec.id, ec.criterion_name AS label,
+            COALESCE(w.max_score, ec.max_score)           AS max_score,
+            COALESCE(w.sequence_order, ec.sequence_order) AS sequence_order
+     FROM event_criteria ec
+     LEFT JOIN event_criteria_weightages w
+       ON w.criterion_id = ec.id AND w.event_id = ec.event_id AND w.age_group_id = $2
+     WHERE ec.event_id = $1
+     ORDER BY COALESCE(w.sequence_order, ec.sequence_order), ec.id`, [eventId, ageGroupId]);
+  return rows;
+}
+
+// Has scoring started for THIS (event, age group)? Locks its weightages.
+async function groupScored(eventId, ageGroupId) {
   const { rows } = await pool.query(
     `SELECT EXISTS (SELECT 1 FROM scores s JOIN registrations r ON r.id = s.registration_id
-                    WHERE r.event_id = $1) AS x`, [eventId]);
+                    WHERE r.event_id = $1 AND r.age_group_id = $2) AS x`, [eventId, ageGroupId]);
   return rows[0].x;
 }
+
+// Finalise / publish state for a (event, age group) — across all attended entries.
+async function groupResultState(eventId, ageGroupId) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS n,
+            COUNT(*) FILTER (WHERE er.is_finalised)::int AS finalised,
+            COUNT(*) FILTER (WHERE er.is_published)::int AS published
+     FROM registrations r
+     LEFT JOIN event_results er ON er.registration_id = r.id
+     WHERE r.event_id = $1 AND r.age_group_id = $2 AND r.status = 'attended'`, [eventId, ageGroupId]);
+  const s = rows[0];
+  return { finalised: s.n > 0 && s.finalised === s.n, published: s.n > 0 && s.published === s.n };
+}
+
 // Weightage agreement across this (event + age group)'s judges only.
 async function agreementStatus(eventId, ageGroupId, myAssignmentId) {
   const { rows } = await pool.query(
@@ -65,6 +105,8 @@ async function doneStatus(eventId, ageGroupId, myAssignmentId) {
 }
 
 // ── GET /api/judge/events — this judge's assigned events ─────────────────────
+// Each row is one (event, age group) assignment, with per-group progress flags
+// so the portal can mark which are already scored / finalised / published.
 router.get('/events', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
@@ -72,6 +114,13 @@ router.get('/events', async (req, res, next) => {
               c.name AS category_name,
               ja.age_group_id, ag.code AS age_group_code, ag.label AS age_group_label,
               (e.id = j.active_event_id) AS is_active,
+              (ja.scoring_done_at IS NOT NULL) AS scoring_done,
+              (SELECT COUNT(*) > 0 AND COUNT(*) FILTER (WHERE er.is_finalised) = COUNT(*)
+               FROM registrations r LEFT JOIN event_results er ON er.registration_id = r.id
+               WHERE r.event_id = e.id AND r.age_group_id = ja.age_group_id AND r.status = 'attended') AS finalised,
+              (SELECT COUNT(*) > 0 AND COUNT(*) FILTER (WHERE er.is_published) = COUNT(*)
+               FROM registrations r LEFT JOIN event_results er ON er.registration_id = r.id
+               WHERE r.event_id = e.id AND r.age_group_id = ja.age_group_id AND r.status = 'attended') AS published,
               (SELECT COUNT(*)::int FROM event_criteria ec WHERE ec.event_id = e.id) AS criteria_count,
               (SELECT COALESCE(SUM(ec.max_score),0)::int FROM event_criteria ec WHERE ec.event_id = e.id) AS criteria_total
        FROM judge_assignments ja
@@ -92,15 +141,18 @@ router.get('/briefing/:assignment_id', async (req, res, next) => {
     if (!asg) return res.status(404).json({ error: 'Assignment not found' });
     const { rows: ev } = await pool.query(
       `SELECT e.event_code, e.event_name, c.name AS category_name,
-              e.allotted_time_seconds, e.grace_period_seconds, e.yellow_alert_seconds, e.is_stage_event
-       FROM events e LEFT JOIN categories c ON c.id = e.category_id WHERE e.id = $1`, [asg.event_id]);
-    const { rows: criteria } = await pool.query(
-      `SELECT id, criterion_name AS label, max_score, sequence_order
-       FROM event_criteria WHERE event_id = $1 ORDER BY sequence_order, id`, [asg.event_id]);
+              e.allotted_time_seconds, e.grace_period_seconds, e.yellow_alert_seconds, e.is_stage_event,
+              ag.code AS age_group_code, ag.label AS age_group_label
+       FROM events e LEFT JOIN categories c ON c.id = e.category_id
+       LEFT JOIN age_groups ag ON ag.id = $2
+       WHERE e.id = $1`, [asg.event_id, asg.age_group_id]);
     res.json({
-      assignment_id: asg.id, event: ev[0] || null, criteria,
-      weightages_locked: await eventScored(asg.event_id),
+      assignment_id: asg.id, event: ev[0] || null,
+      age_group_id: asg.age_group_id,
+      criteria: await effectiveCriteria(asg.event_id, asg.age_group_id),
+      weightages_locked: await groupScored(asg.event_id, asg.age_group_id),
       agreement: await agreementStatus(asg.event_id, asg.age_group_id, asg.id),
+      result_state: await groupResultState(asg.event_id, asg.age_group_id),
     });
   } catch (err) { next(err); }
 });
@@ -140,9 +192,7 @@ router.get('/sheet/:assignment_id', async (req, res, next) => {
        FROM events e LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN age_groups ag ON ag.id = $2
        WHERE e.id = $1`, [asg.event_id, ag]);
-    const { rows: criteria } = await pool.query(
-      `SELECT id, criterion_name AS label, max_score, sequence_order
-       FROM event_criteria WHERE event_id = $1 ORDER BY sequence_order, id`, [asg.event_id]);
+    const criteria = await effectiveCriteria(asg.event_id, ag);
     // CHEST NUMBERS ONLY (rule #5), scoped to this group.
     const { rows: participants } = await pool.query(
       `SELECT r.id AS registration_id, ca.chest_number
@@ -159,10 +209,11 @@ router.get('/sheet/:assignment_id', async (req, res, next) => {
       event: ev[0] || null,
       age_group_id: ag,
       criteria,
-      weightages_locked: await eventScored(asg.event_id),
+      weightages_locked: await groupScored(asg.event_id, ag),
       weightage_total: criteria.reduce((t, c) => t + Number(c.max_score), 0),
       agreement: await agreementStatus(asg.event_id, asg.age_group_id, asg.id),
       done: await doneStatus(asg.event_id, asg.age_group_id, asg.id),
+      result_state: await groupResultState(asg.event_id, ag),
       participants,
       scores,
     });
@@ -170,14 +221,16 @@ router.get('/sheet/:assignment_id', async (req, res, next) => {
 });
 
 // ── POST /api/judge/criteria/:assignment_id — set/agree weightages (sum 100) ──
+// Per AGE GROUP: writes this group's weightage override (event_criteria_weightages).
 // body: { criteria: [{ id, max_score, sequence_order }] }
 router.post('/criteria/:assignment_id', async (req, res, next) => {
   const client = await pool.connect();
   try {
     const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
     if (!asg) return res.status(404).json({ error: 'Assignment not found' });
-    if (await eventScored(asg.event_id))
-      return res.status(409).json({ error: 'Scoring has started — criteria weightages can no longer be changed.' });
+    if (!asg.age_group_id) return res.status(400).json({ error: 'assignment has no age group' });
+    if (await groupScored(asg.event_id, asg.age_group_id))
+      return res.status(409).json({ error: 'Scoring has started for this age group — criteria weightages can no longer be changed.' });
 
     const list = req.body?.criteria;
     if (!Array.isArray(list) || !list.length) return res.status(400).json({ error: 'criteria array is required' });
@@ -193,35 +246,24 @@ router.post('/criteria/:assignment_id', async (req, res, next) => {
     if (Math.round(sum) !== 100) return res.status(400).json({ error: `Weightages must total 100 (currently ${sum}).` });
 
     await client.query('BEGIN');
-    // 1) max_score in ONE statement so the AFTER-EACH-ROW sum trigger sees the
-    //    final total (per-row updates would trip it on an intermediate sum>100).
-    const mvals = [];
-    const mtuples = list.map((c, i) => { mvals.push(c.id, Number(c.max_score)); const b = i * 2; return `($${b + 1}::int, $${b + 2}::numeric)`; });
-    mvals.push(asg.event_id);
-    await client.query(
-      `UPDATE event_criteria ec SET max_score = v.ms
-       FROM (VALUES ${mtuples.join(', ')}) AS v(id, ms)
-       WHERE ec.id = v.id AND ec.event_id = $${mvals.length}`, mvals);
-    // 2) sequence_order (C1..) reorder in TWO steps to avoid the transient
-    //    UNIQUE(event_id, sequence_order) collision when positions swap.
-    await client.query(`UPDATE event_criteria SET sequence_order = sequence_order + 1000 WHERE event_id = $1`, [asg.event_id]);
-    const svals = [];
-    const stuples = list.map((c, i) => { svals.push(c.id, Number(c.sequence_order) || (i + 1)); const b = i * 2; return `($${b + 1}::int, $${b + 2}::int)`; });
-    svals.push(asg.event_id);
-    await client.query(
-      `UPDATE event_criteria ec SET sequence_order = v.so
-       FROM (VALUES ${stuples.join(', ')}) AS v(id, so)
-       WHERE ec.id = v.id AND ec.event_id = $${svals.length}`, svals);
-    // Changing weightages resets everyone's agreement; the proposer auto-agrees.
-    await client.query(`UPDATE judge_assignments SET weightages_agreed_at = NULL WHERE event_id = $1`, [asg.event_id]);
+    // Replace this age group's override set. DELETE + INSERT avoids the transient
+    // UNIQUE(event_id, age_group_id, sequence_order) collision when C1..Cn reorder.
+    await client.query(`DELETE FROM event_criteria_weightages WHERE event_id = $1 AND age_group_id = $2`, [asg.event_id, asg.age_group_id]);
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      await client.query(
+        `INSERT INTO event_criteria_weightages (event_id, age_group_id, criterion_id, max_score, sequence_order, updated_at)
+         VALUES ($1,$2,$3,$4,$5, NOW())`,
+        [asg.event_id, asg.age_group_id, c.id, Number(c.max_score), Number(c.sequence_order) || (i + 1)]);
+    }
+    // Changing THIS group's weightages resets agreement for this age group only;
+    // the proposer auto-agrees.
+    await client.query(`UPDATE judge_assignments SET weightages_agreed_at = NULL WHERE event_id = $1 AND age_group_id = $2`, [asg.event_id, asg.age_group_id]);
     await client.query(`UPDATE judge_assignments SET weightages_agreed_at = NOW() WHERE id = $1`, [asg.id]);
     await client.query('COMMIT');
     await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge',
-      action: 'SET_CRITERIA_WEIGHTAGES', entity: 'events', entityId: asg.event_id, details: { criteria: list } });
-    const { rows: criteria } = await client.query(
-      `SELECT id, criterion_name AS label, max_score, sequence_order
-       FROM event_criteria WHERE event_id = $1 ORDER BY sequence_order, id`, [asg.event_id]);
-    res.json({ criteria });
+      action: 'SET_CRITERIA_WEIGHTAGES', entity: 'events', entityId: asg.event_id, details: { age_group_id: asg.age_group_id, criteria: list } });
+    res.json({ criteria: await effectiveCriteria(asg.event_id, asg.age_group_id) });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => null);
     next(err);
@@ -247,14 +289,17 @@ router.post('/scores/:assignment_id', async (req, res, next) => {
   try {
     const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
     if (!asg) return res.status(404).json({ error: 'Assignment not found' });
+    const state = await groupResultState(asg.event_id, asg.age_group_id);
+    if (state.published)
+      return res.status(409).json({ error: 'Results are published — scores are locked and can no longer be changed.' });
     const agree = await agreementStatus(asg.event_id, asg.age_group_id, asg.id);
     if (!agree.all_agreed)
       return res.status(409).json({ error: `All ${agree.total} judges of this age group must agree the criteria weightages before scoring (${agree.agreed}/${agree.total} agreed).` });
     const list = req.body?.scores;
     if (!Array.isArray(list) || !list.length) return res.status(400).json({ error: 'scores array is required' });
 
-    const { rows: crit } = await client.query(
-      `SELECT id, max_score FROM event_criteria WHERE event_id = $1`, [asg.event_id]);
+    // Effective (per-age-group) weightage caps.
+    const crit = await effectiveCriteria(asg.event_id, asg.age_group_id);
     const maxByCrit = new Map(crit.map((c) => [c.id, Number(c.max_score)]));
     // Valid = attended entries with a chest number in this event.
     const { rows: valid } = await client.query(
@@ -314,13 +359,29 @@ router.post('/done/:assignment_id', async (req, res, next) => {
 });
 
 // ── POST /api/judge/done/:assignment_id/undo — reopen scoring for edits ───────
+// Blocked once the group's result is PUBLISHED (scores become view-only).
 router.post('/done/:assignment_id/undo', async (req, res, next) => {
   try {
     const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
     if (!asg) return res.status(404).json({ error: 'Assignment not found' });
+    const state = await groupResultState(asg.event_id, asg.age_group_id);
+    if (state.published)
+      return res.status(409).json({ error: 'Results are published — scoring is locked and can no longer be reopened.' });
     await pool.query(`UPDATE judge_assignments SET scoring_done_at = NULL WHERE id = $1`, [asg.id]);
     await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge', action: 'SCORING_REOPEN', entity: 'judge_assignments', entityId: asg.id });
     res.json({ done: await doneStatus(asg.event_id, asg.age_group_id, asg.id) });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/judge/logout — end this judge's active session ──────────────────
+// Frees the single-session lock so the judge can sign in again (see auth.routes).
+router.post('/logout', async (req, res, next) => {
+  try {
+    await pool.query(
+      `UPDATE judges SET active_session = NULL, active_session_at = NULL
+       WHERE id = $1 AND (active_session = $2 OR $2 IS NULL)`,
+      [req.user.judgeId, req.user.sid || null]);
+    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 

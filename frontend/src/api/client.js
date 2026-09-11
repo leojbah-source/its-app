@@ -157,6 +157,7 @@ export const judgeApi = {
     request(`/api/judge/scores/${assignmentId}`, { method: 'POST', token, body: { scores } }),
   markDone: (token, assignmentId) => request(`/api/judge/done/${assignmentId}`, { method: 'POST', token, body: {} }),
   undoDone: (token, assignmentId) => request(`/api/judge/done/${assignmentId}/undo`, { method: 'POST', token, body: {} }),
+  logout: (token) => request('/api/judge/logout', { method: 'POST', token, body: {} }),
 };
 
 export const yearConfigApi = {
@@ -362,6 +363,7 @@ export const judgesApi = {
   assign: (token, body) => request('/api/admin/judges/assign', { method: 'POST', token, body }),
   unassign: (token, assignmentId) => request(`/api/admin/judges/assign/${assignmentId}`, { method: 'DELETE', token }),
   blacklistReport: (token) => request('/api/admin/judges/blacklist-report', { token }),
+  resetSession: (token, id) => request(`/api/admin/judges/${id}/reset-session`, { method: 'POST', token, body: {} }),
 };
 
 export { ApiError };

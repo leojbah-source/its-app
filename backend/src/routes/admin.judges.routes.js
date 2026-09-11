@@ -39,7 +39,7 @@ router.get('/', requireRole(...staffRoles), async (req, res, next) => {
       `SELECT j.id, j.full_name, j.bio, j.detailed_bio, j.expertise,
               j.is_blacklisted, j.blacklist_reason, j.blacklist_date,
               (j.phone IS NOT NULL OR j.whatsapp IS NOT NULL OR j.email IS NOT NULL) AS has_contact,
-              j.otp_sent_at,
+              j.otp_sent_at, (j.active_session IS NOT NULL) AS session_active,
               ${withContact ? 'j.phone, j.whatsapp, j.email,' : ''}
               COUNT(ja.id)::int AS assignment_count
        FROM judges j
@@ -175,6 +175,21 @@ router.post('/:id/unblacklist', requireRole(...manageRoles), async (req, res, ne
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'UNBLACKLIST_JUDGE', entity: 'judges', entityId: req.params.id });
     res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/judges/:id/reset-session — clear the login lock ──────────
+// A judge may only be signed in on one screen; if a judge is locked out (their
+// tablet died without signing out), an admin clears the session here so they can
+// log in again. Does not disturb any other login.
+router.post('/:id/reset-session', requireRole(...manageRoles), async (req, res, next) => {
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE judges SET active_session = NULL, active_session_at = NULL WHERE id = $1`, [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: 'Judge not found' });
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'RESET_JUDGE_SESSION', entity: 'judges', entityId: req.params.id });
+    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 

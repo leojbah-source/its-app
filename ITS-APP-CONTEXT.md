@@ -63,6 +63,61 @@ Applied so far:
   grade_c_pct, tiebreaker_scale_max; teams.fee_amount)
 - `004_age_group_duration.sql` (event_age_groups.allotted_time_seconds —
   per-age-group duration override; event-level value is the default)
+- (005–029 added incrementally — see the dated sections below for each.) Latest:
+  `030_per_group_weightages_session.sql` (per-age-group weightages +
+  judges.active_session_at — Sept 2026).
+
+## Judge flow — per-age-group weightages, publish lock, single session (September 2026)
+Migration 030 (030_per_group_weightages_session.sql) + judge/auth/admin.judges/
+admin.judging routes + judge frontend (JudgeApp, Judges page, client, JudgeAuthContext).
+Four changes; all live-tested against a throwaway PostgreSQL (schema load + 030
+apply + trigger behaviour verified):
+- PER-AGE-GROUP WEIGHTAGES (an event's age groups may run on different days with
+  different judges and different weightages). event_criteria stays the event-level
+  DEFAULT (criterion names + default weightage). NEW table
+  event_criteria_weightages(event_id, age_group_id, criterion_id, max_score,
+  sequence_order) is the per-age-group OVERRIDE; sum=100 per (event, age group)
+  enforced by trg_ecw_check. scores.criterion_id still points at event_criteria.id
+  (identity unchanged). judge.routes effectiveCriteria() COALESCEs override→default;
+  briefing/sheet/scores use it. POST /criteria writes the override for the
+  assignment's age group (DELETE+INSERT to dodge the UNIQUE(event,ag,seq) reorder
+  collision) and resets agreement for THAT age group only (not the whole event).
+  fn_check_score_max now caps a score by the effective (per-age-group) max, not the
+  event default. Results engine (admin.judging computeGroup) orders C1..Cn by the
+  group's effective sequence_order for tie-breaks; AVG%/grades unaffected
+  (weightages always total 100). Agreement was already per (event, age group).
+- EDIT LOCK ON PUBLISH: judge sheet returns result_state {finalised, published};
+  POST /done/:id/undo and POST /scores 409 once the group is published; the
+  scoresheet shows "Result published — view only", disables inputs, hides Undo &
+  edit. Lock is at PUBLISH, not finalise (per Leo).
+- SINGLE LOGIN (older screen wins): auth.routes verify-otp now REFUSES a second
+  login while judges.active_session is set and newer than JUDGE_SESSION_HOURS
+  (default 12h); a stale session past the window is replaced (tablet-died recovery).
+  NEW judges.active_session_at (migration 030). Judge sign-out (POST /api/judge/logout)
+  clears the lock; admins clear it via POST /api/admin/judges/:id/reset-session
+  (Reset login button + "Signed in" badge on the Judges page). REVERSES the old
+  029 behaviour (newer login used to win and kick the old screen).
+- EVENT LIST BADGES: GET /api/judge/events returns per-assignment scoring_done +
+  finalised + published; the judge portal badges each event card.
+
+## Testing on Render — deploying updates (September 2026)
+The app is deployed on Render (free plan) from GitHub leojbah-source/its-app,
+branch feature/step-5-registrations, single-origin (backend serves frontend/dist;
+see render.yaml + DEPLOY-RENDER.md). DB is Render Postgres its-db, seeded ONCE by
+a pg_dump of the local DB. Testers use https://its-app.onrender.com (see
+TESTER-GUIDE / TESTERGUIDE.docx). The Render deploy does NOT run migrations.
+To ship a change to the Render test site:
+  1. Apply any NEW migration file(s) to the Render DB INDIVIDUALLY first, e.g.
+       psql "EXTERNAL_DB_URL?sslmode=require" -f db/migrations/030_per_group_weightages_session.sql
+     (External Database URL from Render → its-db → Connect). Do this BEFORE the new
+     code goes live so the new queries have their tables/columns.
+  2. git add -A && git commit -m "..." && git push  (on branch
+     feature/step-5-registrations — the branch Render deploys). Render auto-redeploys.
+WARNING: do NOT run `npm run migrate` / run-migrations.js against the Render (or any
+populated) DB — it re-runs EVERY migration in order, including 027, which does
+DELETE FROM scores; DELETE FROM judge_assignments (a one-time reset). That would
+wipe judging test data. Apply new migration files one at a time until
+run-migrations.js is upgraded to track applied migrations.
 
 ## Scheduling controls — per-event & per-category (July 2026)
 Migration 015 (015_scheduling_controls.sql) adds:

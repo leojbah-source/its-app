@@ -16,6 +16,11 @@ function signToken(payload) {
   });
 }
 
+// How long a judge's single session holds the login lock before a stale one
+// (tablet closed without sign-out) frees itself for a fresh login. Defaults to
+// 12h to match the JWT lifetime.
+const JUDGE_SESSION_LOCK_HOURS = Number(process.env.JUDGE_SESSION_HOURS) || 12;
+
 // POST /api/auth/login  (email + password -> JWT, for SuperAdmin/Admin/Coordinator/Chairman/Viewer)
 router.post('/login', async (req, res, next) => {
   try {
@@ -72,14 +77,29 @@ router.post('/verify-otp', async (req, res, next) => {
       if (!valid) return res.status(401).json({ error: 'Invalid or expired OTP' });
     }
 
-    const { rows } = await pool.query(`SELECT id, full_name, is_blacklisted FROM judges WHERE phone = $1`, [phone]);
+    const { rows } = await pool.query(
+      `SELECT id, full_name, is_blacklisted, active_session, active_session_at FROM judges WHERE phone = $1`, [phone]);
     const judge = rows[0];
     if (!judge) return res.status(404).json({ error: 'Judge not found' });
 
-    // Single active session: stamp a new session token; older screens (with a
-    // different sid) are signed out on their next request (see judge.routes guard).
+    // SINGLE ACTIVE SESSION: a judge may only be signed in on ONE screen. While a
+    // session is active and still within the lock window, a second login is
+    // refused (the judge must sign out on the other screen, or an admin resets
+    // it). A stale session past the window is replaced automatically so a judge
+    // whose tablet died isn't locked out for good.
+    if (judge.active_session && judge.active_session_at) {
+      const ageMs = Date.now() - new Date(judge.active_session_at).getTime();
+      const lockMs = JUDGE_SESSION_LOCK_HOURS * 3600 * 1000;
+      if (ageMs < lockMs) {
+        return res.status(409).json({
+          error: 'ALREADY_SIGNED_IN',
+          message: 'This judge is already signed in on another screen. Sign out there first, or ask an admin to reset the session.',
+        });
+      }
+    }
+
     const sid = crypto.randomUUID();
-    await pool.query(`UPDATE judges SET active_session = $1 WHERE id = $2`, [sid, judge.id]);
+    await pool.query(`UPDATE judges SET active_session = $1, active_session_at = NOW() WHERE id = $2`, [sid, judge.id]);
     const token = signToken({ id: judge.id, judgeId: judge.id, role: 'Judge', type: 'judge', phone, sid });
     res.json({ token, judge: { id: judge.id, name: judge.full_name, isBlacklisted: judge.is_blacklisted } });
   } catch (err) {

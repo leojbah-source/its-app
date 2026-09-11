@@ -110,6 +110,10 @@ export default function Judges() {
     try { await judgesApi.remove(token, del.id); setDel(null); setFlash('Judge deleted.'); load(); }
     catch (err) { setDel(null); setFlash(err.message); }
   }
+  async function resetSession(j) {
+    try { await judgesApi.resetSession(token, j.id); setFlash(`Login session reset for ${j.full_name} — they can sign in again.`); load(); }
+    catch (err) { setFlash(err.message); }
+  }
 
   return (
     <AdminLayout title="Judges" subtitle="Judge profiles and fields of expertise. Assign judges to events (and send briefing OTPs) from the Schedule page.">
@@ -165,6 +169,7 @@ export default function Judges() {
                     </td>
                     <td className="px-4 py-3">
                       {j.is_blacklisted ? <Badge tone="danger">Blacklisted</Badge> : <Badge tone="success">Active</Badge>}
+                      {j.session_active && <span className="ml-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700" title="This judge is currently signed in on a device">Signed in</span>}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -172,6 +177,7 @@ export default function Judges() {
                         {canManage && (j.is_blacklisted
                           ? <Button size="sm" variant="ghost" icon={ShieldCheck} onClick={() => unblacklist(j)}>Unblock</Button>
                           : <Button size="sm" variant="ghost" icon={Ban} onClick={() => { setBlk(j); setBlkReason(''); }}>Blacklist</Button>)}
+                        {canManage && j.session_active && <Button size="sm" variant="ghost" onClick={() => resetSession(j)} title="Clear this judge's login lock so they can sign in again">Reset login</Button>}
                         {canManage && <Button size="sm" variant="ghost" icon={Trash2} onClick={() => setDel(j)} title="Delete" />}
                       </div>
                     </td>

@@ -62,7 +62,10 @@ function EventsList({ events, onOpen }) {
         <button key={e.assignment_id} onClick={() => onOpen(e)} className="flex w-full items-center justify-between rounded-xl bg-white p-4 text-left shadow-sm hover:bg-slate-50">
           <div><div className="font-medium text-navy-800"><span className="font-mono text-xs text-navy-500 mr-1.5">{e.event_code}</span>{e.event_name}
             {e.age_group_code && <span className="ml-2 rounded bg-navy-50 px-1.5 py-0.5 text-[10px] font-semibold text-navy-700">{e.age_group_code}</span>}
-            {e.is_active && <span className="ml-2 rounded-full bg-gold-100 px-2 py-0.5 text-[10px] font-semibold text-gold-700">current</span>}</div>
+            {e.is_active && <span className="ml-2 rounded-full bg-gold-100 px-2 py-0.5 text-[10px] font-semibold text-gold-700">current</span>}
+            {e.published && <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">published</span>}
+            {!e.published && e.finalised && <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">finalised</span>}
+            {!e.published && !e.finalised && e.scoring_done && <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">scored</span>}</div>
           <div className="text-xs text-slate-500">{e.category_name}</div></div><ChevronLeft className="rotate-180 text-slate-400" size={18} /></button>))}
     </div>
   );
@@ -113,11 +116,11 @@ function Briefing({ token, current, onBack, onContinue, setFlash }) {
       <div className="mb-3 rounded-xl bg-navy-700 p-4 text-white">
         <div className="text-xs uppercase tracking-wide text-navy-200">Judges' briefing</div>
         <div className="text-lg font-semibold">{ev.event_code} · {ev.event_name}</div>
-        <div className="text-sm text-navy-200">{ev.category_name}</div>
+        <div className="text-sm text-navy-200">{ev.category_name}{ev.age_group_code ? ` · Group ${ev.age_group_code}` : ''}</div>
       </div>
 
       <div className="mb-3 rounded-xl bg-white p-4 shadow-sm">
-        <p className="text-sm text-slate-600">These weightages are <b>shared by all three judges</b> for this event — the panel agrees on <b>one figure per criterion</b> (not one per judge), totalling <b>100</b>. The highest becomes <b>C1</b> (used to break ties, then C2, C3…).</p>
+        <p className="text-sm text-slate-600">These weightages are <b>shared by the judges of this age group</b> — the panel agrees on <b>one figure per criterion</b> (not one per judge), totalling <b>100</b>. Each age group sets its own weightages, so this applies to <b>Group {ev.age_group_code || 'this group'}</b> only. The highest becomes <b>C1</b> (used to break ties, then C2, C3…).</p>
         <p className="mt-1 text-xs text-slate-500">One judge enters the agreed figures; each judge then taps “I agree”. If anyone changes them, everyone must agree again. Your individual <i>scores</i> come later.</p>
         <div className="mt-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-navy-900">Criteria &amp; weightages</h2>
@@ -209,6 +212,7 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
   const maxByCrit = useMemo(() => Object.fromEntries(criteria.map((c) => [c.id, Number(c.max_score)])), [criteria]);
   const canScore = sheet?.agreement?.all_agreed;
   const isDone = !!sheet?.done?.i_done;
+  const published = !!sheet?.result_state?.published; // result out → view only, no edits
   const totalFor = useCallback((reg) => criteria.reduce((t, c) => { const v = Number(saved[`${reg}:${c.id}`]); return t + (Number.isFinite(v) ? v : 0); }, 0), [criteria, saved]);
   const rankMap = useMemo(() => {
     if (!sheet) return {};
@@ -261,7 +265,7 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
                   <td className="sticky left-0 z-10 bg-white px-3 py-2"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-navy-100 font-mono text-base font-bold text-navy-800">{p.chest_number}</span></td>
                   {criteria.map((c) => { const key = `${reg}:${c.id}`; return (
                     <td key={c.id} className="px-1 py-1 text-center">
-                      <input type="number" min={0} max={c.max_score} inputMode="numeric" disabled={!canScore || isDone} value={vals[key] ?? ''}
+                      <input type="number" min={0} max={c.max_score} inputMode="numeric" disabled={!canScore || isDone || published} value={vals[key] ?? ''}
                         onChange={(e) => setVals((m) => ({ ...m, [key]: e.target.value }))} onBlur={() => saveCell(reg, c.id)}
                         className={`w-14 rounded-md border px-1 py-2 text-center text-base disabled:bg-slate-100 disabled:text-slate-400 ${savingCell === key ? 'border-gold-400' : 'border-slate-300'}`} />
                     </td>); })}
@@ -273,7 +277,11 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
         </div>)}
       <p className="mt-2 text-xs text-slate-500">Scores can't exceed a criterion's weightage. They save as you leave each box; Total &amp; Rank (only you see it) update live.</p>
 
-      {canScore && sheet.participants.length > 0 && (
+      {published ? (
+        <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-50 p-3 text-sm text-slate-600">
+          <Lock size={15} className="text-slate-400" /><span><b>Result published.</b> Your scores are locked — view only.</span>
+        </div>
+      ) : canScore && sheet.participants.length > 0 ? (
         isDone ? (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-green-300 bg-green-50 p-3">
             <div className="text-sm text-green-800"><b>Scoring submitted.</b> Awaiting the result — {sheet.done?.done}/{sheet.done?.total} judges done.</div>
@@ -282,7 +290,7 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
         ) : (
           <button onClick={markDone} className="mt-3 w-full rounded-xl bg-navy-600 py-3 text-sm font-semibold text-white hover:bg-navy-700">Done scoring — submit my marks</button>
         )
-      )}
+      ) : null}
     </div>
   );
 }

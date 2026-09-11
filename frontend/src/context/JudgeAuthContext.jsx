@@ -2,8 +2,10 @@
 // Auth for the judge scoring portal. Login is phone + OTP (the OTP is sent by
 // the admin from Event assignment, incl. via WhatsApp). Token persists in
 // sessionStorage so a judge isn't signed out when the tablet sleeps.
+// A judge may only be signed in on ONE screen at a time; signing out clears the
+// server-side session lock so they can sign in again.
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { authApi } from '../api/client';
+import { authApi, judgeApi } from '../api/client';
 
 const TOKEN_KEY = 'its_judge_token';
 const INFO_KEY = 'its_judge_info';
@@ -33,7 +35,13 @@ export function JudgeAuthProvider({ children }) {
     } catch (err) { setError(err.message); setStatus('error'); throw err; }
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    // Best-effort: release the server-side single-session lock before clearing
+    // local state, so the judge can sign in again immediately.
+    try {
+      const t = sessionStorage.getItem(TOKEN_KEY);
+      if (t) await judgeApi.logout(t);
+    } catch { /* ignore — sign out locally regardless */ }
     sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(INFO_KEY);
     setToken(null); setJudge(null);
   }, []);
