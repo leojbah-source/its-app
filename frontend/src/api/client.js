@@ -157,6 +157,7 @@ export const judgeApi = {
     request(`/api/judge/scores/${assignmentId}`, { method: 'POST', token, body: { scores } }),
   markDone: (token, assignmentId) => request(`/api/judge/done/${assignmentId}`, { method: 'POST', token, body: {} }),
   undoDone: (token, assignmentId) => request(`/api/judge/done/${assignmentId}/undo`, { method: 'POST', token, body: {} }),
+  result: (token, assignmentId) => request(`/api/judge/result/${assignmentId}`, { token }),
   logout: (token) => request('/api/judge/logout', { method: 'POST', token, body: {} }),
 };
 

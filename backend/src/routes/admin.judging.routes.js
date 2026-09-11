@@ -175,7 +175,9 @@ async function computeGroup(eventId, ageGroupId, cfg) {
     r.rank_points = Number(rp) || 0;
     r.grade_points = Number(gp) || 0;
     r.participation_bonus_pts = Number(cfg.participation_bonus_pts) || 0;
-    r.total_points = r.rank_points + r.grade_points + r.participation_bonus_pts;
+    // Participation bonus is NOT added to the participant's total (it feeds the
+    // school award only — rule #16). Individual total = rank + grade.
+    r.total_points = r.rank_points + r.grade_points;
   });
 
   return {
@@ -522,5 +524,10 @@ router.get('/results/:event_id/:age_group_id/sheet', requireRole(...viewRoles), 
     });
   } catch (err) { next(err); }
 });
+
+// Reused by the judge portal's read-only result preview (judge.routes).
+router.computeGroup = computeGroup;
+router.activeCfg = activeCfg;
+router.groupState = groupState;
 
 module.exports = router;

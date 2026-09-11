@@ -4,7 +4,7 @@
 // scoresheet grid (chest rows × criteria cols + live Total + Rank). Scores can't
 // exceed a criterion's weightage; all judges must agree before scoring opens.
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Gavel, LogOut, ChevronLeft, Sliders, Save, Check, Lock, ArrowRight } from 'lucide-react';
+import { Gavel, LogOut, ChevronLeft, Sliders, Save, Check, Lock, ArrowRight, Eye } from 'lucide-react';
 import { useJudgeAuth } from '../../context/JudgeAuthContext';
 import { judgeApi } from '../../api/client';
 
@@ -195,6 +195,7 @@ function GroupPicker({ current, groups, onBack, onPick }) {
 function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) {
   const [sheet, setSheet] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showResult, setShowResult] = useState(false);
   const [vals, setVals] = useState({});
   const [saved, setSaved] = useState({});
   const [savingCell, setSavingCell] = useState(null);
@@ -241,6 +242,8 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
 
   if (loading || !sheet) return <p className="py-10 text-center text-sm text-slate-500">Loading scoresheet…</p>;
   const gcode = sheet.event?.age_group_code; const ag = sheet.agreement || {};
+  const finalised = !!sheet?.result_state?.finalised; // Chairman finalised → preview opens
+  if (showResult) return <ResultPreview token={token} current={current} onBack={() => setShowResult(false)} setFlash={setFlash} />;
 
   return (
     <div>
@@ -291,6 +294,67 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
           <button onClick={markDone} className="mt-3 w-full rounded-xl bg-navy-600 py-3 text-sm font-semibold text-white hover:bg-navy-700">Done scoring — submit my marks</button>
         )
       ) : null}
+
+      {finalised && (
+        <button onClick={() => setShowResult(true)} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-navy-300 bg-white py-2.5 text-sm font-semibold text-navy-700 hover:bg-navy-50">
+          <Eye size={16} /> Preview result — how the panel ranked this group
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Read-only result preview for judges: chest numbers only, each judge's ranks and
+// the placement. Available once the Chairman has finalised the group.
+function ResultPreview({ token, current, onBack, setFlash }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    judgeApi.result(token, current.assignment_id).then(setData).catch((e) => { setFlash(e.message); onBack(); });
+  }, [token, current, onBack, setFlash]);
+  if (!data) return <p className="py-10 text-center text-sm text-slate-500">Loading result…</p>;
+  const judges = data.judges || [];
+  return (
+    <div>
+      <button onClick={onBack} className="mb-2 inline-flex items-center gap-1 text-sm text-navy-600 hover:underline"><ChevronLeft size={16} /> Back to scoring</button>
+      <div className="mb-3 rounded-xl bg-navy-700 p-4 text-white">
+        <div className="text-xs uppercase tracking-wide text-navy-200">Result preview {data.published ? '· published' : '· finalised, not yet published'}</div>
+        <div className="text-lg font-semibold">{current.event_code} · {current.event_name}</div>
+        <div className="mt-0.5 inline-block rounded-full bg-gold-500 px-3 py-0.5 text-sm font-semibold">Group {data.event?.age_group_code || current.age_group_code}</div>
+      </div>
+      <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+        <table className="min-w-full text-sm">
+          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-3 py-2 text-center">Place</th>
+              <th className="px-3 py-2 text-left">Chest</th>
+              {judges.map((j, i) => <th key={i} className="px-2 py-2 text-center font-medium" title={j}><div className="normal-case text-navy-700">{j}</div><div className="text-[10px] font-normal normal-case text-slate-400">rank</div></th>)}
+              <th className="px-2 py-2 text-center">Rank sum</th>
+              <th className="px-2 py-2 text-center">Avg %</th>
+              <th className="px-2 py-2 text-center">Grade</th>
+              <th className="px-2 py-2 text-center">Points</th>
+              <th className="px-2 py-2 text-center">Flags</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {data.results.map((r) => (
+              <tr key={r.chest_number} className={r.place ? 'bg-gold-50/50' : ''}>
+                <td className="px-3 py-2 text-center">{r.place ? <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-gold-500 text-xs font-bold text-white">{r.place}</span> : <span className="text-slate-300">—</span>}</td>
+                <td className="px-3 py-2"><span className="font-mono font-bold text-navy-800">{r.chest_number}</span></td>
+                {(r.per_judge || []).map((pj, i) => <td key={i} className="px-2 py-2 text-center text-slate-700">{pj.rank ?? '—'}</td>)}
+                <td className="px-2 py-2 text-center font-semibold">{r.rank_sum}</td>
+                <td className="px-2 py-2 text-center text-slate-600">{r.avg_pct}</td>
+                <td className="px-2 py-2 text-center">{r.grade || '—'}</td>
+                <td className="px-2 py-2 text-center font-semibold text-navy-800">{r.total_points}</td>
+                <td className="px-2 py-2 text-center">
+                  {r.tie_flag && <span className="mr-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">tie</span>}
+                  {r.divergence_flag && <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">diverge</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">Chest numbers only. Placement = lowest sum of the panel's ranks. Points = rank + grade (participation is not counted here).</p>
     </div>
   );
 }

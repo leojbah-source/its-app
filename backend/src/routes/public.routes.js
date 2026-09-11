@@ -194,7 +194,8 @@ router.get('/awards/:year_id', async (req, res, next) => {
               SUM(res.rank_points)             AS total_rank_points,
               SUM(res.grade_points)            AS total_grade_points,
               SUM(res.participation_bonus_pts) AS total_participation_pts,
-              SUM(res.total_points)            AS grand_total
+              -- school award (rule #16) includes participation; total_points no longer does
+              SUM(res.rank_points + res.grade_points + res.participation_bonus_pts) AS grand_total
        FROM event_results res
        JOIN registrations r  ON r.id = res.registration_id
        JOIN participants p   ON p.id = r.participant_id

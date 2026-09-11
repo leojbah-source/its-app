@@ -19,6 +19,8 @@ const express = require('express');
 const pool = require('../db');
 const { authenticate, requireType } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+// Read-only result computation reused for the judge preview (see /result below).
+const judging = require('./admin.judging.routes');
 
 const router = express.Router();
 router.use(authenticate, requireType('judge'));
@@ -370,6 +372,39 @@ router.post('/done/:assignment_id/undo', async (req, res, next) => {
     await pool.query(`UPDATE judge_assignments SET scoring_done_at = NULL WHERE id = $1`, [asg.id]);
     await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge', action: 'SCORING_REOPEN', entity: 'judge_assignments', entityId: asg.id });
     res.json({ done: await doneStatus(asg.event_id, asg.age_group_id, asg.id) });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/judge/result/:assignment_id — read-only result PREVIEW ───────────
+// Lets judges see how the whole panel ranked the group (chest numbers only —
+// rule #5, never names) once the Chairman has FINALISED the group, before it is
+// published. Reuses the admin results computation.
+router.get('/result/:assignment_id', async (req, res, next) => {
+  try {
+    const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
+    if (!asg) return res.status(404).json({ error: 'Assignment not found' });
+    const state = await groupResultState(asg.event_id, asg.age_group_id);
+    if (!state.finalised)
+      return res.status(409).json({ error: 'The result preview opens once the Chairman finalises this age group.' });
+    const cfg = await judging.activeCfg();
+    if (!cfg) return res.status(400).json({ error: 'No active year' });
+    const data = await judging.computeGroup(asg.event_id, asg.age_group_id, cfg);
+    const { rows: ev } = await pool.query(
+      `SELECT e.event_code, e.event_name, c.name AS category_name, ag.code AS age_group_code, ag.label AS age_group_label
+       FROM events e LEFT JOIN categories c ON c.id = e.category_id
+       LEFT JOIN age_groups ag ON ag.id = $2 WHERE e.id = $1`, [asg.event_id, asg.age_group_id]);
+    // Chest-only projection: the panel's judge names + their ranks are fine to
+    // show a judge; participant names are never included.
+    res.json({
+      event: ev[0] || null,
+      published: state.published,
+      judges: data.judges,
+      results: data.results.map((r) => ({
+        place: r.place, chest_number: r.chest_number, per_judge: r.per_judge,
+        rank_sum: r.rank_sum, avg_pct: r.avg_pct, grade: r.grade, total_points: r.total_points,
+        tie_flag: r.tie_flag, divergence_flag: r.divergence_flag,
+      })),
+    });
   } catch (err) { next(err); }
 });
 

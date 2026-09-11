@@ -92,7 +92,6 @@ export default function ResultSheet() {
               <th className="px-2 py-2 text-center">Grade</th>
               <th className="px-2 py-2 text-center">Rank pts</th>
               <th className="px-2 py-2 text-center">Grade pts</th>
-              <th className="px-2 py-2 text-center">Part.</th>
               <th className="px-2 py-2 text-center">Total</th>
               <th className="px-2 py-2">Extra</th>
             </tr>
@@ -108,13 +107,12 @@ export default function ResultSheet() {
                 <td className="px-2 py-1.5 text-center">{r.grade || '—'}</td>
                 <td className="px-2 py-1.5 text-center">{r.rank_points}</td>
                 <td className="px-2 py-1.5 text-center">{r.grade_points}</td>
-                <td className="px-2 py-1.5 text-center">{r.participation_bonus_pts}</td>
                 <td className="px-2 py-1.5 text-center font-semibold">{r.total_points}</td>
                 <td className="px-2 py-1.5 text-navy-700">{r.extra_prize_type ? EXTRA_LABEL[r.extra_prize_type] : ''}</td>
               </tr>
             ))}
             {data.results.length === 0 && (
-              <tr><td colSpan={11} className="px-2 py-6 text-center text-slate-400">No attended participants in this group.</td></tr>
+              <tr><td colSpan={10} className="px-2 py-6 text-center text-slate-400">No attended participants in this group.</td></tr>
             )}
           </tbody>
         </table>
