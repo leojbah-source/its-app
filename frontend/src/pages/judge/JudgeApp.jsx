@@ -78,16 +78,21 @@ function Briefing({ token, current, onBack, onContinue, setFlash }) {
   const [wDraft, setWDraft] = useState([]);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try { const b = await judgeApi.briefing(token, current.assignment_id); setBrief(b); setWDraft(b.criteria.map((c) => ({ id: c.id, label: c.label, max_score: Number(c.max_score) }))); }
-    catch (e) { setFlash(e.message); }
-    finally { setLoading(false); }
+  // showLoader=true only for the first load; the 5s poll refreshes silently in
+  // place (no full-screen "Loading…" flash, no clobbering the edit buffer).
+  const load = useCallback(async (showLoader = false) => {
+    if (showLoader) setLoading(true);
+    try {
+      const b = await judgeApi.briefing(token, current.assignment_id);
+      setBrief(b);
+      if (showLoader) setWDraft(b.criteria.map((c) => ({ id: c.id, label: c.label, max_score: Number(c.max_score) })));
+    } catch (e) { if (showLoader) setFlash(e.message); }
+    finally { if (showLoader) setLoading(false); }
   }, [token, current]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(true); }, [load]);
   useEffect(() => {
-    if (editW) return; // don't clobber the judge's draft while they edit
-    const iv = setInterval(load, 5000);
+    if (editW) return; // don't poll (or clobber the draft) while the judge edits
+    const iv = setInterval(() => load(false), 5000);
     return () => clearInterval(iv);
   }, [editW, load]);
 
@@ -124,7 +129,7 @@ function Briefing({ token, current, onBack, onContinue, setFlash }) {
         <p className="mt-1 text-xs text-slate-500">One judge enters the agreed figures; each judge then taps “I agree”. If anyone changes them, everyone must agree again. Your individual <i>scores</i> come later.</p>
         <div className="mt-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-navy-900">Criteria &amp; weightages</h2>
-          {!brief.weightages_locked && !editW && <button onClick={() => setEditW(true)} className="inline-flex items-center gap-1 text-xs font-medium text-navy-600 hover:underline"><Sliders size={13} /> Adjust</button>}
+          {!brief.weightages_locked && !editW && <button onClick={() => { setWDraft(brief.criteria.map((c) => ({ id: c.id, label: c.label, max_score: Number(c.max_score) }))); setEditW(true); }} className="inline-flex items-center gap-1 text-xs font-medium text-navy-600 hover:underline"><Sliders size={13} /> Adjust</button>}
           {brief.weightages_locked && <span className="inline-flex items-center gap-1 text-xs text-slate-400"><Lock size={12} /> locked</span>}
         </div>
         {!editW ? (

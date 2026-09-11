@@ -1,10 +1,13 @@
 // src/pages/pwa/PublicBoard.jsx
 // Public, no-login board: published results (chest + name) and the confirmed
 // schedule. Mobile-first. Links to the participant login for personal results.
+// Results are listed by SCHEDULE (date, then event, then age group) as a
+// collapsed, searchable list — tap an event+age-group to reveal its ranking —
+// so participants can jump straight to what they want instead of scrolling all.
 // (Awards are intentionally NOT shown here — announced separately after contests.)
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Trophy, CalendarDays, UserRound, Megaphone, FileText } from 'lucide-react';
+import { Trophy, CalendarDays, UserRound, Megaphone, FileText, ChevronDown, Search } from 'lucide-react';
 import { publicApi, API_BASE } from '../../api/client';
 
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
@@ -19,6 +22,8 @@ export default function PublicBoard() {
   const [schedule, setSchedule] = useState([]);
   const [notices, setNotices] = useState([]);
   const [err, setErr] = useState('');
+  const [q, setQ] = useState('');
+  const [openKeys, setOpenKeys] = useState(() => new Set());
 
   useEffect(() => { publicApi.year().then(setYear).catch(() => {}); }, []);
   useEffect(() => { publicApi.notices().then(setNotices).catch(() => {}); }, []);
@@ -28,16 +33,28 @@ export default function PublicBoard() {
     if (tab === 'schedule') publicApi.schedule().then(setSchedule).catch((e) => setErr(e.message));
   }, [tab]);
 
+  // One entry per (event, age group), kept in the server's order (schedule date,
+  // then event code, then age group) so the list mirrors the schedule.
   const resultGroups = useMemo(() => {
     const map = new Map();
     for (const r of results) {
-      const key = `${r.event_name} · ${r.age_group || ''}`;
-      if (!map.has(key)) map.set(key, { key, event_name: r.event_name, age_group: r.age_group, rows: [] });
+      const key = `${r.event_id}:${r.age_group_id}`;
+      if (!map.has(key)) map.set(key, { key, event_code: r.event_code, event_name: r.event_name, age_group: r.age_group, category: r.category, event_date: r.event_date, rows: [] });
       map.get(key).rows.push(r);
     }
     for (const g of map.values()) g.rows.sort((a, b) => (a.rank || 99) - (b.rank || 99) || (a.child_name || '').localeCompare(b.child_name || ''));
     return [...map.values()];
   }, [results]);
+
+  const shownGroups = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    if (!term) return resultGroups;
+    return resultGroups.filter((g) =>
+      `${g.event_code || ''} ${g.event_name || ''} ${g.age_group || ''}`.toLowerCase().includes(term) ||
+      g.rows.some((r) => (r.child_name || '').toLowerCase().includes(term) || (r.school || '').toLowerCase().includes(term)));
+  }, [resultGroups, q]);
+
+  const toggle = (key) => setOpenKeys((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
 
   const TabBtn = ({ id, icon: Icon, label }) => (
     <button onClick={() => setTab(id)}
@@ -92,24 +109,49 @@ export default function PublicBoard() {
         {err && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
 
         {tab === 'results' && (
-          resultGroups.length === 0 ? <Empty text="No results published yet." />
-          : resultGroups.map((g) => (
-            <section key={g.key} className="mb-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
-              <div className="border-b border-slate-100 bg-slate-50 px-4 py-2 text-sm font-semibold text-navy-800">
-                {g.event_name} {g.age_group && <span className="text-slate-400">· {g.age_group}</span>}
+          resultGroups.length === 0 ? <Empty text="No results published yet." /> : (
+            <>
+              <div className="relative mb-3">
+                <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search an event, age group, or name…"
+                  className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-navy-400" />
               </div>
-              <ul className="divide-y divide-slate-100">
-                {g.rows.map((r, i) => (
-                  <li key={i} className="flex items-center gap-3 px-4 py-2">
-                    <span className="w-6 text-center text-lg">{MEDAL[r.rank] || <span className="text-xs text-slate-300">{r.rank || '—'}</span>}</span>
-                    <span className="w-12 shrink-0 font-mono text-xs text-slate-500">#{r.chest_number}</span>
-                    <span className="flex-1 text-sm font-medium text-slate-800">{r.child_name}{r.school && <span className="block text-[11px] font-normal text-slate-400">{r.school}</span>}</span>
-                    {r.grade && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-navy-700">{r.grade}</span>}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))
+              <p className="mb-2 px-1 text-xs text-slate-400">Tap an event to see its results.</p>
+              {shownGroups.length === 0 ? <Empty text="No match — try another event or name." />
+              : shownGroups.map((g) => {
+                const open = q.trim() ? true : openKeys.has(g.key); // auto-open while searching
+                return (
+                  <section key={g.key} className="mb-2.5 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    <button onClick={() => toggle(g.key)} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50">
+                      <Trophy size={16} className="shrink-0 text-gold-500" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold text-navy-800">
+                          {g.event_code && <span className="mr-1.5 font-mono text-xs text-navy-500">{g.event_code}</span>}
+                          {g.event_name}{g.age_group && <span className="text-slate-400"> · {g.age_group}</span>}
+                        </div>
+                        <div className="truncate text-[11px] text-slate-400">
+                          {[g.category, fmtDate(g.event_date), `${g.rows.length} result${g.rows.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
+                        </div>
+                      </div>
+                      <ChevronDown size={18} className={`shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+                    </button>
+                    {open && (
+                      <ul className="divide-y divide-slate-100 border-t border-slate-100">
+                        {g.rows.map((r, i) => (
+                          <li key={i} className="flex items-center gap-3 px-4 py-2">
+                            <span className="w-6 text-center text-lg">{MEDAL[r.rank] || <span className="text-xs text-slate-300">{r.rank || '—'}</span>}</span>
+                            <span className="w-12 shrink-0 font-mono text-xs text-slate-500">#{r.chest_number}</span>
+                            <span className="flex-1 text-sm font-medium text-slate-800">{r.child_name}{r.school && <span className="block text-[11px] font-normal text-slate-400">{r.school}</span>}</span>
+                            {r.grade && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-navy-700">{r.grade}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                );
+              })}
+            </>
+          )
         )}
 
         {tab === 'schedule' && (
