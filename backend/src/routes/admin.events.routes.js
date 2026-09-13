@@ -80,6 +80,17 @@ async function attachCriteriaAndAgeGroups(client, rows) {
 }
 
 async function saveCriteria(client, eventId, criteria) {
+  // Criteria / weightages are LOCKED once any score exists for the event — the
+  // same rule the judge portal enforces. Rewriting them here would both violate
+  // the FK from scores.criterion_id AND invalidate results, so when the event has
+  // been scored we skip the criteria rewrite entirely. Every other event field
+  // (timing, durations, venue, …) still saves. Once test scores are cleared the
+  // criteria become editable again.
+  const { rows: scored } = await client.query(
+    `SELECT EXISTS (SELECT 1 FROM scores s JOIN event_criteria ec ON ec.id = s.criterion_id
+                    WHERE ec.event_id = $1) AS x`, [eventId]);
+  if (scored[0].x) return { locked: true };
+
   await client.query(`DELETE FROM event_criteria WHERE event_id = $1`, [eventId]);
   for (const [i, c] of (criteria || []).entries()) {
     if (c.label?.trim()) {
@@ -90,6 +101,7 @@ async function saveCriteria(client, eventId, criteria) {
       );
     }
   }
+  return { locked: false };
 }
 
 async function saveAgeGroups(client, eventId, yearId, agCodes, durations = {}) {
@@ -538,7 +550,7 @@ router.put('/events/:id', requireRole(...editRoles), async (req, res, next) => {
     );
     if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Event not found' }); }
 
-    if (Array.isArray(criteria))   await saveCriteria(client, req.params.id, criteria);
+    const critResult = Array.isArray(criteria) ? await saveCriteria(client, req.params.id, criteria) : null;
     if (Array.isArray(age_groups)) await saveAgeGroups(client, req.params.id, rows[0].year_id, age_groups, age_group_durations);
     await saveSlots(client, req.params.id, slots);
 
@@ -546,6 +558,11 @@ router.put('/events/:id', requireRole(...editRoles), async (req, res, next) => {
 
     rows[0].criteria   = Array.isArray(criteria)   ? criteria.filter((c) => c.label?.trim())   : [];
     rows[0].age_groups = Array.isArray(age_groups) ? age_groups : [];
+    // Criteria weightages are locked once scoring has started; the rest saved.
+    if (critResult?.locked) {
+      rows[0].criteria_locked = true;
+      rows[0].note = 'Criteria weightages are locked because this event already has scores; all other changes were saved.';
+    }
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'UPDATE_EVENT', entity: 'events', entityId: req.params.id, details: req.body });
