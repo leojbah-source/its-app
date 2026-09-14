@@ -3,31 +3,22 @@
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/FormField';
 
-/** TIMESTAMPTZ (or any date-ish value) → 'YYYY-MM-DD' for <input type="date">. */
-function toDateInput(val) {
-  if (!val) return '';
-  const d = new Date(val);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (x) => String(x).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
 export default function PaymentDeadlinesCard({ config, onChange, errors }) {
   const text = (field) => ({
     value: config[field] ?? '',
     error: errors?.[field],
     onChange: (e) => onChange({ ...config, [field]: e.target.value }),
   });
-  // Deadlines are whole-day cut-offs. We use a plain DATE picker (not
-  // datetime-local, which silently returns '' when the user leaves the time
-  // blank — that was why registration deadlines never saved) and store the end
-  // of the chosen day so registration stays open through that whole date.
+  // Deadlines are whole-day cut-offs shown as a plain DATE picker. Bind the raw
+  // 'YYYY-MM-DD' string directly (the first 10 chars of whatever the DB returns)
+  // — do NOT round-trip through `new Date(...)`, which corrupts the value mid-type
+  // and makes the field blank out while you enter the year. The end-of-day time is
+  // added once, at save time (see YearConfig.persistConfig).
   const deadline = (field) => ({
     type: 'date',
-    value: toDateInput(config[field]),
+    value: (config[field] || '').slice(0, 10),
     error: errors?.[field],
-    onChange: (e) =>
-      onChange({ ...config, [field]: e.target.value ? `${e.target.value}T23:59:59` : null }),
+    onChange: (e) => onChange({ ...config, [field]: e.target.value }),
   });
 
   return (

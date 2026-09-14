@@ -82,8 +82,16 @@ export default function YearConfig() {
     }
   };
 
+  // Deadlines are edited as a plain date; store them as the END of that day so
+  // registration stays open through the whole date. Bare 'YYYY-MM-DD' (or any
+  // loaded timestamp) is normalised here, at save time, to 'YYYY-MM-DDT23:59:59'.
   const persistConfig = async () => {
-    await yearConfigApi.update(token, config);
+    const payload = { ...config };
+    for (const f of ['reg_deadline', 'team_reg_deadline', 'teacher_name_deadline']) {
+      const v = payload[f];
+      payload[f] = v ? `${String(v).slice(0, 10)}T23:59:59` : null;
+    }
+    await yearConfigApi.update(token, payload);
   };
 
   // Save everything on the page WITHOUT publishing — the only other way to
