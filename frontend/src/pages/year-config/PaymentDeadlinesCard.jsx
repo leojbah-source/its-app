@@ -3,13 +3,13 @@
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/FormField';
 
-/** TIMESTAMPTZ → value usable by <input type="datetime-local"> (local time). */
-function toLocalDT(val) {
+/** TIMESTAMPTZ (or any date-ish value) → 'YYYY-MM-DD' for <input type="date">. */
+function toDateInput(val) {
   if (!val) return '';
   const d = new Date(val);
   if (Number.isNaN(d.getTime())) return '';
   const pad = (x) => String(x).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 export default function PaymentDeadlinesCard({ config, onChange, errors }) {
@@ -18,11 +18,16 @@ export default function PaymentDeadlinesCard({ config, onChange, errors }) {
     error: errors?.[field],
     onChange: (e) => onChange({ ...config, [field]: e.target.value }),
   });
-  const dt = (field) => ({
-    type: 'datetime-local',
-    value: toLocalDT(config[field]),
+  // Deadlines are whole-day cut-offs. We use a plain DATE picker (not
+  // datetime-local, which silently returns '' when the user leaves the time
+  // blank — that was why registration deadlines never saved) and store the end
+  // of the chosen day so registration stays open through that whole date.
+  const deadline = (field) => ({
+    type: 'date',
+    value: toDateInput(config[field]),
     error: errors?.[field],
-    onChange: (e) => onChange({ ...config, [field]: e.target.value || null }),
+    onChange: (e) =>
+      onChange({ ...config, [field]: e.target.value ? `${e.target.value}T23:59:59` : null }),
   });
 
   return (
@@ -50,18 +55,18 @@ export default function PaymentDeadlinesCard({ config, onChange, errors }) {
         />
         <Input
           label="Individual registration deadline"
-          hint="Date and time — event add/remove locks after this"
-          {...dt('reg_deadline')}
+          hint="Registration locks at the end of this day"
+          {...deadline('reg_deadline')}
         />
         <Input
           label="Team registration deadline"
-          hint="Teams may register later than individuals"
-          {...dt('team_reg_deadline')}
+          hint="Teams may register later than individuals — locks at end of this day"
+          {...deadline('team_reg_deadline')}
         />
         <Input
           label="Teacher name submission deadline"
-          hint="Last date to enter/update teacher names before teacher awards"
-          {...dt('teacher_name_deadline')}
+          hint="Last day to enter or update teacher names before teacher awards"
+          {...deadline('teacher_name_deadline')}
         />
       </div>
     </Card>

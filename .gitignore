@@ -3,3 +3,5 @@ node_modules/
 *.env
 dirlist.txt
 *.bak
+# Microsoft Office temp/lock files (e.g. ~$TESTER-GUIDE.docx)
+~$*
