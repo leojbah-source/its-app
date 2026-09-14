@@ -82,14 +82,16 @@ export default function YearConfig() {
     }
   };
 
-  // Deadlines are edited as a plain date; store them as the END of that day so
-  // registration stays open through the whole date. Bare 'YYYY-MM-DD' (or any
-  // loaded timestamp) is normalised here, at save time, to 'YYYY-MM-DDT23:59:59'.
+  // Deadlines are edited as a plain date; store them as the END of that day in
+  // Bahrain time (UTC+3, no DST) so the cut-off is 23:59 local AND every screen
+  // shows the same calendar date. Without the explicit +03:00 the server (UTC)
+  // stored 23:59Z, which displays as the next day in Bahrain. Bare 'YYYY-MM-DD'
+  // (or any loaded timestamp) is normalised here, at save time.
   const persistConfig = async () => {
     const payload = { ...config };
     for (const f of ['reg_deadline', 'team_reg_deadline', 'teacher_name_deadline']) {
       const v = payload[f];
-      payload[f] = v ? `${String(v).slice(0, 10)}T23:59:59` : null;
+      payload[f] = v ? `${String(v).slice(0, 10)}T23:59:59+03:00` : null;
     }
     await yearConfigApi.update(token, payload);
   };

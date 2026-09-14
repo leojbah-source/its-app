@@ -4,9 +4,10 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, UserPlus, CalendarDays } from 'lucide-react';
+import { LogIn, UserPlus, CalendarDays, Sparkles } from 'lucide-react';
 import { useParentAuth } from '../../context/ParentAuthContext';
 import { portalApi } from './registerApi';
+import BrandMark from '../../components/ui/BrandMark';
 
 export default function Landing() {
   const { isAuthenticated } = useParentAuth();
@@ -30,9 +31,7 @@ export default function Landing() {
     <div className="min-h-screen bg-gradient-to-br from-navy-800 via-navy-900 to-slate-900 flex flex-col items-center justify-center px-6 py-12 text-white">
       {/* Logo block */}
       <div className="flex flex-col items-center gap-4 mb-10">
-        <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-gold-500 shadow-2xl text-4xl">
-          🎭
-        </div>
+        <BrandMark className="h-20 w-20 rounded-3xl shadow-2xl" imgClassName="p-1.5" fallback={Sparkles} fallbackSize={40} />
         <div className="text-center">
           <h1 className="text-3xl font-bold tracking-tight">Indian Talent Scan</h1>
           <p className="text-navy-300 text-base mt-1.5">KCA Bahrain · Participant Registration</p>

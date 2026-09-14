@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { LogOut, Trophy, CalendarDays } from 'lucide-react';
 import { usePwaAuth } from '../../context/PwaAuthContext';
 import { pwaApi } from '../../api/client';
+import BrandMark from '../../components/ui/BrandMark';
 
 const MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
 const EXTRA = { additional_3rd: 'Additional 3rd', consolation: 'Consolation' };
@@ -28,9 +29,12 @@ export default function MyPortal() {
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-          <div>
-            <div className="text-base font-bold text-navy-800 leading-tight">{participant?.name || 'My Results'}</div>
-            {participant?.ageGroup && <div className="text-[11px] text-slate-500">{participant.ageGroup}</div>}
+          <div className="flex items-center gap-2.5">
+            <BrandMark className="h-9 w-9 rounded-lg shrink-0" fallback={Trophy} fallbackSize={18} />
+            <div>
+              <div className="text-base font-bold text-navy-800 leading-tight">{participant?.name || 'My Results'}</div>
+              {participant?.ageGroup && <div className="text-[11px] text-slate-500">{participant.ageGroup}</div>}
+            </div>
           </div>
           <button onClick={logout} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600">
             <LogOut size={14} /> Sign out

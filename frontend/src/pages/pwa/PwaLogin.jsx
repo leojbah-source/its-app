@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { UserRound, ArrowLeft } from 'lucide-react';
 import { usePwaAuth } from '../../context/PwaAuthContext';
+import BrandMark from '../../components/ui/BrandMark';
 
 export default function PwaLogin() {
   const navigate = useNavigate();
@@ -25,7 +26,7 @@ export default function PwaLogin() {
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-navy-600 text-white"><UserRound size={22} /></div>
+          <BrandMark className="mx-auto mb-3 h-12 w-12 rounded-full" imgClassName="p-1" fallback={UserRound} fallbackSize={22} fallbackBg="bg-navy-600" />
           <h1 className="text-lg font-bold text-navy-800">My Results</h1>
           <p className="mt-1 text-sm text-slate-500">Enter the first 4 letters of your name and the last 4 digits of your CPR.</p>
         </div>

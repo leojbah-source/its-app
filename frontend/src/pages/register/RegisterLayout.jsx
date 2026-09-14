@@ -5,6 +5,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, LogOut, ChevronLeft } from 'lucide-react';
 import { useParentAuth } from '../../context/ParentAuthContext';
+import BrandMark from '../../components/ui/BrandMark';
 
 export default function RegisterLayout({
   children,
@@ -38,9 +39,7 @@ export default function RegisterLayout({
               </button>
             )}
             <div className="flex items-center gap-2 min-w-0">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gold-500 shrink-0">
-                <Sparkles size={15} className="text-white" />
-              </div>
+              <BrandMark className="h-8 w-8 rounded-lg shrink-0" fallback={Sparkles} fallbackSize={15} />
               <div className="min-w-0">
                 <p className="text-sm font-semibold leading-tight truncate">Indian Talent Scan</p>
                 <p className="text-[10px] text-navy-300 leading-tight">KCA Bahrain</p>

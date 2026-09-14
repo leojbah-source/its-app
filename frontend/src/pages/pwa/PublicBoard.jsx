@@ -68,7 +68,8 @@ export default function PublicBoard() {
       <header className="bg-white border-b border-slate-200">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
-            {asset(year?.kca_logo_url) && <img src={asset(year.kca_logo_url)} alt="KCA" className="h-10 w-auto object-contain" />}
+            {asset(year?.its_logo_url) && <img src={asset(year.its_logo_url)} alt="ITS" className="h-11 w-auto object-contain" />}
+            {asset(year?.kca_logo_url) && <img src={asset(year.kca_logo_url)} alt="KCA" className="h-9 w-auto object-contain" />}
             <div>
               <div className="text-base font-bold text-navy-800 leading-tight">{year?.event_year_label || 'KCA Indian Talent Scan'}</div>
               <div className="text-[11px] text-slate-500">Results & Schedule</div>
