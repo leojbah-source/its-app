@@ -50,30 +50,33 @@ export default function CertificatesPrint() {
                   {asset(b.sponsor_logo_url) ? <img src={asset(b.sponsor_logo_url)} alt={b.sponsor_name || ''} className="h-14 w-auto object-contain" /> : <span />}
                 </div>
 
-                <div className="mt-6 text-center">
+                {asset(b.its_logo_url) && (
+                  <div className="mt-4 flex justify-center">
+                    <img src={asset(b.its_logo_url)} alt="Indian Talent Scan" className="h-28 w-auto object-contain" />
+                  </div>
+                )}
+
+                <div className={`${asset(b.its_logo_url) ? 'mt-3' : 'mt-6'} text-center`}>
                   <div className="text-2xl font-bold tracking-wide text-navy-800">Certificate of Achievement</div>
                   <div className="mx-auto mt-2 h-0.5 w-24 bg-gold-500" />
                   <p className="mt-6 text-sm text-slate-500">This is to certify that</p>
                   <p className="mt-1 text-3xl font-bold text-navy-900">{w.name}</p>
                   <p className="mt-4 text-base text-slate-700">
-                    secured <span className="font-semibold text-gold-700">{PLACE[w.prize_place] || `${w.prize_place}th`} Place</span> in
+                    has secured <span className="font-semibold text-gold-700">{PLACE[w.prize_place] || `${w.prize_place}th`} Place</span> in
                   </p>
                   <p className="mt-1 text-lg font-semibold text-navy-800">
-                    {w.event_name}{w.category_name ? ` · ${w.category_name}` : ''}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Age group: {w.age_group_label || '—'}{w.grade ? `  ·  Grade ${w.grade}` : ''}
+                    {w.event_name} competition in Age {w.age_group_label || '—'}{w.grade ? ` with Grade ${w.grade}` : ''}
                   </p>
                 </div>
 
-                <div className="mt-10 flex items-end justify-between px-6">
-                  <div className="text-center">
-                    <div className="h-10 w-40 border-b border-slate-400" />
-                    <div className="mt-1 text-xs text-slate-500">Convener</div>
+                <div className="mt-12 flex items-end justify-between px-4">
+                  <div className="w-60 text-center">
+                    <div className="mb-1 h-10 border-b border-slate-400" />
+                    <div className="text-xs leading-snug text-slate-600">President,<br />Kerala Catholic Association</div>
                   </div>
-                  <div className="text-center">
-                    <div className="h-10 w-40 border-b border-slate-400" />
-                    <div className="mt-1 text-xs text-slate-500">Chairman</div>
+                  <div className="w-60 text-center">
+                    <div className="mb-1 h-10 border-b border-slate-400" />
+                    <div className="text-xs leading-snug text-slate-600">Chairman,<br />Indian Talent Scan Organizing Committee</div>
                   </div>
                 </div>
               </div>

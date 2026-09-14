@@ -16,7 +16,7 @@ async function resolveYearId(param) {
 }
 async function branding() {
   const { rows } = await pool.query(
-    `SELECT event_year_label, kca_logo_url, sponsor_logo_url, sponsor_name FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    `SELECT event_year_label, its_logo_url, kca_logo_url, sponsor_logo_url, sponsor_name FROM year_config WHERE is_active = TRUE LIMIT 1`);
   return rows[0] || null;
 }
 
