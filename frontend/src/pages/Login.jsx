@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Lock, Sparkles, User } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { publicApi, API_BASE } from '../api/client';
 import Button from '../components/ui/Button';
+
+const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
 
 export default function Login() {
   const { login, isAuthenticated, user } = useAuth();
@@ -17,6 +20,16 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState(null);
+  const [logo, setLogo] = useState(null);
+
+  // Public branding (no auth needed) — show the ITS logo on the sign-in card.
+  useEffect(() => {
+    let alive = true;
+    publicApi.year()
+      .then((y) => { if (alive) setLogo(asset(y?.its_logo_url)); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   if (isAuthenticated) {
     const redirectTo = location.state?.from?.pathname || landingFor(user?.role);
@@ -55,8 +68,16 @@ export default function Login() {
       />
       <div className="relative w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gold-500 shadow-lg shadow-gold-900/30">
-            <Sparkles size={28} className="text-white" />
+          <div
+            className={`mb-4 flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl shadow-lg shadow-gold-900/30 ${
+              logo ? 'bg-white' : 'bg-gold-500'
+            }`}
+          >
+            {logo ? (
+              <img src={logo} alt="ITS" className="h-full w-full object-contain p-1" />
+            ) : (
+              <Sparkles size={28} className="text-white" />
+            )}
           </div>
           <h1 className="text-xl font-semibold text-white">Indian Talent Scan</h1>
           <p className="mt-1 text-sm text-navy-300">Kerala Catholic Association · Bahrain</p>

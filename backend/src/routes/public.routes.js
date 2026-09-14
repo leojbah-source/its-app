@@ -38,7 +38,7 @@ async function resolveYearId(queryYearId) {
 router.get('/year', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, year, event_year_label, kca_logo_url, sponsor_logo_url, sponsor_name
+      `SELECT id, year, event_year_label, its_logo_url, kca_logo_url, sponsor_logo_url, sponsor_name
        FROM year_config WHERE is_active = TRUE LIMIT 1`);
     res.json(rows[0] || null);
   } catch (err) { next(err); }

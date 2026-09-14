@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   Settings, ListChecks, Users, Gavel, CalendarClock, Trophy, Wallet,
   Sparkles, ClipboardList, ChevronDown, ClipboardCheck, Megaphone, BadgeDollarSign,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { yearConfigApi, API_BASE } from '../../api/client';
+
+const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
 
 // Organiser roles (everyone EXCEPT the day-of MC/Timer roles, who use /mc, /timer).
 const ORG = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
@@ -74,14 +77,34 @@ function NavGroup({ item }) {
 }
 
 export default function Sidebar() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const role = user?.role;
+
+  // Use the uploaded ITS logo in the header when one exists; fall back to the icon.
+  const [logo, setLogo] = useState(null);
+  useEffect(() => {
+    if (!token) return undefined;
+    let alive = true;
+    yearConfigApi
+      .get(token)
+      .then((cfg) => { if (alive) setLogo(asset(cfg?.its_logo_url)); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [token]);
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col bg-navy-800 text-navy-50">
       <div className="flex items-center gap-3 border-b border-white/10 px-5 py-5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gold-500 font-bold text-white">
-          <Sparkles size={20} />
+        <div
+          className={`flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg ${
+            logo ? 'bg-white' : 'bg-gold-500 font-bold text-white'
+          }`}
+        >
+          {logo ? (
+            <img src={logo} alt="ITS" className="h-full w-full object-contain p-0.5" />
+          ) : (
+            <Sparkles size={20} />
+          )}
         </div>
         <div>
           <p className="text-sm font-semibold leading-tight text-white">Indian Talent Scan</p>
