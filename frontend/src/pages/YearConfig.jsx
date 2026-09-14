@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Lock, ShieldCheck, Snowflake } from 'lucide-react';
+import { AlertTriangle, Lock, Save, ShieldCheck, Snowflake } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import { Input } from '../components/ui/FormField';
@@ -86,6 +86,22 @@ export default function YearConfig() {
     await yearConfigApi.update(token, config);
   };
 
+  // Save everything on the page WITHOUT publishing — the only other way to
+  // persist was "Publish Config", which is disabled until event dates are set,
+  // so partial edits (e.g. registration deadlines) could never be saved.
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await persistConfig();
+      showToast('Configuration saved.', 'success');
+      await loadConfig(year); // re-read so the form reflects exactly what persisted
+    } catch (err) {
+      showToast(err.message || 'Could not save the configuration.', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handlePublish = async () => {
     setSaving(true);
     try {
@@ -121,6 +137,14 @@ export default function YearConfig() {
       subtitle="Every annual parameter lives here — nothing about ages, points, or branding is hard-coded."
       actions={
         <>
+          <Button
+            variant="primary"
+            icon={Save}
+            loading={saving}
+            onClick={handleSave}
+          >
+            Save changes
+          </Button>
           <Button
             variant="outline"
             icon={Snowflake}

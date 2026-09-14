@@ -46,7 +46,10 @@ app.use(cors({
 }));
 
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
+// Serve uploaded files from the persistent upload dir (Render disk in prod,
+// public/uploads locally) — see utils/uploads.js.
+const { uploadDir } = require('./utils/uploads');
+app.use('/uploads', express.static(uploadDir));
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'kca-its-backend' }));

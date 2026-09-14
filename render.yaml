@@ -12,6 +12,9 @@ databases:
   - name: its-db
     databaseName: kca_its
     user: kca_its_user
+    # NOTE: this database was upgraded to a paid compute plan in the Render
+    # dashboard. This "free" value is stale — do NOT let a blueprint re-sync
+    # downgrade the live DB. Prefer making infra changes in the dashboard.
     plan: free
     region: frankfurt          # closest Render region to Bahrain
 
@@ -19,9 +22,16 @@ services:
   - type: web
     name: its-app
     runtime: node
-    plan: free
+    plan: 0.5c-512mb         # cheapest paid tier (~$7/mo): required for a persistent disk, and stops the free-tier 15-min sleep during the event
     region: frankfurt
     branch: feature/step-5-registrations   # the branch Render deploys; change in Render if you merge to main
+    # Persistent disk — uploaded files (logos, payment proofs, notice attachments,
+    # team docs) live here so they SURVIVE redeploys. The free filesystem is wiped
+    # on every deploy, which is why uploads used to come back broken.
+    disk:
+      name: its-uploads
+      mountPath: /var/data
+      sizeGB: 1
     # Build the frontend, then install the backend. A fresh Linux install here
     # pulls the correct native build binaries (unlike a Windows node_modules).
     # --include=dev forces Vite + build tools to install even though NODE_ENV is
@@ -34,6 +44,10 @@ services:
         value: "22"
       - key: NODE_ENV
         value: production
+      # Uploads are written here (on the persistent disk mounted above) instead of
+      # the ephemeral public/uploads folder, so they survive redeploys.
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
       # Auth
       - key: JWT_SECRET
         generateValue: true          # Render generates a strong random secret

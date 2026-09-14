@@ -7,16 +7,15 @@ const multer = require('multer');
 const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { uploadDir } = require('../utils/uploads');
 
 const router = express.Router();
 router.use(authenticate);
 const viewRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
 const editRoles = ['SuperAdmin', 'Admin', 'Chairman'];
 
-// Notice attachment upload — PDF or JPEG/PNG, saved to /public/uploads and served
-// at /uploads/<file>. NOTE: on ephemeral hosts (Render free) this folder is wiped
-// on redeploy; use S3/object storage for go-live.
-const uploadDir = path.join(__dirname, '../../public/uploads');
+// Notice attachment upload — PDF or JPEG/PNG, written to the persistent upload
+// dir (Render disk in prod) and served at /uploads/<file>. See utils/uploads.js.
 const ALLOWED = ['application/pdf', 'image/jpeg', 'image/png'];
 const noticeUpload = multer({
   storage: multer.diskStorage({

@@ -144,8 +144,9 @@ async function resolveAgeGroup(dob, yearId) {
 }
 
 // ── Payment proof uploads (images only, 5 MB) ────────────────────────────────
-const uploadDir = path.join(__dirname, '../../public/uploads');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+// Written to the persistent upload dir (Render disk in prod) so payment proofs
+// and CPR/team document scans survive redeploys. See utils/uploads.js.
+const { uploadDir } = require('../utils/uploads');
 const proofUpload = multer({
   storage: multer.diskStorage({
     destination: uploadDir,
