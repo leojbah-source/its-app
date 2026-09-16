@@ -68,8 +68,9 @@ const payStatusLabel = (s) =>
     : titleCase(s);
 
 /** Single registration-confirmation email (thank-you + all entered details). */
-function registrationConfirmationHtml({ yearLabel, rulesUrl, parent, participant, items, payments, summary }) {
+function registrationConfirmationHtml({ yearLabel, rulesUrl, logoUrl, parent, participant, items, payments, summary }) {
   const rulesHref = rulesUrl ? (/^https?:\/\//.test(rulesUrl) ? rulesUrl : `${SITE}${rulesUrl}`) : null;
+  const logoHref = logoUrl ? (/^https?:\/\//.test(logoUrl) ? logoUrl : `${SITE}${logoUrl}`) : null;
 
   const row = (label, value) => value
     ? `<tr><td style="padding:5px 10px;color:#64748b;white-space:nowrap;vertical-align:top">${esc(label)}</td>
@@ -114,10 +115,18 @@ function registrationConfirmationHtml({ yearLabel, rulesUrl, parent, participant
 
   return `
   <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:auto;color:#1e293b;font-size:14px;line-height:1.5">
+    ${logoHref ? `
+    <div style="border-top:5px solid ${GOLD};background:#ffffff;text-align:center;padding:16px;border:1px solid #e2e8f0;border-bottom:none;border-radius:8px 8px 0 0">
+      <img src="${logoHref}" alt="Indian Talent Scan" width="150" style="width:150px;max-width:60%;height:auto;display:inline-block" />
+    </div>
+    <div style="background:${NAVY};color:#fff;padding:16px 20px">
+      <div style="font-size:18px;font-weight:700">${esc(yearLabel || 'KCA Indian Talent Scan')}</div>
+      <div style="font-size:13px;opacity:.85;margin-top:2px">Registration confirmed</div>
+    </div>` : `
     <div style="border-top:5px solid ${GOLD};background:${NAVY};color:#fff;padding:18px 20px;border-radius:8px 8px 0 0">
       <div style="font-size:18px;font-weight:700">${esc(yearLabel || 'KCA Indian Talent Scan')}</div>
       <div style="font-size:13px;opacity:.85;margin-top:2px">Registration confirmed</div>
-    </div>
+    </div>`}
 
     <div style="border:1px solid #e2e8f0;border-top:none;padding:20px;border-radius:0 0 8px 8px">
       <p style="margin:0 0 12px">

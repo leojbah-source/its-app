@@ -1390,7 +1390,7 @@ router.post('/participant/:id/confirm', authenticate, async (req, res, next) => 
     const { rows: pays } = await pool.query(
       `SELECT amount, method, status FROM payments WHERE participant_id = $1 ORDER BY created_at`, [p.id]);
     const { rows: yl } = await pool.query(
-      `SELECT event_year_label, rules_pdf_url, website_domain FROM year_config WHERE id = $1`, [p.year_id]);
+      `SELECT event_year_label, rules_pdf_url, its_logo_url, website_domain FROM year_config WHERE id = $1`, [p.year_id]);
     const { rows: uRows } = await pool.query(
       `SELECT full_name, email, phone, whatsapp_number, kca_member_no FROM users WHERE id = $1`, [req.user.id]);
     const parent = uRows[0] || {};
@@ -1416,6 +1416,7 @@ router.post('/participant/:id/confirm', authenticate, async (req, res, next) => 
         html: registrationConfirmationHtml({
           yearLabel: yl[0]?.event_year_label,
           rulesUrl: yl[0]?.rules_pdf_url,
+          logoUrl: yl[0]?.its_logo_url,
           parent,
           participant: p,
           items, payments: pays,
