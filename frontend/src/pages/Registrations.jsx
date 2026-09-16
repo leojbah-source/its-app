@@ -99,6 +99,23 @@ export default function Registrations() {
     setViewReg((prev) => (prev ? { ...prev, ...updated } : prev));
   }
 
+  // ── Header/stat counts ─────────────────────────────────────────────────────
+  // "Registrations" = distinct participants (and teams); "Event Registrations"
+  // = active event rows (excludes withdrawn/swapped).
+  const activeRegs = registrations.filter((r) => r.status !== 'withdrawn' && r.status !== 'swapped');
+  const participantCount = new Set(
+    activeRegs.map((r) => (r.participant_id ? `p${r.participant_id}` : `t${r.team_id}`)),
+  ).size;
+  const eventRegCount = activeRegs.length;
+  const attendedCount = registrations.filter((r) => r.status === 'attended').length;
+  const absentCount = registrations.filter((r) => r.status === 'absent').length;
+  const statCards = [
+    { label: 'Registrations', value: participantCount, tone: 'navy', chip: 'participants' },
+    { label: 'Event Registrations', value: eventRegCount, tone: 'navy', chip: 'events' },
+    { label: 'Attended', value: attendedCount, tone: 'success', chip: 'attended' },
+    { label: 'Absent', value: absentCount, tone: 'danger', chip: 'absent' },
+  ];
+
   return (
     <AdminLayout>
     <div className="flex flex-col gap-6">
@@ -108,7 +125,7 @@ export default function Registrations() {
           <h1 className="text-2xl font-bold text-slate-900">Registrations</h1>
           <p className="text-sm text-slate-500 mt-0.5">
             {registrations.length > 0
-              ? `${registrations.filter((r) => r.status === 'registered').length} active registrations`
+              ? `${participantCount} participant${participantCount === 1 ? '' : 's'} · ${eventRegCount} event registration${eventRegCount === 1 ? '' : 's'}`
               : 'Loading…'}
           </p>
         </div>
@@ -151,24 +168,18 @@ export default function Registrations() {
         </div>
       </div>
 
-      {/* Stats row — quick counts from loaded registrations */}
+      {/* Stats row — participants vs event registrations, plus attendance */}
       {!regsLoading && registrations.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-          {['registered', 'attended', 'absent', 'withdrawn', 'swapped'].map((s) => {
-            const count = registrations.filter((r) => r.status === s).length;
-            const tones = { registered: 'navy', attended: 'success', absent: 'danger', withdrawn: 'slate', swapped: 'gold' };
-            return (
-              <div key={s} className="rounded-lg border border-slate-200 bg-white p-4">
-                <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">
-                  {s.charAt(0).toUpperCase() + s.slice(1)}
-                </p>
-                <div className="flex items-center gap-2">
-                  <span className="text-2xl font-bold text-slate-900">{count}</span>
-                  <Badge tone={tones[s]}>{s}</Badge>
-                </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {statCards.map((c) => (
+            <div key={c.label} className="rounded-lg border border-slate-200 bg-white p-4">
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">{c.label}</p>
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold text-slate-900">{c.value}</span>
+                <Badge tone={c.tone}>{c.chip}</Badge>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
 

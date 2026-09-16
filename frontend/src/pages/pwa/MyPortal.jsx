@@ -46,8 +46,8 @@ export default function MyPortal() {
         {err && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
 
         {t && (
-          <div className="mb-4 grid grid-cols-4 gap-2">
-            {[['Rank', t.rank_points], ['Grade', t.grade_points], ['Bonus', t.participation_bonus_pts], ['Total', t.total_points]].map(([label, val]) => (
+          <div className="mb-4 grid grid-cols-3 gap-2">
+            {[['Rank', t.rank_points], ['Grade', t.grade_points], ['Total', t.total_points]].map(([label, val]) => (
               <div key={label} className="rounded-xl border border-slate-200 bg-white px-2 py-3 text-center">
                 <div className="text-lg font-bold text-navy-800">{Number(val || 0).toFixed(1)}</div>
                 <div className="text-[10px] uppercase tracking-wide text-slate-400">{label}</div>
