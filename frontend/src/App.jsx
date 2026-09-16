@@ -24,6 +24,7 @@ import Awards from './pages/Awards';
 import Notices from './pages/Notices';
 import Finance from './pages/Finance';
 import Payments from './pages/Payments';
+import Users from './pages/Users';
 import CertificatesPrint from './pages/CertificatesPrint';
 import JudgeReview from './pages/JudgeReview';
 
@@ -42,10 +43,6 @@ import JudgeApp from './pages/judge/JudgeApp';
 import PublicBoard from './pages/pwa/PublicBoard';
 import PwaLogin from './pages/pwa/PwaLogin';
 import MyPortal from './pages/pwa/MyPortal';
-
-// Organiser roles allowed in the admin operational screens (everyone EXCEPT the
-// day-of MC/Timer roles, who have their own portals at /mc and /timer).
-const ORG_ROLES = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
 
 /** Redirects unauthenticated parents to the portal login. */
 function ParentRoute({ children }) {
@@ -79,27 +76,27 @@ export default function App() {
               <Route path="/admin/login" element={<Login />} />
               <Route
                 path="/admin/config/year"
-                element={<ProtectedRoute allowedRoles={ORG_ROLES}><YearConfig /></ProtectedRoute>}
+                element={<ProtectedRoute><YearConfig /></ProtectedRoute>}
               />
               <Route
                 path="/admin/events"
-                element={<ProtectedRoute allowedRoles={ORG_ROLES}><Events /></ProtectedRoute>}
+                element={<ProtectedRoute><Events /></ProtectedRoute>}
               />
               <Route
                 path="/admin/registrations"
-                element={<ProtectedRoute allowedRoles={ORG_ROLES}><Registrations /></ProtectedRoute>}
+                element={<ProtectedRoute><Registrations /></ProtectedRoute>}
               />
               <Route
                 path="/admin/lists"
-                element={<ProtectedRoute allowedRoles={ORG_ROLES}><Lists /></ProtectedRoute>}
+                element={<ProtectedRoute><Lists /></ProtectedRoute>}
               />
               <Route
                 path="/admin/schedule"
-                element={<ProtectedRoute allowedRoles={ORG_ROLES}><Schedule /></ProtectedRoute>}
+                element={<ProtectedRoute><Schedule /></ProtectedRoute>}
               />
               <Route
                 path="/admin/event-day"
-                element={<ProtectedRoute allowedRoles={ORG_ROLES}><EventDay /></ProtectedRoute>}
+                element={<ProtectedRoute><EventDay /></ProtectedRoute>}
               />
               <Route
                 path="/admin/judging/judges"
@@ -148,6 +145,10 @@ export default function App() {
               <Route
                 path="/admin/payments"
                 element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Coordinator', 'Chairman']}><Payments /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/users"
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin']}><Users /></ProtectedRoute>}
               />
               <Route path="/admin/judges" element={<Navigate to="/admin/judging/judges" replace />} />
               <Route path="/admin" element={<Navigate to="/admin/config/year" replace />} />

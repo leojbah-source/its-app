@@ -28,6 +28,7 @@ const publicRoutes = require('./routes/public.routes');
 const pwaRoutes = require('./routes/pwa.routes');
 const adminNoticesRoutes = require('./routes/admin.notices.routes');
 const adminPrintoutsRoutes = require('./routes/admin.printouts.routes');
+const adminUsersRoutes = require('./routes/admin.users.routes');
 const path = require('path');
 
 const app = express();
@@ -82,6 +83,7 @@ app.use('/api/admin/printouts', adminPrintoutsRoutes);
 // --- Judge ---
 app.use('/api/judge', judgeRoutes);
 app.use('/api/admin/event-staff', adminEventStaffRoutes);
+app.use('/api/admin/users', adminUsersRoutes);
 app.use('/api/mc', mcRoutes);
 app.use('/api/timer', timerRoutes);
 

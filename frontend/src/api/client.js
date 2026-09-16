@@ -313,6 +313,12 @@ export const eventStaffApi = {
   unassign: (token, role, assignmentId) => request(`/api/admin/event-staff/assign/${role}/${assignmentId}`, { method: 'DELETE', token }),
 };
 
+export const usersApi = {
+  list: (token) => request('/api/admin/users', { token }),
+  create: (token, body) => request('/api/admin/users', { method: 'POST', token, body }),
+  update: (token, id, body) => request(`/api/admin/users/${id}`, { method: 'PATCH', token, body }),
+};
+
 export const resultsApi = {
   groups: (token, eventId) => request(`/api/admin/results/${eventId}/groups`, { token }),
   get: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}`, { token }),
