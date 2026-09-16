@@ -45,7 +45,6 @@ export default function PaymentSection({ token, participantId, config, refreshKe
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [submitted, setSubmitted] = useState(false);
-  const [emailSent, setEmailSent] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,7 +102,6 @@ export default function PaymentSection({ token, participantId, config, refreshKe
       const result = await portalApi.paymentSubmit(token, participantId, {
         amount: amt, method, reference: reference.trim() || undefined, proof_url: proofUrl || undefined,
       });
-      setEmailSent(Boolean(result?.email_sent));
       setSubmitted(true);
       setShowForm(false);
       setProofUrl(''); setReference('');
@@ -214,10 +212,9 @@ export default function PaymentSection({ token, participantId, config, refreshKe
 
         {submitted && (
           <p className="px-4 py-2.5 text-xs font-medium text-emerald-700 bg-emerald-50 border-t border-emerald-100">
-            Payment submitted! You will receive a WhatsApp confirmation once KCA verifies it.
-            {emailSent
-              ? ' A registration summary email with all your details has been sent to you.'
-              : ''}
+            Payment recorded — it will be confirmed by KCA once verified. Now tap
+            “Complete Registration” below to finish; your confirmation email with all
+            the details will be sent then.
           </p>
         )}
 

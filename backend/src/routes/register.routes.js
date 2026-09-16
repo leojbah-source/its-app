@@ -24,7 +24,7 @@ const fs = require('fs');
 const pool = require('../db');
 const { verifyMembership } = require('../services/membership');
 const { sendWhatsApp } = require('../utils/notify');
-const { sendEmail, registrationSummaryHtml } = require('../utils/email');
+const { sendEmail, registrationConfirmationHtml } = require('../utils/email');
 const { logAudit } = require('../utils/audit');
 const { authenticate } = require('../middleware/auth');
 
@@ -998,43 +998,9 @@ router.post('/participant/:id/payment', authenticate, async (req, res, next) => 
       action: 'SUBMIT_PAYMENT', entity: 'payments', entityId: rows[0].id,
       details: { participant_id: p.id, amount, method } });
 
-    // Registration summary email to the parent (all collected details)
-    let email_sent = false;
-    try {
-      const { rows: uRows } = await pool.query(`SELECT email FROM users WHERE id = $1`, [req.user.id]);
-      const parentEmail = uRows[0]?.email;
-      if (parentEmail) {
-        const { rows: pFull } = await pool.query(
-          `SELECT p.full_name, p.cpr_number, ag.label AS age_group_label
-           FROM participants p LEFT JOIN age_groups ag ON ag.id = p.age_group_id
-           WHERE p.id = $1`, [p.id]);
-        const { rows: items } = await pool.query(
-          `SELECT e.event_code, e.event_name, r.fee_amount
-           FROM registrations r JOIN events e ON e.id = r.event_id
-           WHERE r.participant_id = $1 AND r.status NOT IN ('withdrawn','swapped')
-           ORDER BY e.event_code`, [p.id]);
-        const { rows: pays } = await pool.query(
-          `SELECT amount, method, status FROM payments WHERE participant_id = $1 ORDER BY created_at`, [p.id]);
-        const { rows: yl } = await pool.query(
-          `SELECT event_year_label FROM year_config WHERE id = $1`, [p.year_id]);
-        const feesTotal = items.reduce((t, r) => t + Number(r.fee_amount || 0), 0);
-        const paidConfirmed = pays.filter((x) => x.status === 'confirmed')
-          .reduce((t, x) => t + Number(x.amount), 0);
-        const result = await sendEmail({
-          to: parentEmail,
-          subject: `${yl[0]?.event_year_label || 'KCA ITS'} — Registration summary for ${pFull[0].full_name}`,
-          html: registrationSummaryHtml({
-            yearLabel: yl[0]?.event_year_label,
-            participant: pFull[0],
-            items, payments: pays,
-            summary: { fees_total: feesTotal, balance_due: feesTotal - paidConfirmed },
-          }),
-        });
-        email_sent = result.sent;
-      }
-    } catch (e) { console.error('summary email failed:', e.message); }
-
-    res.status(201).json({ ...rows[0], email_sent });
+    // No email here — the single confirmation email is sent only when the parent
+    // completes the registration (POST /participant/:id/confirm).
+    res.status(201).json(rows[0]);
   } catch (err) { next(err); }
 });
 
@@ -1403,9 +1369,12 @@ router.get('/team/:id/documents', authenticate, async (req, res, next) => {
 router.post('/participant/:id/confirm', authenticate, async (req, res, next) => {
   try {
     const { rows: pRows } = await pool.query(
-      `SELECT p.id, p.year_id, p.full_name, p.cpr_number, p.guardian_phone,
-              ag.label AS age_group_label
-       FROM participants p LEFT JOIN age_groups ag ON ag.id = p.age_group_id
+      `SELECT p.id, p.year_id, p.full_name, p.cpr_number, p.dob, p.gender,
+              p.guardian_name, p.guardian_phone,
+              ag.label AS age_group_label, s.name AS school_name
+       FROM participants p
+       LEFT JOIN age_groups ag ON ag.id = p.age_group_id
+       LEFT JOIN schools s ON s.id = p.school_id
        WHERE p.id = $1`, [req.params.id]);
     const p = pRows[0];
     if (!p) return res.status(404).json({ error: 'Participant not found' });
@@ -1421,8 +1390,10 @@ router.post('/participant/:id/confirm', authenticate, async (req, res, next) => 
     const { rows: pays } = await pool.query(
       `SELECT amount, method, status FROM payments WHERE participant_id = $1 ORDER BY created_at`, [p.id]);
     const { rows: yl } = await pool.query(
-      `SELECT event_year_label FROM year_config WHERE id = $1`, [p.year_id]);
-    const { rows: uRows } = await pool.query(`SELECT email FROM users WHERE id = $1`, [req.user.id]);
+      `SELECT event_year_label, rules_pdf_url, website_domain FROM year_config WHERE id = $1`, [p.year_id]);
+    const { rows: uRows } = await pool.query(
+      `SELECT full_name, email, phone, whatsapp_number, kca_member_no FROM users WHERE id = $1`, [req.user.id]);
+    const parent = uRows[0] || {};
 
     const feesTotal = items.reduce((t, r) => t + Number(r.fee_amount || 0), 0);
     const paidConfirmed = pays.filter((x) => x.status === 'confirmed')
@@ -1438,15 +1409,17 @@ router.post('/participant/:id/confirm', authenticate, async (req, res, next) => 
     }
 
     let email_sent = false;
-    if (uRows[0]?.email) {
+    if (parent.email) {
       const result = await sendEmail({
-        to: uRows[0].email,
+        to: parent.email,
         subject: `${yl[0]?.event_year_label || 'KCA ITS'} — Registration confirmed for ${p.full_name}`,
-        html: registrationSummaryHtml({
+        html: registrationConfirmationHtml({
           yearLabel: yl[0]?.event_year_label,
+          rulesUrl: yl[0]?.rules_pdf_url,
+          parent,
           participant: p,
           items, payments: pays,
-          summary: { fees_total: feesTotal, balance_due: feesTotal - paidConfirmed },
+          summary: { fees_total: feesTotal, paid_confirmed: paidConfirmed, balance_due: feesTotal - paidConfirmed },
         }),
       });
       email_sent = result.sent;
