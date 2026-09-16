@@ -50,6 +50,7 @@ export function defaultYearConfig(year) {
   kca_logo:       { url: null, name: null },
   sponsor_logo:   { url: null, name: null },
   result_template:{ url: null, name: null },
+  rules_pdf:      { url: null, name: null },
 },
 };
 }
@@ -138,6 +139,7 @@ export function mergeYearConfig(year, incoming) {
   kca_logo:       { url: incoming.kca_logo_url        || null, name: null },
   sponsor_logo:   { url: incoming.sponsor_logo_url    || null, name: null },
   result_template:{ url: incoming.result_template_url || null, name: null },
+  rules_pdf:      { url: incoming.rules_pdf_url       || null, name: null },
     },
   };
 }

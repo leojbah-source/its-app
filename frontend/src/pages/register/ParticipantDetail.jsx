@@ -11,10 +11,14 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   CheckSquare, Square, Clock, AlertCircle, CheckCircle2, Save, BanknoteIcon,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, FileText, Smartphone, ExternalLink,
 } from 'lucide-react';
 import { useParentAuth } from '../../context/ParentAuthContext';
-import { portalApi } from './registerApi';
+import { portalApi, API_BASE } from './registerApi';
+
+const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
+const PWA_BOARD_URL = 'https://talentscan.kcabah.com/pwa';
+const PWA_LOGIN_URL = 'https://talentscan.kcabah.com/pwa/login';
 import RegisterLayout from './RegisterLayout';
 import PaymentSection from './PaymentSection';
 import CprScanner from './CprScanner';
@@ -151,6 +155,7 @@ export default function ParticipantDetail() {
   const [fixMsg, setFixMsg] = useState('');
 
   // Final confirmation state
+  const [agreed, setAgreed] = useState(false); // must accept rules before confirming
   const [confirming, setConfirming] = useState(false);
   const [confirmResult, setConfirmResult] = useState(null); // {events, email_sent}
   const [balanceDue, setBalanceDue] = useState(null); // null = unknown, gate confirm when > 0
@@ -711,12 +716,62 @@ export default function ParticipantDetail() {
                   You can return to this page to make changes until the registration deadline.
                 </p>
               </div>
-            ) : (
+            ) : null}
+
+            {confirmResult && (
+              <div className="mt-3 rounded-2xl bg-navy-50 border border-navy-200 p-5 space-y-2">
+                <p className="flex items-center gap-2 font-semibold text-navy-800">
+                  <Smartphone size={18} /> Stay updated on your phone
+                </p>
+                <p className="text-sm text-navy-700">
+                  Use the Talent Scan app to follow the schedule, get updates, and see
+                  {' '}{participant?.full_name?.split(' ')[0] || 'your child'}&apos;s results as they are published.
+                </p>
+                <div className="flex flex-col gap-2 pt-1 sm:flex-row">
+                  <a href={PWA_LOGIN_URL} target="_blank" rel="noreferrer"
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-navy-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-navy-800 transition-colors">
+                    My results & schedule <ExternalLink size={15} />
+                  </a>
+                  <a href={PWA_BOARD_URL} target="_blank" rel="noreferrer"
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-navy-300 px-4 py-2.5 text-sm font-semibold text-navy-700 hover:bg-navy-100 transition-colors">
+                    Public results board <ExternalLink size={15} />
+                  </a>
+                </div>
+                <p className="text-xs text-navy-400">
+                  Sign in with your child&apos;s CPR number. Tip: add the page to your home screen for quick access.
+                </p>
+              </div>
+            )}
+
+            {!confirmResult && (
               <div className="space-y-2">
                 {confirmError && <Alert variant="danger">{confirmError}</Alert>}
+
+                {/* Agreement to the General Rules & Regulations (§ required before submit) */}
+                <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={agreed}
+                    onChange={(e) => setAgreed(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span className="text-sm text-slate-600">
+                    I have read and agree to the{' '}
+                    {asset(config?.rules_pdf_url) ? (
+                      <a href={asset(config.rules_pdf_url)} target="_blank" rel="noreferrer"
+                        className="inline-flex items-center gap-1 font-semibold text-navy-700 hover:underline">
+                        General Rules &amp; Regulations <FileText size={13} />
+                      </a>
+                    ) : (
+                      <span className="font-semibold text-navy-700">General Rules &amp; Regulations</span>
+                    )}
+                    {' '}published by KCA.
+                  </span>
+                </label>
+
                 <button
                   onClick={handleConfirmRegistration}
-                  disabled={confirming || isDirty || (balanceDue != null && balanceDue > 0)}
+                  disabled={confirming || isDirty || !agreed || (balanceDue != null && balanceDue > 0)}
                   className="w-full rounded-xl bg-emerald-600 py-4 text-base font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
                 >
                   {confirming ? 'Confirming…' : 'Complete Registration ✓'}
@@ -726,7 +781,9 @@ export default function ParticipantDetail() {
                     ? 'Save your event selection first, then complete the registration.'
                     : (balanceDue != null && balanceDue > 0)
                       ? 'Make the payment above first — registration completes once payment is submitted.'
-                      : 'Confirms your registration and emails you the full summary.'}
+                      : !agreed
+                        ? 'Please tick the box above to agree to the rules before completing.'
+                        : 'Confirms your registration and emails you the full summary.'}
                 </p>
               </div>
             )}

@@ -4,10 +4,12 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, UserPlus, CalendarDays, Sparkles } from 'lucide-react';
+import { LogIn, UserPlus, CalendarDays, Sparkles, FileText } from 'lucide-react';
 import { useParentAuth } from '../../context/ParentAuthContext';
-import { portalApi } from './registerApi';
+import { portalApi, API_BASE } from './registerApi';
 import BrandMark from '../../components/ui/BrandMark';
+
+const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
 
 export default function Landing() {
   const { isAuthenticated } = useParentAuth();
@@ -83,8 +85,22 @@ export default function Landing() {
         </button>
       </div>
 
+      {/* Rules & Regulations — read before registering */}
+      {asset(config?.rules_pdf_url) && (
+        <a
+          href={asset(config.rules_pdf_url)}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-8 inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/15 active:bg-white/20 transition-all"
+        >
+          <FileText size={16} />
+          Read the Rules &amp; Regulations
+        </a>
+      )}
+
       <p className="mt-10 text-xs text-navy-400 text-center max-w-xs leading-relaxed">
         Create an account to register your child for events in the Indian Talent Scan competition hosted by KCA Bahrain.
+        Please read the Rules &amp; Regulations before you begin.
       </p>
     </div>
   );

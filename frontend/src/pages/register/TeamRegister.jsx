@@ -5,11 +5,14 @@
 // member's DOB validated against the event's eligible age groups.
 
 import { useEffect, useState, useCallback } from 'react';
-import { Users, Plus, Trash2, Clock, CheckCircle2, Upload, Search, Camera } from 'lucide-react';
+import { Users, Plus, Trash2, Clock, CheckCircle2, Upload, Search, Camera, FileText } from 'lucide-react';
 import { useParentAuth } from '../../context/ParentAuthContext';
 import { portalApi, API_BASE } from './registerApi';
+import { isBahrainPhone } from '../../utils/phone';
 import RegisterLayout from './RegisterLayout';
 import CprScanner from './CprScanner';
+
+const assetUrl = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
 
 /** Purpose notice shown wherever teacher names are collected. */
 export const TEACHER_PURPOSE_NOTE =
@@ -377,6 +380,7 @@ export default function TeamRegister() {
   const [captainPhone, setCaptainPhone] = useState('');
   const [teacherName, setTeacherName] = useState('');
   const [members, setMembers] = useState([emptyMember()]);
+  const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [created, setCreated] = useState(null);
@@ -405,8 +409,12 @@ export default function TeamRegister() {
   async function handleCreate() {
     setError('');
     if (!eventId || !teamName.trim()) { setError('Choose the event and enter a team name.'); return; }
+    if (captainPhone.trim() && !isBahrainPhone(captainPhone)) {
+      setError("Captain's contact number must be a valid Bahrain number (8 digits)."); return;
+    }
     const valid = members.filter((m) => m.full_name && m.dob && m.cpr_number);
     if (!valid.length) { setError('Enter at least one member (name, DOB, CPR) — you can add the rest later.'); return; }
+    if (!agreed) { setError('Please agree to the General Rules & Regulations before registering.'); return; }
     setBusy(true);
     try {
       const r = await portalApi.teamCreate(token, {
@@ -417,7 +425,7 @@ export default function TeamRegister() {
       setCreated(r);
       setShowForm(false);
       setEventId(''); setTeamName(''); setCaptainPhone(''); setTeacherName('');
-      setMembers([emptyMember()]);
+      setMembers([emptyMember()]); setAgreed(false);
       load();
     } catch (err) { setError(err.message || 'Could not register the team.'); }
     finally { setBusy(false); }
@@ -505,7 +513,8 @@ export default function TeamRegister() {
                 </label>
                 <input type="tel" value={captainPhone}
                   onChange={(e) => setCaptainPhone(e.target.value)}
-                  placeholder="+973 3XXX XXXX" className={inputCls} />
+                  placeholder="3XXX XXXX" className={inputCls} />
+                <p className="text-[11px] text-slate-400 mt-1">Bahrain number — 8 digits.</p>
               </div>
 
               {needsTeacher && (
@@ -528,6 +537,25 @@ export default function TeamRegister() {
                   max={10} token={token} firstIsCaptain />
               </div>
 
+              {/* Agreement to the General Rules & Regulations */}
+              <label className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 cursor-pointer">
+                <input type="checkbox" checked={agreed}
+                  onChange={(e) => setAgreed(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-navy-600 focus:ring-navy-500" />
+                <span className="text-xs text-slate-600">
+                  I have read and agree to the{' '}
+                  {assetUrl(config?.rules_pdf_url) ? (
+                    <a href={assetUrl(config.rules_pdf_url)} target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1 font-semibold text-navy-700 hover:underline">
+                      General Rules &amp; Regulations <FileText size={12} />
+                    </a>
+                  ) : (
+                    <span className="font-semibold text-navy-700">General Rules &amp; Regulations</span>
+                  )}
+                  {' '}published by KCA.
+                </span>
+              </label>
+
               {error && (
                 <p className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{error}</p>
               )}
@@ -537,7 +565,7 @@ export default function TeamRegister() {
                   className="flex-1 rounded-xl border border-slate-300 py-3 text-sm font-medium text-slate-600">
                   Cancel
                 </button>
-                <button onClick={handleCreate} disabled={busy}
+                <button onClick={handleCreate} disabled={busy || !agreed}
                   className="flex-1 rounded-xl bg-navy-700 py-3 text-sm font-semibold text-white hover:bg-navy-800 disabled:opacity-60">
                   {busy ? 'Registering…' : 'Register Team'}
                 </button>

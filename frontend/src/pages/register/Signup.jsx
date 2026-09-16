@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { useParentAuth } from '../../context/ParentAuthContext';
+import { isBahrainPhone, isIntlPhone } from '../../utils/phone';
 import RegisterLayout from './RegisterLayout';
 
 export default function Signup() {
@@ -30,6 +31,14 @@ export default function Signup() {
     }
     if (form.password.length < 6) {
       setError('Password must be at least 6 characters.');
+      return;
+    }
+    if (form.phone.trim() && !isBahrainPhone(form.phone)) {
+      setError('Contact number must be a valid Bahrain number (8 digits).');
+      return;
+    }
+    if (!isIntlPhone(form.whatsapp_number)) {
+      setError('Enter a valid WhatsApp number including the country code (e.g. +973…).');
       return;
     }
     setLoading(true);
@@ -97,8 +106,9 @@ export default function Signup() {
             value={form.phone}
             onChange={set('phone')}
             className={inputClass}
-            placeholder="+973 3XXX XXXX"
+            placeholder="3XXX XXXX"
           />
+          <p className="text-xs text-slate-400 mt-1">Bahrain number — 8 digits.</p>
         </div>
 
         {/* WhatsApp */}
@@ -115,7 +125,8 @@ export default function Signup() {
             placeholder="+973 3XXX XXXX"
           />
           <p className="text-xs text-slate-400 mt-1">
-            Schedule updates and confirmations are sent on WhatsApp.
+            Include the country code (e.g. +973 for Bahrain). Schedule updates and
+            confirmations are sent on WhatsApp — it can be any country's number.
           </p>
         </div>
 

@@ -69,6 +69,26 @@ export default function BrandingCard({ config, onChange, onUpload, uploadingFiel
         />
       </div>
 
+      <div className="mt-6 border-t border-slate-100 pt-6">
+        <p className="mb-1 text-sm font-medium text-slate-700">Participant documents</p>
+        <p className="mb-4 text-xs text-slate-500">
+          The General Rules &amp; Regulations PDF parents see on the registration
+          landing page and must agree to before completing a registration. Upload a
+          new file here anytime to replace it — no redeploy needed.
+        </p>
+        <div className="grid gap-6 sm:grid-cols-2">
+          <AssetSlot
+            field="rules_pdf"
+            label="General Rules & Regulations (PDF)"
+            accept=".pdf"
+            hint="PDF, max 10 MB — shown to parents & linked in the agreement"
+            asset={config.assets.rules_pdf}
+            uploading={uploadingField === 'rules_pdf'}
+            onUpload={onUpload}
+          />
+        </div>
+      </div>
+
     </Card>
   );
 }

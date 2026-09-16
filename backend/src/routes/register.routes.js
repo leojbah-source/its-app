@@ -45,6 +45,27 @@ async function getActiveYear(clientOrPool) {
 /** BHD uses 3 decimal places. */
 const round3 = (x) => Math.round(Number(x) * 1000) / 1000;
 
+// ── Phone validation ──────────────────────────────────────────────────────────
+// Contact numbers (parent phone, guardian phone, team captain) are Bahrain
+// numbers: exactly 8 digits, ignoring spaces and an optional +973 / 00973
+// country code. WhatsApp numbers may be from any country, so they are only
+// checked for a sane international length (8–15 digits, optional leading +).
+const onlyDigits = (s) => String(s ?? '').replace(/\D/g, '');
+/** Strip an optional Bahrain country code and return the local digits. */
+function bahrainLocal(raw) {
+  let d = onlyDigits(raw);
+  if (d.startsWith('00973')) d = d.slice(5);
+  else if (d.length === 11 && d.startsWith('973')) d = d.slice(3);
+  return d;
+}
+/** True when `raw` is a valid Bahrain contact number (8 local digits). */
+const isBahrainPhone = (raw) => bahrainLocal(raw).length === 8;
+/** True when `raw` is a plausible international number (8–15 digits). */
+function isIntlPhone(raw) {
+  const d = onlyDigits(raw);
+  return d.length >= 8 && d.length <= 15;
+}
+
 /** Fee for one event: member rate when KCA membership is verified active. */
 function eventFee(ev, memberActive) {
   const std = Number(ev.fee_amount || 0);
@@ -183,7 +204,7 @@ router.get('/config', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, max_individual_events, reg_deadline, team_reg_deadline, teacher_name_deadline,
-              benefit_pay_number, kca_iban
+              benefit_pay_number, kca_iban, rules_pdf_url
        FROM year_config WHERE is_active = TRUE LIMIT 1`,
     );
     if (!rows[0]) return res.status(404).json({ error: 'No active year configured' });
@@ -256,6 +277,10 @@ router.post('/account', async (req, res, next) => {
     const { email, password, full_name, phone, whatsapp_number, kca_member_no } = req.body;
     if (!email || !password || !full_name)
       return res.status(400).json({ error: 'email, password and full_name are required' });
+    if (phone && !isBahrainPhone(phone))
+      return res.status(400).json({ error: 'Contact number must be a valid Bahrain number (8 digits).' });
+    if (whatsapp_number && !isIntlPhone(whatsapp_number))
+      return res.status(400).json({ error: 'Enter a valid WhatsApp number including country code.' });
 
     const existing = await pool.query(
       `SELECT id FROM users WHERE email = $1`, [email.toLowerCase()],
@@ -293,6 +318,8 @@ router.post('/participant', authenticate, async (req, res, next) => {
       return res.status(400).json({ error: 'cpr_number, full_name, dob and gender are required' });
     if (!['M', 'F'].includes(gender))
       return res.status(400).json({ error: 'gender must be M (male) or F (female)' });
+    if (guardian_phone && !isBahrainPhone(guardian_phone))
+      return res.status(400).json({ error: 'Guardian contact number must be a valid Bahrain number (8 digits).' });
 
     // CPR prefix must match the date of birth (YYMM#####, leading 0 may drop)
     const cprErr = cprDobMismatch(cpr_number, dob);
@@ -1089,6 +1116,10 @@ router.post('/team', authenticate, async (req, res, next) => {
     if (!event_id || !team_name?.trim() || (members.length === 0 && participant_ids.length === 0)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'event_id, team_name and at least one member (the Team Captain) are required' });
+    }
+    if (captain_phone && !isBahrainPhone(captain_phone)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: "Captain's contact number must be a valid Bahrain number (8 digits)." });
     }
 
     const cfg = await getActiveYear(client);
