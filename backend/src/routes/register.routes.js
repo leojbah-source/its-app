@@ -1408,6 +1408,12 @@ router.post('/participant/:id/confirm', authenticate, async (req, res, next) => 
       });
     }
 
+    // Mark the registration complete — this is what makes it appear in the
+    // admin Registrations list (started-but-unpaid entries stay hidden).
+    await pool.query(
+      `UPDATE participants SET confirmed_at = COALESCE(confirmed_at, NOW()), updated_at = NOW() WHERE id = $1`,
+      [p.id]);
+
     let email_sent = false;
     if (parent.email) {
       const result = await sendEmail({

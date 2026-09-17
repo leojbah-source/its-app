@@ -51,8 +51,10 @@ router.get('/registrations/summary', requireRole(...staffRoles), async (req, res
          COUNT(r.id) FILTER (WHERE r.status = 'withdrawn')             AS withdrawn
        FROM registrations r
        JOIN events e ON e.id = r.event_id
+       LEFT JOIN participants p ON p.id = r.participant_id
        LEFT JOIN age_groups ag ON ag.id = r.age_group_id
        WHERE r.year_id = $1
+         AND (p.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
        GROUP BY e.id, e.event_name, e.event_code, e.event_kind,
                 ag.code, ag.label, ag.sort_order
        ORDER BY e.event_name, ag.sort_order`,
@@ -111,6 +113,8 @@ router.get('/registrations/export', requireRole(...staffRoles), async (req, res,
        LEFT JOIN age_groups pag ON pag.id = p.age_group_id
        JOIN events e ON e.id = r.event_id
        WHERE ($1::int IS NULL OR r.year_id = $1)
+         -- Completed registrations only (parent finished the flow), plus team entries.
+         AND (p.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
        GROUP BY p.id, t.id, p.full_name, t.team_name, entry_type,
                 p.cpr_number, p.gender, p.dob, pag.code, s.name,
                 pu.full_name, pu.email, pu.phone, pu.whatsapp_number,
@@ -163,6 +167,7 @@ router.get('/participants', requireRole(...staffRoles), async (req, res, next) =
        LEFT JOIN age_groups ag ON ag.id = p.age_group_id
        LEFT JOIN registrations r ON r.participant_id = p.id
        WHERE ($1::int IS NULL OR p.year_id = $1)
+         AND p.confirmed_at IS NOT NULL   -- completed registrations only
          AND ($2::text IS NULL OR p.full_name ILIKE '%' || $2 || '%'
               OR p.cpr_number = $2)
          AND ($3::int IS NULL OR p.school_id = $3)
@@ -194,7 +199,7 @@ router.get('/registrations', requireRole(...staffRoles), async (req, res, next) 
          r.age_group_id, r.category_id, r.status,
          r.dance_teacher, r.music_teacher, r.registered_at, r.updated_at,
          p.full_name AS participant_name, p.cpr_number, p.gender, p.dob,
-         p.cpr_verified_method, p.admin_verified_status,
+         p.cpr_verified_method, p.admin_verified_status, p.confirmed_at,
          (SELECT string_agg(DISTINCT pay.method::text, ',')
           FROM payments pay
           WHERE (r.participant_id IS NOT NULL AND pay.participant_id = r.participant_id)

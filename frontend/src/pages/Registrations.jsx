@@ -28,6 +28,7 @@ export default function Registrations() {
   const { token } = useAuth();
   const [regTab, setRegTab] = useTabState('individual');
   const [activeTab, setActiveTab] = useState('registrations');
+  const [completion, setCompletion] = useState('completed'); // completed | incomplete | all
 
   // ── Registrations tab state
   const [registrations, setRegistrations] = useState([]);
@@ -99,16 +100,26 @@ export default function Registrations() {
     setViewReg((prev) => (prev ? { ...prev, ...updated } : prev));
   }
 
+  // A registration is "completed" once the parent clicked Complete Registration
+  // (participants.confirmed_at is set then). Team entries go through their own
+  // deliberate create+pay flow, so they always count as completed here.
+  const isCompleted = (r) => (r.team_id ? true : r.confirmed_at != null);
+  const completedCount = registrations.filter(isCompleted).length;
+  const incompleteCount = registrations.length - completedCount;
+  const visibleRegs = completion === 'all'
+    ? registrations
+    : registrations.filter((r) => (completion === 'completed' ? isCompleted(r) : !isCompleted(r)));
+
   // ── Header/stat counts ─────────────────────────────────────────────────────
   // "Registrations" = distinct participants (and teams); "Event Registrations"
-  // = active event rows (excludes withdrawn/swapped).
-  const activeRegs = registrations.filter((r) => r.status !== 'withdrawn' && r.status !== 'swapped');
+  // = active event rows (excludes withdrawn/swapped). Reflects the current view.
+  const activeRegs = visibleRegs.filter((r) => r.status !== 'withdrawn' && r.status !== 'swapped');
   const participantCount = new Set(
     activeRegs.map((r) => (r.participant_id ? `p${r.participant_id}` : `t${r.team_id}`)),
   ).size;
   const eventRegCount = activeRegs.length;
-  const attendedCount = registrations.filter((r) => r.status === 'attended').length;
-  const absentCount = registrations.filter((r) => r.status === 'absent').length;
+  const attendedCount = visibleRegs.filter((r) => r.status === 'attended').length;
+  const absentCount = visibleRegs.filter((r) => r.status === 'absent').length;
   const statCards = [
     { label: 'Registrations', value: participantCount, tone: 'navy', chip: 'participants' },
     { label: 'Event Registrations', value: eventRegCount, tone: 'navy', chip: 'events' },
@@ -168,6 +179,35 @@ export default function Registrations() {
         </div>
       </div>
 
+      {/* Completion filter — default to finished registrations only */}
+      {!regsLoading && registrations.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-slate-600">Show</span>
+          <div className="flex rounded-lg border border-slate-300 overflow-hidden text-sm font-medium">
+            {[
+              ['completed', `Completed (${completedCount})`],
+              ['incomplete', `In progress (${incompleteCount})`],
+              ['all', `All (${registrations.length})`],
+            ].map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setCompletion(k)}
+                className={`px-3 py-1.5 transition-colors ${
+                  completion === k ? 'bg-navy-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {completion === 'incomplete' && (
+            <span className="text-xs text-slate-400">
+              These parents started but haven't completed payment &amp; the final step — useful for follow-up.
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Stats row — participants vs event registrations, plus attendance */}
       {!regsLoading && registrations.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -226,16 +266,16 @@ export default function Registrations() {
                 }`}
               >
                 {label} ({k === 'individual'
-                  ? registrations.filter((r) => r.participant_id).length
-                  : registrations.filter((r) => r.team_id).length})
+                  ? visibleRegs.filter((r) => r.participant_id).length
+                  : visibleRegs.filter((r) => r.team_id).length})
               </button>
             ))}
           </div>
           <RegistrationsTable
-            key={regTab}
+            key={regTab + completion}
             registrations={regTab === 'individual'
-              ? registrations.filter((r) => r.participant_id)
-              : registrations.filter((r) => r.team_id)}
+              ? visibleRegs.filter((r) => r.participant_id)
+              : visibleRegs.filter((r) => r.team_id)}
             onView={setViewReg}
           />
           </>
