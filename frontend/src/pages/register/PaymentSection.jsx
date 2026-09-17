@@ -251,10 +251,11 @@ export default function PaymentSection({ token, participantId, config, refreshKe
             </div>
 
             {/* Method-specific instructions from year config */}
-            {method === 'benefitpay' && config?.benefit_pay_number && (
+            {method === 'benefitpay' && (
               <p className="text-xs text-slate-600 bg-slate-50 rounded-lg px-3 py-2">
-                Send to KCA BenefitPay <b>{config.benefit_pay_number}</b>. Include your child's
-                name and this number in the transaction notes, then upload the screenshot below.
+                Make BenefitPay to KCA IBAN <b>{config?.kca_iban || 'BH68SBIN02701438520001'}</b>.
+                Include your child's name and mobile number in the detail, then upload the
+                confirmation screenshot below.
               </p>
             )}
             {method === 'bank_transfer' && config?.kca_iban && (
