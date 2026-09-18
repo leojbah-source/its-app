@@ -104,8 +104,12 @@ export default function Registrations() {
   // (participants.confirmed_at is set then). Team entries go through their own
   // deliberate create+pay flow, so they always count as completed here.
   const isCompleted = (r) => (r.team_id ? true : r.confirmed_at != null);
-  const completedCount = registrations.filter(isCompleted).length;
-  const incompleteCount = registrations.length - completedCount;
+  // Toggle counts are by PARTICIPANT (distinct child/team), not by event row.
+  const countParticipants = (rows) =>
+    new Set(rows.map((r) => (r.participant_id ? `p${r.participant_id}` : `t${r.team_id}`))).size;
+  const completedCount = countParticipants(registrations.filter(isCompleted));
+  const incompleteCount = countParticipants(registrations.filter((r) => !isCompleted(r)));
+  const allParticipantCount = countParticipants(registrations);
   const visibleRegs = completion === 'all'
     ? registrations
     : registrations.filter((r) => (completion === 'completed' ? isCompleted(r) : !isCompleted(r)));
@@ -187,7 +191,7 @@ export default function Registrations() {
             {[
               ['completed', `Completed (${completedCount})`],
               ['incomplete', `In progress (${incompleteCount})`],
-              ['all', `All (${registrations.length})`],
+              ['all', `All (${allParticipantCount})`],
             ].map(([k, label]) => (
               <button
                 key={k}
