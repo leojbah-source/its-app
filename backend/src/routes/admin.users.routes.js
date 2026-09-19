@@ -20,8 +20,8 @@ const router = express.Router();
 router.use(authenticate);
 
 const MANAGE_ROLES = ['SuperAdmin', 'Admin'];          // who can open this screen
-const STAFF_ROLES  = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman']; // shown here
-const ASSIGNABLE   = ['Admin', 'Coordinator', 'Chairman'];               // pickable in UI
+const STAFF_ROLES  = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Registrar', 'Accountant']; // shown here
+const ASSIGNABLE   = ['Admin', 'Coordinator', 'Chairman', 'Registrar', 'Accountant'];               // pickable in UI
 
 const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || ''));
 

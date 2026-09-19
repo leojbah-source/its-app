@@ -25,8 +25,8 @@ const { sendEmail } = require('../utils/email');
 const router = express.Router();
 router.use(authenticate);
 
-const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
-const editRoles  = ['SuperAdmin', 'Admin', 'Coordinator'];
+const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Registrar'];
+const editRoles  = ['SuperAdmin', 'Admin', 'Coordinator', 'Registrar'];
 
 // ── IMPORTANT: static paths must come before /:id ────────────────────────────
 

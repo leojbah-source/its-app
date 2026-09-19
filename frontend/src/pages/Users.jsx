@@ -17,6 +17,8 @@ const ROLE_NOTE = {
   Admin: 'Full access to every screen.',
   Coordinator: 'View registrations, confirm payments, edit entries.',
   Chairman: 'View registrations and confirm payments.',
+  Registrar: 'Registrations only — verify CPR/DOB and confirm KCA-office (cash) payments.',
+  Accountant: 'Payments & Finance only — verify BenefitPay/bank payments and add finance entries.',
 };
 
 const selectCls =
@@ -27,7 +29,9 @@ export default function Users() {
   const { showToast } = useToast();
   const isSuper = user?.role === 'SuperAdmin';
   // Admin can assign Coordinator/Chairman; only SuperAdmin can assign Admin.
-  const assignableRoles = isSuper ? ['Admin', 'Coordinator', 'Chairman'] : ['Coordinator', 'Chairman'];
+  const assignableRoles = isSuper
+    ? ['Admin', 'Coordinator', 'Chairman', 'Registrar', 'Accountant']
+    : ['Coordinator', 'Chairman', 'Registrar', 'Accountant'];
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);

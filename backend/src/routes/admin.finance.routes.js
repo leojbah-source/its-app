@@ -6,8 +6,8 @@ const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 router.use(authenticate);
-const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
-const editRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
+const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Accountant'];
+const editRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Accountant'];
 
 function toCsv(rows, columns) {
   const header = columns.join(',');

@@ -16,7 +16,7 @@ const ORG = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
 const NAV_ITEMS = [
   { to: '/admin/config/year', label: 'Year Setup', icon: Settings, active: true, roles: ORG },
   { to: '/admin/events', label: 'Events', icon: ListChecks, active: true, roles: ORG },
-  { to: '/admin/registrations', label: 'Registrations', icon: Users, active: true, roles: ORG },
+  { to: '/admin/registrations', label: 'Registrations', icon: Users, active: true, roles: [...ORG, 'Registrar'] },
   { to: '/admin/lists', label: 'Lists', icon: ClipboardList, active: true, roles: ORG },
   { to: '/admin/schedule', label: 'Schedule', icon: CalendarClock, active: true, roles: ORG },
   { to: '/admin/event-day', label: 'Event Day', icon: ClipboardCheck, active: true, roles: ORG },
@@ -31,8 +31,8 @@ const NAV_ITEMS = [
   },
   { to: '/admin/awards', label: 'Awards', icon: Trophy, active: true, roles: ['SuperAdmin', 'Chairman'] },
   { to: '/admin/notices', label: 'Notices', icon: Megaphone, active: true, roles: ['SuperAdmin', 'Admin', 'Chairman'] },
-  { to: '/admin/payments', label: 'Payments', icon: BadgeDollarSign, active: true, roles: ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'] },
-  { to: '/admin/finance', label: 'Finance', icon: Wallet, active: true, roles: ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'] },
+  { to: '/admin/payments', label: 'Payments', icon: BadgeDollarSign, active: true, roles: ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Accountant'] },
+  { to: '/admin/finance', label: 'Finance', icon: Wallet, active: true, roles: ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Accountant'] },
   { to: '/admin/users', label: 'Users', icon: UserCog, active: true, roles: ['SuperAdmin', 'Admin'] },
 ];
 

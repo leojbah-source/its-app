@@ -22,8 +22,11 @@ const { sendEmail } = require('../utils/email');
 const router = express.Router();
 router.use(authenticate);
 
-const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
-const editRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
+const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Accountant'];
+const editRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Accountant'];
+// A Registrar may confirm/reject CASH ("KCA office") payments only — they chase
+// those in person. Electronic payments (BenefitPay / bank) are the Accountant's.
+const paymentActionRoles = [...editRoles, 'Registrar'];
 
 function toCsv(rows, columns) {
   const header = columns.join(',');
@@ -56,15 +59,20 @@ router.get('/payments', requireRole(...staffRoles), async (req, res, next) => {
 });
 
 // ── POST /api/admin/payments/:id/confirm ─────────────────────────────────────
-router.post('/payments/:id/confirm', requireRole(...editRoles), async (req, res, next) => {
+router.post('/payments/:id/confirm', requireRole(...paymentActionRoles), async (req, res, next) => {
   try {
+    const cashOnly = req.user.role === 'Registrar';   // Registrars: cash payments only
     const { rows } = await pool.query(
       `UPDATE payments SET status = 'confirmed', confirmed_by = $1,
               confirmed_at = NOW(), updated_at = NOW()
-       WHERE id = $2 AND status = 'pending' RETURNING *`,
-      [req.user.id, req.params.id]
+       WHERE id = $2 AND status = 'pending' AND ($3 = false OR method = 'cash') RETURNING *`,
+      [req.user.id, req.params.id, cashOnly]
     );
-    if (!rows[0]) return res.status(404).json({ error: 'Pending payment not found' });
+    if (!rows[0]) return res.status(404).json({
+      error: cashOnly
+        ? 'Pending cash payment not found — Registrars can only confirm KCA-office (cash) payments.'
+        : 'Pending payment not found',
+    });
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'CONFIRM_PAYMENT', entity: 'payments', entityId: req.params.id,
@@ -86,18 +94,23 @@ router.post('/payments/:id/confirm', requireRole(...editRoles), async (req, res,
 });
 
 // ── POST /api/admin/payments/:id/reject ──────────────────────────────────────
-router.post('/payments/:id/reject', requireRole(...editRoles), async (req, res, next) => {
+router.post('/payments/:id/reject', requireRole(...paymentActionRoles), async (req, res, next) => {
   try {
     const { reason } = req.body;
     if (!reason?.trim()) return res.status(400).json({ error: 'reason is required' });
+    const cashOnly = req.user.role === 'Registrar';   // Registrars: cash payments only
     const { rows } = await pool.query(
       `UPDATE payments SET status = 'rejected', confirmed_by = $1,
               confirmed_at = NOW(), notes = COALESCE(notes || E'\n', '') || 'REJECTED: ' || $2,
               updated_at = NOW()
-       WHERE id = $3 AND status = 'pending' RETURNING *`,
-      [req.user.id, reason.trim(), req.params.id]
+       WHERE id = $3 AND status = 'pending' AND ($4 = false OR method = 'cash') RETURNING *`,
+      [req.user.id, reason.trim(), req.params.id, cashOnly]
     );
-    if (!rows[0]) return res.status(404).json({ error: 'Pending payment not found' });
+    if (!rows[0]) return res.status(404).json({
+      error: cashOnly
+        ? 'Pending cash payment not found — Registrars can only reject KCA-office (cash) payments.'
+        : 'Pending payment not found',
+    });
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'REJECT_PAYMENT', entity: 'payments', entityId: req.params.id,
       details: { amount: rows[0].amount, method: rows[0].method }, reason: reason.trim() });

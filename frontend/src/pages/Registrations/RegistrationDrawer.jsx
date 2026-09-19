@@ -50,6 +50,7 @@ function DocLink({ url, label }) {
 export default function RegistrationDrawer({ registration, token, onClose, onUpdated }) {
   const { user } = useAuth();
   const isChairman = ['Chairman', 'SuperAdmin'].includes(user?.role);
+  const isRegistrar = user?.role === 'Registrar'; // may action cash payments only
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -290,7 +291,12 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                           </a>
                         )}
                         {pay.notes && <p className="text-[11px] text-slate-500 whitespace-pre-line">{pay.notes}</p>}
-                        {pay.status === 'pending' && (
+                        {pay.status === 'pending' && isRegistrar && pay.method !== 'cash' && (
+                          <p className="text-[11px] text-slate-400">
+                            Electronic payment — verified by the Accountant.
+                          </p>
+                        )}
+                        {pay.status === 'pending' && !(isRegistrar && pay.method !== 'cash') && (
                           rejectFor === pay.id ? (
                             <div className="space-y-2">
                               <textarea

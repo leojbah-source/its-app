@@ -10,7 +10,13 @@ const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`
 
 export default function Login() {
   const { login, isAuthenticated, user } = useAuth();
-  const landingFor = (role) => (role === 'MC' ? '/mc' : role === 'Timer' ? '/timer' : '/admin/config/year');
+  const landingFor = (role) => (
+    role === 'MC' ? '/mc'
+    : role === 'Timer' ? '/timer'
+    : role === 'Registrar' ? '/admin/registrations'
+    : role === 'Accountant' ? '/admin/payments'
+    : '/admin/config/year'
+  );
   const { showToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();

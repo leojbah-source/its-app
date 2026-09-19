@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { ParentAuthProvider, useParentAuth } from './context/ParentAuthContext';
 import { JudgeAuthProvider, useJudgeAuth } from './context/JudgeAuthContext';
@@ -44,6 +44,19 @@ import PublicBoard from './pages/pwa/PublicBoard';
 import PwaLogin from './pages/pwa/PwaLogin';
 import MyPortal from './pages/pwa/MyPortal';
 
+// Organiser roles (everyone except the scoped Registrar/Accountant and the
+// day-of MC/Timer roles).
+const ORG = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
+
+/** Sends each staff role to its home screen (scoped roles skip Year Setup). */
+function AdminIndex() {
+  const { user } = useAuth();
+  const home = user?.role === 'Registrar' ? '/admin/registrations'
+    : user?.role === 'Accountant' ? '/admin/payments'
+    : '/admin/config/year';
+  return <Navigate to={home} replace />;
+}
+
 /** Redirects unauthenticated parents to the portal login. */
 function ParentRoute({ children }) {
   const { isAuthenticated } = useParentAuth();
@@ -76,27 +89,27 @@ export default function App() {
               <Route path="/admin/login" element={<Login />} />
               <Route
                 path="/admin/config/year"
-                element={<ProtectedRoute><YearConfig /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={ORG}><YearConfig /></ProtectedRoute>}
               />
               <Route
                 path="/admin/events"
-                element={<ProtectedRoute><Events /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={ORG}><Events /></ProtectedRoute>}
               />
               <Route
                 path="/admin/registrations"
-                element={<ProtectedRoute><Registrations /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={[...ORG, 'Registrar']}><Registrations /></ProtectedRoute>}
               />
               <Route
                 path="/admin/lists"
-                element={<ProtectedRoute><Lists /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={ORG}><Lists /></ProtectedRoute>}
               />
               <Route
                 path="/admin/schedule"
-                element={<ProtectedRoute><Schedule /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={ORG}><Schedule /></ProtectedRoute>}
               />
               <Route
                 path="/admin/event-day"
-                element={<ProtectedRoute><EventDay /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={ORG}><EventDay /></ProtectedRoute>}
               />
               <Route
                 path="/admin/judging/judges"
@@ -140,18 +153,18 @@ export default function App() {
               />
               <Route
                 path="/admin/finance"
-                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer']}><Finance /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Accountant']}><Finance /></ProtectedRoute>}
               />
               <Route
                 path="/admin/payments"
-                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Coordinator', 'Chairman']}><Payments /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Accountant']}><Payments /></ProtectedRoute>}
               />
               <Route
                 path="/admin/users"
                 element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin']}><Users /></ProtectedRoute>}
               />
               <Route path="/admin/judges" element={<Navigate to="/admin/judging/judges" replace />} />
-              <Route path="/admin" element={<Navigate to="/admin/config/year" replace />} />
+              <Route path="/admin" element={<ProtectedRoute><AdminIndex /></ProtectedRoute>} />
 
               {/* ── Parent registration portal ───────────────────────────── */}
               <Route path="/register" element={<Landing />} />
