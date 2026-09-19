@@ -27,7 +27,7 @@ const upload = multer({
 });
 // GET /api/admin/config/active
 // GET /api/admin/config/active
-router.get('/config/active', requireRole('SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'), async (req, res, next) => {
+router.get('/config/active', requireRole('SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Registrar', 'Accountant'), async (req, res, next) => {
   try {
     const config = await getActiveConfig();
     if (!config) return res.status(404).json({ error: 'No active year config. Run init-year first.' });
@@ -203,7 +203,7 @@ router.post('/config/active/freeze', requireRole('SuperAdmin', 'Admin'), async (
 });
 
 // GET /api/admin/config/:id
-router.get('/config/:id', requireRole('SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'), async (req, res, next) => {
+router.get('/config/:id', requireRole('SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Registrar', 'Accountant'), async (req, res, next) => {
   try {
     const { rows } = await pool.query(`SELECT * FROM year_config WHERE id = $1`, [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Year config not found' });
