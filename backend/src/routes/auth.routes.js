@@ -7,6 +7,7 @@ const pool = require('../db');
 const { createOtp, verifyOtp } = require('../utils/otp');
 const { sendWhatsApp } = require('../utils/notify');
 const { logAudit } = require('../utils/audit');
+const { authenticate, requireType } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -43,6 +44,29 @@ router.post('/login', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// POST /api/auth/change-password  — any signed-in staff user changes their OWN password
+router.post('/change-password', authenticate, requireType('staff'), async (req, res, next) => {
+  try {
+    const { current_password, new_password } = req.body;
+    if (!current_password || !new_password)
+      return res.status(400).json({ error: 'Current and new password are required.' });
+    if (String(new_password).length < 8)
+      return res.status(400).json({ error: 'New password must be at least 8 characters.' });
+
+    const { rows } = await pool.query(`SELECT password_hash FROM users WHERE id = $1`, [req.user.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Account not found.' });
+
+    const ok = await bcrypt.compare(current_password, rows[0].password_hash);
+    if (!ok) return res.status(401).json({ error: 'Current password is incorrect.' });
+
+    const hash = await bcrypt.hash(new_password, 10);
+    await pool.query(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, [hash, req.user.id]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'CHANGE_OWN_PASSWORD', entity: 'users', entityId: req.user.id });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
 });
 
 // POST /api/auth/send-otp  (phone -> OTP; Convener/Admin initiates manually for judges - rule #12)

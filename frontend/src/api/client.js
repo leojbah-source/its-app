@@ -72,6 +72,8 @@ export const authApi = {
   verifyOtp: (phone, otp) => request('/api/auth/verify-otp', { method: 'POST', body: { phone, otp } }),
   pwaLogin: (name_prefix, cpr_suffix) =>
     request('/api/auth/pwa-login', { method: 'POST', body: { name_prefix, cpr_suffix } }),
+  changePassword: (token, current_password, new_password) =>
+    request('/api/auth/change-password', { method: 'POST', token, body: { current_password, new_password } }),
 };
 
 // Public board (no auth) — only ever returns published data.
