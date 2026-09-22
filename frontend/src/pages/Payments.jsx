@@ -15,6 +15,12 @@ const money = (v) => `BD ${Number(v || 0).toFixed(3)}`;
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
 const METHOD = { cash: 'Cash', benefitpay: 'BenefitPay', bank_transfer: 'Bank transfer' };
 const tone = (s) => (s === 'confirmed' ? 'success' : s === 'rejected' ? 'danger' : 'gold');
+// Compact local date+time (Bahrain browser time), e.g. "22 Sep, 14:14".
+const dt = (v) => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return isNaN(d) ? '—' : d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+};
 
 export default function Payments() {
   const { token } = useAuth();
@@ -104,8 +110,10 @@ export default function Payments() {
               <table className="min-w-full text-sm">
                 <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                   <tr>
+                    <th className="px-3 py-2 text-left">Registered</th>
                     <th className="px-3 py-2 text-left">Participant</th>
                     <th className="px-3 py-2 text-left">Parent</th>
+                    <th className="px-3 py-2 text-left">Mobile</th>
                     <th className="px-2 py-2 text-right">Amount</th>
                     <th className="px-2 py-2 text-left">Method</th>
                     <th className="px-2 py-2 text-left">Reference / proof</th>
@@ -116,8 +124,10 @@ export default function Payments() {
                 <tbody className="divide-y divide-slate-100">
                   {rows.map((r) => (
                     <tr key={r.id}>
+                      <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{dt(r.created_at)}</td>
                       <td className="px-3 py-2"><div className="font-medium text-slate-800">{r.participant_name || '—'}</div><div className="text-[11px] text-slate-400">{r.cpr_number}</div></td>
                       <td className="px-3 py-2 text-slate-600">{r.parent_name || '—'}</td>
+                      <td className="px-3 py-2 text-slate-600 whitespace-nowrap font-mono text-xs">{r.guardian_phone || r.parent_phone || '—'}</td>
                       <td className="px-2 py-2 text-right font-semibold text-navy-800">{money(r.amount)}</td>
                       <td className="px-2 py-2 text-slate-600">{METHOD[r.method] || r.method}</td>
                       <td className="px-2 py-2 text-slate-500">

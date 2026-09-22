@@ -233,7 +233,7 @@ router.get('/registrations', requireRole(...staffRoles), async (req, res, next) 
          AND ($5::text IS NULL
               OR p.full_name ILIKE '%' || $5 || '%'
               OR p.cpr_number = $5)
-       ORDER BY p.full_name, r.registered_at`,
+       ORDER BY r.registered_at, p.full_name`,
       [year_id,
        event_id ? parseInt(event_id, 10) : null,
        status || null,

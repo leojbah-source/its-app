@@ -5,6 +5,14 @@ import { Badge } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/States';
 
+// Compact local date+time (Bahrain browser time), e.g. "22 Sep, 14:14".
+const fmtDateTime = (v) => {
+  if (!v) return '—';
+  const d = new Date(v);
+  if (isNaN(d)) return '—';
+  return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+};
+
 // status → badge tone
 const STATUS_TONE = {
   registered: 'navy',
@@ -22,6 +30,7 @@ const COLUMNS = [
   { key: 'event_name',       label: 'Event' },
   { key: 'category_name',    label: 'Category' },
   { key: 'event_kind',       label: 'Type' },
+  { key: 'registered_at',    label: 'Registered' },
   { key: 'status',           label: 'Status' },
 ];
 
@@ -38,7 +47,7 @@ export default function RegistrationsTable({ registrations, onView }) {
   const [member,   setMember]   = useState('');   // '' | yes | no
   const [ageGroup, setAgeGroup] = useState('');
   const [school,   setSchool]   = useState('');
-  const [sortKey,  setSortKey]  = useState('participant_name');
+  const [sortKey,  setSortKey]  = useState('registered_at');
   const [sortDir,  setSortDir]  = useState('asc');
   const [page,     setPage]     = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -111,8 +120,16 @@ export default function RegistrationsTable({ registrations, onView }) {
       }
       map.get(key).events.push(r);
     }
-    return [...map.values()].sort((a, b) =>
-      a.participant_name.localeCompare(b.participant_name));
+    // Each participant's registration time = the earliest event they registered.
+    const groups = [...map.values()].map((g) => ({
+      ...g,
+      registered_at: g.events.reduce(
+        (min, e) => (e.registered_at && (!min || e.registered_at < min) ? e.registered_at : min),
+        null),
+    }));
+    // Chronological order (earliest registration first).
+    return groups.sort((a, b) =>
+      (a.registered_at || '').localeCompare(b.registered_at || ''));
   }, [filtered]);
 
   const totalPages  = Math.max(1, Math.ceil(
@@ -246,6 +263,7 @@ export default function RegistrationsTable({ registrations, onView }) {
                 <th className="px-4 py-3 font-medium">Participant</th>
                 <th className="px-4 py-3 font-medium">Group</th>
                 <th className="px-4 py-3 font-medium">School</th>
+                <th className="px-4 py-3 font-medium">Registered</th>
                 <th className="px-4 py-3 font-medium">Events</th>
                 <th className="px-4 py-3 font-medium">Verification</th>
                 <th className="px-4 py-3 font-medium">Registered events</th>
@@ -268,6 +286,7 @@ export default function RegistrationsTable({ registrations, onView }) {
                   </td>
                   <td className="px-4 py-3 text-slate-500 text-xs font-mono">{g.age_group_code || '—'}</td>
                   <td className="px-4 py-3 text-slate-600 text-xs">{g.school_name || '—'}</td>
+                  <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{fmtDateTime(g.registered_at)}</td>
                   <td className="px-4 py-3">
                     <Badge tone="navy">{g.events.length}</Badge>
                   </td>
@@ -358,6 +377,9 @@ export default function RegistrationsTable({ registrations, onView }) {
                     <Badge tone={r.event_kind === 'team' ? 'gold' : 'navy'}>
                       {r.event_kind === 'team' ? 'Team' : 'Individual'}
                     </Badge>
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
+                    {fmtDateTime(r.registered_at)}
                   </td>
                   <td className="px-4 py-3">
                     <Badge tone={STATUS_TONE[r.status] || 'slate'}>

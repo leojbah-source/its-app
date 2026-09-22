@@ -42,7 +42,8 @@ router.get('/payments', requireRole(...staffRoles), async (req, res, next) => {
     const { year_id, status, q } = req.query;
     const { rows } = await pool.query(
       `SELECT pay.*, p.full_name AS participant_name, p.cpr_number,
-              u.full_name AS parent_name, cu.full_name AS confirmed_by_name
+              p.guardian_phone, u.full_name AS parent_name,
+              u.phone AS parent_phone, cu.full_name AS confirmed_by_name
        FROM payments pay
        LEFT JOIN participants p ON p.id = pay.participant_id
        LEFT JOIN users u ON u.id = pay.parent_user_id
@@ -51,7 +52,7 @@ router.get('/payments', requireRole(...staffRoles), async (req, res, next) => {
          AND ($2::text IS NULL OR pay.status::text = $2)
          AND ($3::text IS NULL OR p.full_name ILIKE '%' || $3 || '%'
               OR p.cpr_number ILIKE '%' || $3 || '%')
-       ORDER BY pay.created_at DESC`,
+       ORDER BY pay.created_at ASC`,
       [year_id || null, status || null, q || null]
     );
     res.json(rows);
