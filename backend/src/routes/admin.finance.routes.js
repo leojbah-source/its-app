@@ -250,16 +250,26 @@ router.get('/summary', requireRole(...staffRoles), async (req, res, next) => {
     const totalInKind = Number(incomeRows[0].total_in_kind);
 
     // Confirmed registration fees (from the payments table) are real cash income too.
+    // Broken down by how the parent paid: cash (KCA office), BenefitPay, bank transfer.
     const { rows: feeRows } = await pool.query(
-      `SELECT COALESCE(SUM(amount), 0) AS fees FROM payments
-       WHERE year_id = $1 AND status = 'confirmed'`, [year_id]);
-    const registrationFees = Number(feeRows[0].fees);
+      `SELECT method::text AS method, COALESCE(SUM(amount), 0) AS amount
+       FROM payments
+       WHERE year_id = $1 AND status = 'confirmed'
+       GROUP BY method`, [year_id]);
+    const registrationFeesByMethod = { cash: 0, benefitpay: 0, bank_transfer: 0 };
+    let registrationFees = 0;
+    for (const r of feeRows) {
+      const amt = Number(r.amount);
+      registrationFees += amt;
+      registrationFeesByMethod[r.method] = (registrationFeesByMethod[r.method] || 0) + amt;
+    }
 
     const totalCashIncome = registrationFees + otherCashIncome;
 
     res.json({
       yearId: Number(year_id),
       registrationFees,
+      registrationFeesByMethod,
       otherCashIncome,
       totalCashIncome,          // registration fees + other cash income
       totalInKind,

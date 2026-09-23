@@ -99,6 +99,31 @@ export default function Finance() {
         </p>
       )}
 
+      {summary && (
+        <Card className="mb-4">
+          <h2 className="mb-2 text-sm font-semibold text-navy-800">Registrations received (confirmed payments)</h2>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-xs text-slate-500">KCA office (cash)</div>
+              <div className="text-base font-bold text-navy-800">{money(summary.registrationFeesByMethod?.cash)}</div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-xs text-slate-500">BenefitPay</div>
+              <div className="text-base font-bold text-navy-800">{money(summary.registrationFeesByMethod?.benefitpay)}</div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-xs text-slate-500">Bank transfer</div>
+              <div className="text-base font-bold text-navy-800">{money(summary.registrationFeesByMethod?.bank_transfer)}</div>
+            </div>
+            <div className="rounded-lg border border-navy-200 bg-navy-50 px-3 py-2">
+              <div className="text-xs text-navy-600">Total registrations</div>
+              <div className="text-base font-bold text-navy-800">{money(summary.registrationFees)}</div>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-slate-400">Confirmed payments only — this total is the registration-fee portion of cash income above.</p>
+        </Card>
+      )}
+
       <div className="mb-2 flex flex-wrap justify-end gap-2">
         <Button variant="outline" icon={Download} onClick={() => exportCsv('income')}>Income CSV</Button>
         <Button variant="outline" icon={Download} onClick={() => exportCsv('expenses')}>Expenses CSV</Button>
