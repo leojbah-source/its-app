@@ -276,6 +276,8 @@ export const participantsApi = {
   reminderInfo: (token, id) => request(`/api/admin/participants/${id}/reminder`, { token }),
   /** Send a reminder (optionally edited message) to one participant. */
   remind: (token, id, message) => request(`/api/admin/participants/${id}/remind`, { method: 'POST', token, body: { message } }),
+  /** Staff correct the guardian name / contact number. */
+  updateContact: (token, id, body) => request(`/api/admin/participants/${id}/contact`, { method: 'PUT', token, body }),
 };
 
 // ── Teams (admin) ────────────────────────────────────────────────────────────

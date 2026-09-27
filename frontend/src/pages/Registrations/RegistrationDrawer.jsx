@@ -66,6 +66,9 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [msgInfo, setMsgInfo] = useState(null);
   const [msgBusy, setMsgBusy] = useState('');
   const [msgErr, setMsgErr] = useState('');
+  const [editContact, setEditContact] = useState(false);
+  const [contactName, setContactName] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
 
   // Chairman event corrections
   const [editEvents, setEditEvents] = useState(false);
@@ -109,6 +112,14 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
       setMsgOpen(false); load();
     } catch (e) { setMsgErr(e.message); }
     finally { setMsgBusy(''); }
+  }
+  async function saveContact() {
+    setBusy('contact'); setFlash('');
+    try {
+      await participantsApi.updateContact(token, participantId, { guardian_name: contactName, guardian_phone: contactPhone });
+      setFlash('Contact updated.'); setEditContact(false); load();
+    } catch (e) { setFlash(e.message); }
+    finally { setBusy(''); }
   }
 
   async function doVerify(status) {
@@ -222,7 +233,30 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                   <Field label="School" value={p.school_name} />
                   <Field label="Entry method" value={p.cpr_verified_method === 'ocr' ? 'OCR scan' : 'Manual'} />
                   <Field label="Parent" value={p.parent_name} />
-                  <Field label="Parent contact" value={p.parent_whatsapp || p.parent_phone} />
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Parent contact</p>
+                    {!editContact ? (
+                      <p className="text-sm font-medium text-slate-800">
+                        {p.guardian_phone || p.parent_whatsapp || p.parent_phone || '—'}
+                        {isChairman && (
+                          <button
+                            onClick={() => { setContactName(p.guardian_name || ''); setContactPhone(p.guardian_phone || ''); setEditContact(true); }}
+                            className="ml-2 text-[11px] font-normal text-navy-600 hover:underline">Edit</button>
+                        )}
+                      </p>
+                    ) : (
+                      <div className="mt-1 space-y-1.5">
+                        <input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Guardian name"
+                          className="w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+                        <input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="Contact number"
+                          className="w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+                        <div className="flex gap-2">
+                          <Button variant="primary" size="sm" loading={busy === 'contact'} onClick={saveContact}>Save</Button>
+                          <Button variant="outline" size="sm" onClick={() => setEditContact(false)}>Cancel</Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 mb-3">

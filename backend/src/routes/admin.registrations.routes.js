@@ -650,4 +650,25 @@ router.post('/reminders/send-bulk', requireRole(...REMINDER_ROLES), async (req, 
   } catch (err) { next(err); }
 });
 
+// PUT /participants/:id/contact — staff correct the guardian name / number
+router.put('/participants/:id/contact', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const { guardian_name, guardian_phone } = req.body;
+    if (guardian_phone && String(guardian_phone).replace(/\D/g, '').length < 8)
+      return res.status(400).json({ error: 'Contact number looks too short — enter a valid number.' });
+    const { rows } = await pool.query(
+      `UPDATE participants SET
+         guardian_name  = COALESCE(NULLIF($1, ''), guardian_name),
+         guardian_phone = COALESCE(NULLIF($2, ''), guardian_phone),
+         updated_at = NOW()
+       WHERE id = $3 RETURNING id, guardian_name, guardian_phone`,
+      [guardian_name ? guardian_name.trim() : null, guardian_phone ? guardian_phone.trim() : null, req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Participant not found' });
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'UPDATE_GUARDIAN_CONTACT', entity: 'participants', entityId: req.params.id,
+      details: { guardian_phone: rows[0].guardian_phone } });
+    res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

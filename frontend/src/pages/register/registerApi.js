@@ -91,6 +91,11 @@ export const portalApi = {
   membershipRefresh: (token, member_no) =>
     req('/api/register/membership/refresh', { method: 'POST', token, body: { member_no } }),
 
+  /** Current parent account details (for the profile editor). */
+  getAccount: (token) => req('/api/register/account/me', { token }),
+  /** Update the parent's own name / contact / member number. */
+  updateAccount: (token, data) => req('/api/register/account', { method: 'PUT', token, body: data }),
+
   /** Fee summary: per-event fees, payments, refunds, balance due. */
   fees: (token, participantId) =>
     req(`/api/register/participant/${participantId}/fees`, { token }),

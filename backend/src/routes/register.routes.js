@@ -307,6 +307,63 @@ router.post('/account', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── GET /api/register/account/me — current parent account (for editing) ──────
+router.get('/account/me', authenticate, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, full_name, email, phone, whatsapp_number, kca_member_no, membership_status
+       FROM users WHERE id = $1`, [req.user.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Account not found' });
+    res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
+// ── PUT /api/register/account — parent updates their own contact details ─────
+router.put('/account', authenticate, async (req, res, next) => {
+  try {
+    const { full_name, phone, whatsapp_number, kca_member_no } = req.body;
+    if (phone && !isBahrainPhone(phone))
+      return res.status(400).json({ error: 'Contact number must be a valid Bahrain number (8 digits).' });
+    if (whatsapp_number && !isIntlPhone(whatsapp_number))
+      return res.status(400).json({ error: 'WhatsApp number must include the country code (e.g. +973...).' });
+
+    await pool.query(
+      `UPDATE users SET
+         full_name = COALESCE(NULLIF($1, ''), full_name),
+         phone = $2,
+         whatsapp_number = $3,
+         updated_at = NOW()
+       WHERE id = $4`,
+      [full_name ? full_name.trim() : null, phone ? phone.trim() : null,
+       whatsapp_number ? whatsapp_number.trim() : null, req.user.id]);
+
+    let membership = null;
+    if (kca_member_no !== undefined) {
+      if (kca_member_no && kca_member_no.trim()) {
+        try { membership = await verifyAndStoreUserMembership(req.user.id, kca_member_no.trim()); }
+        catch (e) { console.error('membership verify on account update failed:', e.message); }
+      } else {
+        await pool.query(`UPDATE users SET kca_member_no = NULL, membership_status = NULL WHERE id = $1`, [req.user.id]);
+      }
+    }
+
+    // Fill the guardian contact on this parent's participants that still have none,
+    // so reminders and notifications can reach them.
+    const contact = (whatsapp_number && whatsapp_number.trim()) || (phone && phone.trim()) || null;
+    if (contact) {
+      await pool.query(
+        `UPDATE participants SET guardian_phone = $1, updated_at = NOW()
+         WHERE created_by = $2 AND (guardian_phone IS NULL OR guardian_phone = '')`,
+        [contact, req.user.id]);
+    }
+
+    const { rows } = await pool.query(
+      `SELECT id, full_name, email, phone, whatsapp_number, kca_member_no, membership_status
+       FROM users WHERE id = $1`, [req.user.id]);
+    res.json({ ...rows[0], membership });
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/register/participant ───────────────────────────────────────────
 // Registers a participant (child) under the active year. Requires auth token.
 router.post('/participant', authenticate, async (req, res, next) => {
