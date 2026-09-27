@@ -18,11 +18,24 @@ router.get('/my-events', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT ma.event_id, ma.age_group_id, ag.code AS age_group_code, ag.label AS age_group_label,
-              e.event_code, e.event_name, c.name AS category_name
+              e.event_code, e.event_name, c.name AS category_name,
+              to_char(s.event_date, 'YYYY-MM-DD') AS event_date,
+              to_char(s.start_time, 'HH24:MI') AS start_time,
+              s.venue
        FROM mc_assignments ma JOIN events e ON e.id = ma.event_id
        LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN age_groups ag ON ag.id = ma.age_group_id
-       WHERE ma.user_id = $1 ORDER BY e.event_code, ag.sort_order`, [req.user.id]);
+       LEFT JOIN LATERAL (
+         SELECT sc.event_date, sc.start_time, sc.venue
+         FROM schedule sc
+         WHERE sc.event_id = ma.event_id
+           AND (sc.age_groups IS NULL OR sc.age_groups = '' OR sc.age_groups ILIKE '%' || ag.code || '%')
+         ORDER BY sc.event_date NULLS LAST, sc.start_time NULLS LAST
+         LIMIT 1
+       ) s ON TRUE
+       WHERE ma.user_id = $1
+         AND (s.event_date IS NULL OR s.event_date >= CURRENT_DATE)
+       ORDER BY s.event_date NULLS LAST, s.start_time NULLS LAST, e.event_code, ag.sort_order`, [req.user.id]);
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -48,7 +61,7 @@ router.get('/script/:event_id', async (req, res, next) => {
               string_agg(DISTINCT venue, ', ') AS venue
        FROM schedule WHERE event_id = $1`, [req.params.event_id]);
     const { rows: yc } = await pool.query(
-      `SELECT event_year_label, sponsor_name FROM year_config WHERE is_active = TRUE LIMIT 1`);
+      `SELECT event_year_label, sponsor_name, sponsors_text FROM year_config WHERE is_active = TRUE LIMIT 1`);
     res.json({ event: ev[0], judges, criteria, schedule: sched[0] || {}, year: yc[0] || {} });
   } catch (err) { next(err); }
 });

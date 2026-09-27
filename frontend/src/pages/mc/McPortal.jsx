@@ -10,6 +10,7 @@ import { mcApi } from '../../api/client';
 
 const mmss = (s) => (s == null ? '—' : `${Math.floor(s / 60)}m${s % 60 ? ` ${s % 60}s` : ''}`);
 const selKey = (e) => `${e.event_id}:${e.age_group_id}`;
+const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '');
 
 export default function McPortal() {
   const { token, user, logout } = useAuth();
@@ -71,7 +72,9 @@ export default function McPortal() {
               <button key={selKey(e)} onClick={() => setSel(e)} className="flex w-full items-center justify-between rounded-xl bg-white p-4 text-left shadow-sm hover:bg-slate-50">
                 <div><div className="font-medium text-navy-800"><span className="font-mono text-xs text-navy-500 mr-1.5">{e.event_code}</span>{e.event_name}
                   {e.age_group_code && <span className="ml-2 rounded bg-navy-50 px-1.5 py-0.5 text-[10px] font-semibold text-navy-700">{e.age_group_code}</span>}</div>
-                <div className="text-xs text-slate-500">{e.category_name}</div></div>
+                {e.event_date
+                  ? <div className="mt-0.5 text-xs text-slate-500">{[fmtDate(e.event_date), e.start_time, e.venue].filter(Boolean).join(' · ')}</div>
+                  : <div className="mt-0.5 text-xs text-slate-400">Not scheduled yet</div>}</div>
                 <ChevronLeft className="rotate-180 text-slate-400" size={18} />
               </button>
             ))}
@@ -80,7 +83,7 @@ export default function McPortal() {
           <div>
             {events.length > 1 && <button onClick={() => setSel(null)} className="mb-3 inline-flex items-center gap-1 text-sm text-navy-600 hover:underline"><ChevronLeft size={16} /> Events</button>}
             <div className="mb-3 rounded-xl bg-navy-700 p-3 text-white">
-              <div className="text-xs uppercase tracking-wide text-navy-200">{sel.category_name}</div>
+              {(sel.event_date || sel.venue) && <div className="text-xs uppercase tracking-wide text-navy-200">{[fmtDate(sel.event_date), sel.start_time, sel.venue].filter(Boolean).join(' · ')}</div>}
               <div className="font-semibold"><span className="font-mono text-sm text-navy-200 mr-1.5">{sel.event_code}</span>{sel.event_name}
                 <span className="ml-2 rounded-full bg-gold-500 px-2 py-0.5 text-xs font-semibold">{sel.age_group_code}</span></div>
             </div>
@@ -132,7 +135,7 @@ function Script({ data }) {
   return (
     <div className="space-y-3">
       <ScriptCard title="Welcome">
-        <p>Ladies &amp; gentlemen and dear children — <b>good evening</b>. On behalf of KCA and the Organizing Committee, it is my pleasure to welcome you to {data.year?.event_year_label || 'the Indian Talent Scan'}. Today we conduct <b>{ev.event_name}</b>{ev.category_name ? ` (${ev.category_name})` : ''}{sc.venue ? ` at ${sc.venue}` : ''}.</p>
+        <p>Ladies &amp; gentlemen and dear children — <b>good evening</b>. On behalf of KCA and the Organizing Committee, it is my pleasure to welcome you to {data.year?.event_year_label || 'the Indian Talent Scan'}. Today we conduct <b>{ev.event_name}</b>{sc.venue ? ` at ${sc.venue}` : ''}.</p>
         <p className="mt-2 text-slate-500">Please encourage all participants, keep silence during performances, and keep phones on silent.</p>
       </ScriptCard>
       <ScriptCard title="Introducing our judges">
@@ -155,8 +158,8 @@ function Script({ data }) {
           {criteria.length === 0 && <p className="px-3 py-2 text-sm text-slate-400">No criteria set.</p>}
         </div>
       </ScriptCard>
-      {ev.is_stage_event && <ScriptCard title="Timing"><p>Time allowed: <b>{mmss(ev.allotted_time_seconds)}</b>. Yellow light {mmss(ev.yellow_alert_seconds)} before the end; red light at time-up; grace {mmss(ev.grace_period_seconds)}.</p></ScriptCard>}
-      {data.year?.sponsor_name && <ScriptCard title="Sponsors"><p>This event is made possible with the support of <b>{data.year.sponsor_name}</b> and our sponsors. Kindly support and patronize them.</p></ScriptCard>}
+      {ev.is_stage_event && <ScriptCard title="Timing"><p>Time allowed: <b>{mmss(ev.allotted_time_seconds)}</b>. A <b>yellow</b> light shows at <b>{mmss(ev.allotted_time_seconds != null && ev.yellow_alert_seconds != null ? ev.allotted_time_seconds - ev.yellow_alert_seconds : null)}</b> ({mmss(ev.yellow_alert_seconds)} before time), and a <b>red</b> light at <b>{mmss(ev.allotted_time_seconds)}</b> (time up). A grace period of <b>{mmss(ev.grace_period_seconds)}</b> is allowed for all participants.</p></ScriptCard>}
+      {(data.year?.sponsors_text || data.year?.sponsor_name) && <ScriptCard title="Sponsors"><p>This event is made possible with the support of our sponsors. Kindly support and patronize them.</p>{data.year?.sponsors_text && <p className="mt-2 whitespace-pre-line text-slate-700">{data.year.sponsors_text}</p>}</ScriptCard>}
       <ScriptCard title="Let the contest begin"><p>Every one of you is talented and deserves to win — but remember, today's performance matters most. Give your very best. Now, <b>let the contest begin!</b></p></ScriptCard>
     </div>
   );

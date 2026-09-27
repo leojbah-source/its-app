@@ -30,6 +30,18 @@ export default function BrandingCard({ config, onChange, onUpload, uploadingFiel
         />
       </div>
 
+      <div className="mb-6">
+        <label className="mb-1 block text-sm font-medium text-slate-700">Sponsors (names &amp; category)</label>
+        <p className="mb-1.5 text-xs text-slate-500">Listed in the MC script's Sponsors section. One per line, e.g. &ldquo;BFC &mdash; Title sponsor&rdquo;, &ldquo;ABC Traders &mdash; Gold sponsor&rdquo;.</p>
+        <textarea
+          rows={4}
+          value={config.sponsors_text ?? ''}
+          onChange={(e) => onChange({ ...config, sponsors_text: e.target.value })}
+          placeholder={'BFC — Title sponsor\nABC Traders — Gold sponsor'}
+          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+        />
+      </div>
+
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <AssetSlot
           field="its_logo"

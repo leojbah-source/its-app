@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   Settings, ListChecks, Users, Gavel, CalendarClock, Trophy, Wallet,
   Sparkles, ClipboardList, ChevronDown, ClipboardCheck, Megaphone, BadgeDollarSign,
-  UserCog,
+  UserCog, UserCheck,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { yearConfigApi, API_BASE } from '../../api/client';
@@ -19,12 +19,12 @@ const NAV_ITEMS = [
   { to: '/admin/registrations', label: 'Registrations', icon: Users, active: true, roles: [...ORG, 'Registrar'] },
   { to: '/admin/lists', label: 'Lists', icon: ClipboardList, active: true, roles: ORG },
   { to: '/admin/schedule', label: 'Schedule', icon: CalendarClock, active: true, roles: ORG },
+  { to: '/admin/judging/assignment', label: 'Event assignment', icon: UserCheck, active: true, roles: ['SuperAdmin', 'Chairman'] },
   { to: '/admin/event-day', label: 'Event Day', icon: ClipboardCheck, active: true, roles: ORG },
   {
     group: 'Judging', icon: Gavel, roles: ['SuperAdmin', 'Chairman'],
     children: [
       { to: '/admin/judging/judges', label: 'Judges', active: true },
-      { to: '/admin/judging/assignment', label: 'Event assignment', active: true },
       { to: '/admin/judging/results', label: 'Results', active: true },
       { to: '/admin/judging/judge-review', label: 'Judge review', active: true },
     ],

@@ -56,6 +56,7 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
     const sponsor_logo_url        = n(req.body.assets?.sponsor_logo?.url  ?? req.body.sponsor_logo_url);
     const rules_pdf_url           = n(req.body.assets?.rules_pdf?.url     ?? req.body.rules_pdf_url);
     const sponsor_name            = n(req.body.sponsor_name);
+    const sponsors_text           = n(req.body.sponsors_text);
     const kca_iban                = n(req.body.kca_iban);
     const benefit_pay_number      = n(req.body.benefit_pay_number);
     const max_individual_events   = n(req.body.max_individual_events);
@@ -127,8 +128,9 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
          team_size_max            = COALESCE($36, team_size_max),
          member_subscription_upto = COALESCE($37, member_subscription_upto),
          rules_pdf_url            = COALESCE($38, rules_pdf_url),
+         sponsors_text            = COALESCE($39, sponsors_text),
          updated_at               = NOW()
-       WHERE id = $39 RETURNING *`,
+       WHERE id = $40 RETURNING *`,
       [event_year_label, event_start_date, event_end_date,
        kca_logo_url, its_logo_url, sponsor_logo_url, sponsor_name, kca_iban, benefit_pay_number,
        max_individual_events, category_cap, kca_special_min_points,
@@ -139,7 +141,7 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
        reg_deadline, team_reg_deadline, teacher_name_deadline,
        result_template_url, photo_crop_width, photo_crop_height,
        website_domain, team_size_min, team_size_max, member_subscription_upto,
-       rules_pdf_url,
+       rules_pdf_url, sponsors_text,
        config.id]
     );
     // Upsert age groups by (year_id, code). A blanket DELETE would violate
