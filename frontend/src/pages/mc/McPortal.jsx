@@ -93,7 +93,7 @@ export default function McPortal() {
               <button onClick={() => setTab('participants')} className={`flex-1 rounded-md px-3 py-2 text-sm font-medium ${tab === 'participants' ? 'bg-navy-600 text-white' : 'text-slate-600'}`}><Users size={15} className="mr-1 inline" /> Participants</button>
             </div>
 
-            {tab === 'script' ? <Script data={script} /> : (
+            {tab === 'script' ? <Script data={script} sel={sel} /> : (
               !groups ? <p className="py-8 text-center text-sm text-slate-500">Loading…</p>
               : (
                 <div>
@@ -128,14 +128,14 @@ export default function McPortal() {
   );
 }
 
-function Script({ data }) {
+function Script({ data, sel }) {
   if (!data) return <p className="py-8 text-center text-sm text-slate-500">Loading script…</p>;
   const ev = data.event || {}; const sc = data.schedule || {};
   const criteria = [...(data.criteria || [])].sort((a, b) => a.sequence_order - b.sequence_order);
   return (
     <div className="space-y-3">
       <ScriptCard title="Welcome">
-        <p>Ladies &amp; gentlemen and dear children — <b>good evening</b>. On behalf of KCA and the Organizing Committee, it is my pleasure to welcome you to {data.year?.event_year_label || 'the Indian Talent Scan'}. Today we conduct <b>{ev.event_name}</b>{sc.venue ? ` at ${sc.venue}` : ''}.</p>
+        <p>Ladies &amp; gentlemen and dear children — <b>good evening</b>. On behalf of KCA and the Organizing Committee, it is my pleasure to welcome you to {data.year?.event_year_label || 'the Indian Talent Scan'}. Today we conduct <b>{ev.event_name}</b>{(sel?.venue || sc.venue) ? ` at ${sel?.venue || sc.venue}` : ''}.</p>
         <p className="mt-2 text-slate-500">Please encourage all participants, keep silence during performances, and keep phones on silent.</p>
       </ScriptCard>
       <ScriptCard title="Introducing our judges">
