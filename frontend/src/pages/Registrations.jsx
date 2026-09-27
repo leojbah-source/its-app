@@ -110,6 +110,21 @@ export default function Registrations() {
   const completedCount = countParticipants(registrations.filter(isCompleted));
   const incompleteCount = countParticipants(registrations.filter((r) => !isCompleted(r)));
   const allParticipantCount = countParticipants(registrations);
+  // Distinct in-progress participants not reminded within the last 5 days.
+  const eligibleReminderCount = new Set(
+    registrations
+      .filter((r) => !isCompleted(r) && r.participant_id &&
+        (!r.last_reminder_at || (Date.now() - new Date(r.last_reminder_at).getTime()) >= 5 * 864e5))
+      .map((r) => `p${r.participant_id}`),
+  ).size;
+  async function sendReminders() {
+    if (!window.confirm(`Send a WhatsApp reminder to ${eligibleReminderCount} in-progress parent(s) not messaged in the last 5 days?`)) return;
+    try {
+      const r = await registrationsApi.sendReminders(token);
+      window.alert(`Reminders queued for ${r.eligible} parent(s). They send in the background over WhatsApp.`);
+      loadRegistrations();
+    } catch (e) { window.alert(e.message || 'Could not send reminders.'); }
+  }
   const visibleRegs = completion === 'all'
     ? registrations
     : registrations.filter((r) => (completion === 'completed' ? isCompleted(r) : !isCompleted(r)));
@@ -205,9 +220,18 @@ export default function Registrations() {
             ))}
           </div>
           {completion === 'incomplete' && (
-            <span className="text-xs text-slate-400">
-              These parents started but haven't completed payment &amp; the final step — useful for follow-up.
-            </span>
+            <>
+              <span className="text-xs text-slate-400">
+                These parents started but haven't completed payment &amp; the final step — useful for follow-up.
+              </span>
+              <button
+                onClick={sendReminders}
+                disabled={eligibleReminderCount === 0}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-navy-800 disabled:opacity-40"
+              >
+                Send WhatsApp reminders ({eligibleReminderCount} due)
+              </button>
+            </>
           )}
         </div>
       )}

@@ -10,7 +10,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import {
-  X, User, CreditCard, Tag, ScrollText, CheckCircle2, AlertTriangle, ExternalLink,
+  X, User, CreditCard, Tag, ScrollText, CheckCircle2, AlertTriangle, ExternalLink, MessageSquare,
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Card';
@@ -61,6 +61,11 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [rejectFor, setRejectFor] = useState(null);  // payment id
   const [rejectReason, setRejectReason] = useState('');
   const [flash, setFlash] = useState('');
+  const [msgOpen, setMsgOpen] = useState(false);
+  const [msgText, setMsgText] = useState('');
+  const [msgInfo, setMsgInfo] = useState(null);
+  const [msgBusy, setMsgBusy] = useState('');
+  const [msgErr, setMsgErr] = useState('');
 
   // Chairman event corrections
   const [editEvents, setEditEvents] = useState(false);
@@ -89,6 +94,22 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   if (!registration) return null;
 
   const p = data?.participant;
+
+  async function openMessage() {
+    setMsgOpen(true); setMsgErr(''); setMsgText(''); setMsgInfo(null); setMsgBusy('load');
+    try { const info = await participantsApi.reminderInfo(token, participantId); setMsgInfo(info); setMsgText(info.message || ''); }
+    catch (e) { setMsgErr(e.message); }
+    finally { setMsgBusy(''); }
+  }
+  async function sendMessage() {
+    setMsgBusy('send'); setMsgErr('');
+    try {
+      const r = await participantsApi.remind(token, participantId, msgText);
+      setFlash(r.delivered ? 'Reminder sent on WhatsApp.' : 'Reminder queued (delivery pending).');
+      setMsgOpen(false); load();
+    } catch (e) { setMsgErr(e.message); }
+    finally { setMsgBusy(''); }
+  }
 
   async function doVerify(status) {
     setBusy('verify');
@@ -416,10 +437,36 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
           )}
         </div>
 
-        <div className="border-t border-slate-200 px-6 py-4 flex justify-end">
+        <div className="border-t border-slate-200 px-6 py-4 flex justify-end gap-2">
+          {p && <Button variant="outline" size="sm" icon={MessageSquare} onClick={openMessage}>Message parent</Button>}
           <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
         </div>
       </div>
+      {msgOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4" onClick={() => setMsgOpen(false)}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-1 flex items-center gap-2 text-base font-semibold text-navy-900"><MessageSquare size={16} /> Message parent</h3>
+            {msgInfo?.last_reminder_at && (
+              <p className="mb-2 text-xs text-slate-500">
+                Last reminder: {new Date(msgInfo.last_reminder_at).toLocaleString('en-GB')}
+                {(Date.now() - new Date(msgInfo.last_reminder_at).getTime()) < 5 * 864e5 && <span className="text-amber-600"> — under 5 days ago</span>}
+              </p>
+            )}
+            {msgBusy === 'load' ? <p className="py-6 text-center text-sm text-slate-400">Loading…</p> : (
+              <>
+                <textarea rows={9} value={msgText} onChange={(e) => setMsgText(e.target.value)}
+                  className="mb-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300" />
+                <p className="mb-2 text-[11px] text-slate-400">Sent via WhatsApp to {msgInfo?.phone || 'the guardian number on file'}. Edit the text above before sending if you like.</p>
+                {msgErr && <div className="mb-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">{msgErr}</div>}
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setMsgOpen(false)}>Cancel</Button>
+                  <Button variant="primary" size="sm" loading={msgBusy === 'send'} disabled={!msgText.trim()} onClick={sendMessage}>Send WhatsApp</Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

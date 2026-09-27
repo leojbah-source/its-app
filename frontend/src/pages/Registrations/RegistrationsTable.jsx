@@ -114,6 +114,7 @@ export default function RegistrationsTable({ registrations, onView }) {
           cpr_number: r.cpr_number,
           age_group_code: r.age_group_code,
           school_name: r.school_name,
+          last_reminder_at: r.last_reminder_at,
           events: [],
           first: r,
         });
@@ -302,6 +303,9 @@ export default function RegistrationsTable({ registrations, onView }) {
                         {g.payment_status === 'verified' ? 'Paid ✓'
                           : g.payment_status === 'pending' ? 'Pay pending' : 'No payment'}
                       </Badge>
+                      {g.last_reminder_at && (
+                        <span className="text-[10px] text-slate-400">Reminded {new Date(g.last_reminder_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</span>
+                      )}
                     </div>
                   </td>
                   <td className="px-4 py-3">

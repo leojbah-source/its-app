@@ -251,6 +251,10 @@ export const registrationsApi = {
 
   /** CSV download URL (open in browser tab) */
   exportUrl: () => `${API_BASE}/api/admin/registrations/export`,
+
+  /** Bulk WhatsApp reminders to in-progress parents (5-day gate, server-side). */
+  sendReminders: (token) =>
+    request('/api/admin/registrations/reminders/send-bulk', { method: 'POST', token }),
 };
 
 // ── Participants (admin) ─────────────────────────────────────────────────────
@@ -268,6 +272,10 @@ export const participantsApi = {
   /** List participants; optional filters: search, school_id, age_group_id */
   list: (token, params = {}) =>
     request(`/api/admin/participants${qs(params)}`, { token }),
+  /** Prefilled reminder message + last reminder date for a participant. */
+  reminderInfo: (token, id) => request(`/api/admin/participants/${id}/reminder`, { token }),
+  /** Send a reminder (optionally edited message) to one participant. */
+  remind: (token, id, message) => request(`/api/admin/participants/${id}/remind`, { method: 'POST', token, body: { message } }),
 };
 
 // ── Teams (admin) ────────────────────────────────────────────────────────────

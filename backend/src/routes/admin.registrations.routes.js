@@ -199,7 +199,7 @@ router.get('/registrations', requireRole(...staffRoles), async (req, res, next) 
          r.age_group_id, r.category_id, r.status,
          r.dance_teacher, r.music_teacher, r.registered_at, r.updated_at,
          p.full_name AS participant_name, p.cpr_number, p.gender, p.dob,
-         p.cpr_verified_method, p.admin_verified_status, p.confirmed_at,
+         p.cpr_verified_method, p.admin_verified_status, p.confirmed_at, p.last_reminder_at,
          (SELECT string_agg(DISTINCT pay.method::text, ',')
           FROM payments pay
           WHERE (r.participant_id IS NOT NULL AND pay.participant_id = r.participant_id)
@@ -559,6 +559,94 @@ router.get('/schools', requireRole(...staffRoles), async (req, res, next) => {
       `SELECT id, name, short_code FROM schools WHERE is_active = TRUE ORDER BY name`,
     );
     res.json(rows);
+  } catch (err) { next(err); }
+});
+
+
+// ── Incomplete-registration reminders (WhatsApp) ─────────────────────────────
+const REMINDER_ROLES = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Registrar'];
+
+function reminderStatusLine(events, hasPayment) {
+  if (events.length && hasPayment)
+    return `Your events (${events.map((e) => e.event_name).join(', ')}) and payment have been received — only the final confirmation step is pending.`;
+  if (events.length)
+    return `You have chosen ${events.length} event${events.length === 1 ? '' : 's'}, but the payment and the final confirmation step are still pending.`;
+  return `Your details are saved, but the events have not been selected yet.`;
+}
+function reminderMessage(parentName, childName, statusLine) {
+  return `Dear ${parentName || 'Parent'},\n\n` +
+    `Greetings from KCA Indian Talent Scan (ITS) 2026.\n\n` +
+    `We noticed that the registration for ${childName} was started but has not been completed yet. ${statusLine}\n\n` +
+    `To confirm the entry, please sign in to the registration portal and finish the final step — "Complete Registration" (you will be asked to agree to the rules and regulations and submit): https://talentscan.kcabah.com/register — before the deadline on 8 October 2026.\n\n` +
+    `If anything is preventing you from completing it, please let us know — reply to this message or contact us on WhatsApp 3898 4900, and we will be glad to help.\n\n` +
+    `Warm regards,\nKCA Indian Talent Scan Team`;
+}
+async function reminderContext(participantId) {
+  const { rows: pr } = await pool.query(
+    `SELECT p.id, p.full_name, p.guardian_name, p.guardian_phone, p.confirmed_at, p.last_reminder_at,
+            u.full_name AS parent_name
+     FROM participants p LEFT JOIN users u ON u.id = p.created_by WHERE p.id = $1`, [participantId]);
+  if (!pr[0]) return null;
+  const { rows: evs } = await pool.query(
+    `SELECT e.event_code, e.event_name FROM registrations r JOIN events e ON e.id = r.event_id
+     WHERE r.participant_id = $1 AND r.status NOT IN ('withdrawn','swapped') ORDER BY e.event_code`, [participantId]);
+  const { rows: pay } = await pool.query(
+    `SELECT 1 FROM payments WHERE participant_id = $1 AND status IN ('pending','confirmed') LIMIT 1`, [participantId]);
+  const parentName = pr[0].guardian_name || pr[0].parent_name || 'Parent';
+  const message = reminderMessage(parentName, pr[0].full_name, reminderStatusLine(evs, pay.length > 0));
+  return { p: pr[0], message };
+}
+
+// GET /participants/:id/reminder — prefilled message + last reminder date
+router.get('/participants/:id/reminder', requireRole(...REMINDER_ROLES), async (req, res, next) => {
+  try {
+    const ctx = await reminderContext(req.params.id);
+    if (!ctx) return res.status(404).json({ error: 'Participant not found' });
+    res.json({ message: ctx.message, phone: ctx.p.guardian_phone, last_reminder_at: ctx.p.last_reminder_at, name: ctx.p.full_name });
+  } catch (err) { next(err); }
+});
+
+// POST /participants/:id/remind — send one reminder (optionally edited text)
+router.post('/participants/:id/remind', requireRole(...REMINDER_ROLES), async (req, res, next) => {
+  try {
+    const ctx = await reminderContext(req.params.id);
+    if (!ctx) return res.status(404).json({ error: 'Participant not found' });
+    if (!ctx.p.guardian_phone) return res.status(400).json({ error: 'No WhatsApp/contact number on file for this participant.' });
+    const message = (req.body.message && req.body.message.trim()) || ctx.message;
+    const out = await sendWhatsApp(ctx.p.guardian_phone, message);
+    await pool.query(`UPDATE participants SET last_reminder_at = NOW(), reminder_count = COALESCE(reminder_count,0)+1 WHERE id = $1`, [req.params.id]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'SEND_REMINDER', entity: 'participants', entityId: req.params.id, details: { delivered: !!out.delivered } });
+    res.json({ delivered: !!out.delivered, last_reminder_at: new Date().toISOString() });
+  } catch (err) { next(err); }
+});
+
+// POST /reminders/send-bulk — remind every in-progress parent not messaged in 5 days
+router.post('/reminders/send-bulk', requireRole(...REMINDER_ROLES), async (req, res, next) => {
+  try {
+    const { rows: cfg } = await pool.query(`SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    const yearId = cfg[0]?.id;
+    if (!yearId) return res.status(400).json({ error: 'No active year' });
+    const { rows } = await pool.query(
+      `SELECT p.id FROM participants p
+       WHERE p.year_id = $1 AND p.confirmed_at IS NULL
+         AND p.guardian_phone IS NOT NULL AND p.guardian_phone <> ''
+         AND (p.last_reminder_at IS NULL OR p.last_reminder_at < NOW() - INTERVAL '5 days')
+       ORDER BY p.id`, [yearId]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'SEND_REMINDER_BULK', entity: 'participants', details: { eligible: rows.length } });
+    res.json({ eligible: rows.length });
+    // Send in the background, throttled.
+    (async () => {
+      for (const r of rows) {
+        try {
+          const ctx = await reminderContext(r.id);
+          if (ctx?.p.guardian_phone) {
+            await sendWhatsApp(ctx.p.guardian_phone, ctx.message).catch(() => {});
+            await pool.query(`UPDATE participants SET last_reminder_at = NOW(), reminder_count = COALESCE(reminder_count,0)+1 WHERE id = $1`, [r.id]).catch(() => {});
+          }
+        } catch { /* continue */ }
+        await new Promise((done) => setTimeout(done, 900));
+      }
+    })();
   } catch (err) { next(err); }
 });
 
