@@ -621,7 +621,7 @@ router.post('/participants/:id/remind', requireRole(...REMINDER_ROLES), async (r
 });
 
 // POST /reminders/send-bulk — remind every in-progress parent not messaged in 5 days
-router.post('/reminders/send-bulk', requireRole(...REMINDER_ROLES), async (req, res, next) => {
+router.post('/registrations/reminders/send-bulk', requireRole(...REMINDER_ROLES), async (req, res, next) => {
   try {
     const { rows: cfg } = await pool.query(`SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`);
     const yearId = cfg[0]?.id;
