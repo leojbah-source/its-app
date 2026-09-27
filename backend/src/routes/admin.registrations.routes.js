@@ -631,6 +631,21 @@ router.post('/participants/:id/remind', requireRole(...REMINDER_ROLES), async (r
   } catch (err) { next(err); }
 });
 
+// GET /registrations/reminders/eligible — how many the bulk send will reach now
+router.get('/registrations/reminders/eligible', requireRole(...REMINDER_ROLES), async (req, res, next) => {
+  try {
+    const { rows: cfg } = await pool.query(`SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    const yearId = cfg[0]?.id;
+    if (!yearId) return res.json({ eligible: 0 });
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM participants p
+       WHERE p.year_id = $1 AND p.confirmed_at IS NULL
+         AND p.guardian_phone IS NOT NULL AND p.guardian_phone <> ''
+         AND (p.last_reminder_at IS NULL OR p.last_reminder_at < NOW() - INTERVAL '5 days')`, [yearId]);
+    res.json({ eligible: rows[0].n });
+  } catch (err) { next(err); }
+});
+
 // POST /reminders/send-bulk — remind every in-progress parent not messaged in 5 days
 router.post('/registrations/reminders/send-bulk', requireRole(...REMINDER_ROLES), async (req, res, next) => {
   try {
@@ -641,7 +656,6 @@ router.post('/registrations/reminders/send-bulk', requireRole(...REMINDER_ROLES)
       `SELECT p.id FROM participants p
        WHERE p.year_id = $1 AND p.confirmed_at IS NULL
          AND p.guardian_phone IS NOT NULL AND p.guardian_phone <> ''
-         AND EXISTS (SELECT 1 FROM registrations r WHERE r.participant_id = p.id AND r.status NOT IN ('withdrawn','swapped'))
          AND (p.last_reminder_at IS NULL OR p.last_reminder_at < NOW() - INTERVAL '5 days')
        ORDER BY p.id`, [yearId]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'SEND_REMINDER_BULK', entity: 'participants', details: { eligible: rows.length } });

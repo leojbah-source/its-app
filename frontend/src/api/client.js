@@ -252,6 +252,9 @@ export const registrationsApi = {
   /** CSV download URL (open in browser tab) */
   exportUrl: () => `${API_BASE}/api/admin/registrations/export`,
 
+  /** How many in-progress parents the bulk send will reach right now. */
+  remindersEligible: (token) =>
+    request('/api/admin/registrations/reminders/eligible', { token }),
   /** Bulk WhatsApp reminders to in-progress parents (5-day gate, server-side). */
   sendReminders: (token) =>
     request('/api/admin/registrations/reminders/send-bulk', { method: 'POST', token }),

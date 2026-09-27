@@ -29,6 +29,7 @@ export default function Registrations() {
   const [regTab, setRegTab] = useTabState('individual');
   const [activeTab, setActiveTab] = useState('registrations');
   const [completion, setCompletion] = useState('completed'); // completed | incomplete | all
+  const [reminderDue, setReminderDue] = useState(null); // server-side eligible count
 
   // ── Registrations tab state
   const [registrations, setRegistrations] = useState([]);
@@ -63,6 +64,11 @@ export default function Registrations() {
   }, [token]);
 
   useEffect(() => { loadRegistrations(); }, [loadRegistrations]);
+
+  const loadReminderDue = useCallback(() => {
+    registrationsApi.remindersEligible(token).then((r) => setReminderDue(r.eligible)).catch(() => {});
+  }, [token]);
+  useEffect(() => { loadReminderDue(); }, [loadReminderDue]);
 
   // ── Fetch participants (lazy — on tab switch) ─────────────────────────────
   useEffect(() => {
@@ -117,12 +123,13 @@ export default function Registrations() {
         (!r.last_reminder_at || (Date.now() - new Date(r.last_reminder_at).getTime()) >= 5 * 864e5))
       .map((r) => `p${r.participant_id}`),
   ).size;
+  const dueCount = reminderDue != null ? reminderDue : eligibleReminderCount;
   async function sendReminders() {
-    if (!window.confirm(`Send a WhatsApp reminder to ${eligibleReminderCount} in-progress parent(s) not messaged in the last 5 days?`)) return;
+    if (!window.confirm(`Send a WhatsApp reminder to ${dueCount} in-progress parent(s) not messaged in the last 5 days?`)) return;
     try {
       const r = await registrationsApi.sendReminders(token);
       window.alert(`Reminders queued for ${r.eligible} parent(s). They send in the background over WhatsApp.`);
-      loadRegistrations();
+      loadRegistrations(); loadReminderDue();
     } catch (e) { window.alert(e.message || 'Could not send reminders.'); }
   }
   const visibleRegs = completion === 'all'
@@ -226,10 +233,10 @@ export default function Registrations() {
               </span>
               <button
                 onClick={sendReminders}
-                disabled={eligibleReminderCount === 0}
+                disabled={dueCount === 0}
                 className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-navy-800 disabled:opacity-40"
               >
-                Send WhatsApp reminders ({eligibleReminderCount} due)
+                Send WhatsApp reminders ({dueCount} due)
               </button>
             </>
           )}
