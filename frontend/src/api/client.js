@@ -351,8 +351,8 @@ export const chestApi = {
     request(`/api/admin/chest/${eventId}/assign-auto`, { method: 'POST', token, body: { age_group_id } }),
   assignTimeslot: (token, eventId, age_group_id) =>
     request(`/api/admin/chest/${eventId}/assign-timeslot`, { method: 'POST', token, body: { age_group_id } }),
-  manual: (token, regId, event_id, chest_number) =>
-    request(`/api/admin/chest/manual/${regId}`, { method: 'PUT', token, body: { event_id, chest_number } }),
+  manual: (token, regId, event_id, chest_number, mode) =>
+    request(`/api/admin/chest/manual/${regId}`, { method: 'PUT', token, body: { event_id, chest_number, mode } }),
   clear: (token, eventId, ageGroupId, reason) =>
     request(`/api/admin/chest/${eventId}${ageGroupId ? `?age_group_id=${ageGroupId}` : ''}`, { method: 'DELETE', token, body: { reason } }),
 };

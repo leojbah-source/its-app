@@ -90,6 +90,23 @@ router.post('/:event_id/attendance', requireRole(...markRoles), async (req, res,
   try {
     const { registration_id, present } = req.body;
     if (!registration_id) return res.status(400).json({ error: 'registration_id is required' });
+
+    // Rule: once chest numbers are assigned in a group, attendance may be changed
+    // only by Chairman/SuperAdmin — Admin/Coordinator are locked out (a no-show
+    // who turns up must be reinstated by a senior role).
+    if (!['Chairman', 'SuperAdmin'].includes(req.user.role)) {
+      const { rows: g } = await pool.query(
+        `SELECT age_group_id FROM registrations WHERE id = $1 AND event_id = $2`,
+        [registration_id, req.params.event_id]);
+      if (g[0]) {
+        const { rows: hasChest } = await pool.query(
+          `SELECT 1 FROM chest_assignments WHERE event_id = $1 AND age_group_id = $2 LIMIT 1`,
+          [req.params.event_id, g[0].age_group_id]);
+        if (hasChest[0])
+          return res.status(403).json({ error: 'Chest numbers are assigned for this group — only a Chairman or SuperAdmin can change attendance now.' });
+      }
+    }
+
     const status = present ? 'attended' : 'absent';
     const { rows } = await pool.query(
       `UPDATE registrations
@@ -195,30 +212,80 @@ router.put('/manual/:reg_id', requireRole('Chairman', 'SuperAdmin'), async (req,
     if (!reg[0]) return res.status(404).json({ error: 'Registration not found for this event' });
     if (await groupLocked(event_id, reg[0].age_group_id))
       return res.status(409).json({ error: 'Chest numbers are locked — judging has started for this group.' });
+    const target = Number(chest_number);
+    if (!Number.isInteger(target) || target < 1)
+      return res.status(400).json({ error: 'chest_number must be a positive whole number' });
+    const mode = ['swap', 'reorder', 'set'].includes(req.body.mode) ? req.body.mode : 'set';
+    const gid = reg[0].age_group_id;
+    const rid = String(req.params.reg_id);
+
     // Rule #4 DB trigger (fn_enforce_manual_chest_role) authorises manual chest
     // entry from the session var app.current_role. Set it LOCAL to this
     // transaction so the trigger sees the signed-in staff role (never leaks to
-    // other pooled requests).
+    // other pooled requests). Swap/insert use a temp offset (chest stays > 0) to
+    // avoid transient UNIQUE(event, group, chest) collisions.
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       await client.query(`SELECT set_config('app.current_role', $1, true)`, [req.user.role || '']);
-      const { rows } = await client.query(
-        `INSERT INTO chest_assignments
-           (year_id, event_id, age_group_id, registration_id, chest_number, allocation_mode, allocated_by)
-         VALUES ($1,$2,$3,$4,$5,'manual',$6)
-         ON CONFLICT (registration_id) DO UPDATE
-           SET chest_number = EXCLUDED.chest_number, allocation_mode = 'manual',
-               age_group_id = EXCLUDED.age_group_id, allocated_by = EXCLUDED.allocated_by, allocated_at = NOW()
-         RETURNING registration_id, chest_number`,
-        [reg[0].year_id, event_id, reg[0].age_group_id, req.params.reg_id, chest_number, req.user.id]);
+
+      const { rows: cur } = await client.query(
+        `SELECT registration_id, chest_number FROM chest_assignments WHERE event_id = $1 AND age_group_id = $2`,
+        [event_id, gid]);
+      const editedOld = cur.find((c) => String(c.registration_id) === rid)?.chest_number ?? null;
+      const occupant = cur.find((c) => c.chest_number === target && String(c.registration_id) !== rid);
+
+      const mapping = new Map();   // registration_id (string) -> new chest number
+      if (!occupant) {
+        mapping.set(rid, target);
+      } else if (mode === 'swap') {
+        if (editedOld == null) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'This participant has no chest number yet — use Insert instead of Swap.' }); }
+        mapping.set(String(occupant.registration_id), editedOld);
+        mapping.set(rid, target);
+      } else if (mode === 'reorder') {
+        if (editedOld != null) {
+          if (target > editedOld) {
+            for (const c of cur) if (c.chest_number > editedOld && c.chest_number <= target && String(c.registration_id) !== rid) mapping.set(String(c.registration_id), c.chest_number - 1);
+          } else {
+            for (const c of cur) if (c.chest_number >= target && c.chest_number < editedOld && String(c.registration_id) !== rid) mapping.set(String(c.registration_id), c.chest_number + 1);
+          }
+        } else {
+          for (const c of cur) if (c.chest_number >= target) mapping.set(String(c.registration_id), c.chest_number + 1);
+        }
+        mapping.set(rid, target);
+      } else {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: `Chest number ${target} is already used in this group`, conflict: true });
+      }
+
+      // Phase 1 — park every affected existing row at a temp offset.
+      for (const [r_id, nc] of mapping) {
+        await client.query(
+          `UPDATE chest_assignments SET chest_number = $1 WHERE event_id = $2 AND age_group_id = $3 AND registration_id = $4`,
+          [nc + 100000, event_id, gid, r_id]);
+      }
+      // Phase 2 — write final numbers; the edited row becomes 'manual' (insert if it had none).
+      for (const [r_id, nc] of mapping) {
+        const isEdited = r_id === rid;
+        const upd = await client.query(
+          `UPDATE chest_assignments
+             SET chest_number = $1, allocation_mode = COALESCE($2, allocation_mode), allocated_by = $3, allocated_at = NOW()
+           WHERE event_id = $4 AND age_group_id = $5 AND registration_id = $6`,
+          [nc, isEdited ? 'manual' : null, req.user.id, event_id, gid, r_id]);
+        if (upd.rowCount === 0 && isEdited) {
+          await client.query(
+            `INSERT INTO chest_assignments (year_id, event_id, age_group_id, registration_id, chest_number, allocation_mode, allocated_by)
+             VALUES ($1,$2,$3,$4,$5,'manual',$6)`,
+            [reg[0].year_id, event_id, gid, req.params.reg_id, nc, req.user.id]);
+        }
+      }
       await client.query('COMMIT');
       await logAudit({ actorId: req.user.id, actorRole: req.user.role,
-        action: 'MANUAL_CHEST_NUMBER', entity: 'chest_assignments', entityId: req.params.reg_id, details: { event_id, chest_number } });
-      res.json(rows[0]);
+        action: 'MANUAL_CHEST_NUMBER', entity: 'chest_assignments', entityId: req.params.reg_id, details: { event_id, chest_number: target, mode } });
+      res.json({ registration_id: Number(req.params.reg_id), chest_number: target, mode, affected: mapping.size });
     } catch (e) {
       await client.query('ROLLBACK').catch(() => {});
-      if (e.code === '23505') return res.status(409).json({ error: `Chest number ${chest_number} is already used in this group` });
+      if (e.code === '23505') return res.status(409).json({ error: `Chest number ${target} is already used in this group` });
       throw e;
     } finally {
       client.release();

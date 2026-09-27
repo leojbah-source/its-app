@@ -62,6 +62,7 @@ export default function EventDay() {
   const { token, user } = useAuth();
   const canMark = MARK_ROLES.includes(user?.role);
   const canManual = MANUAL_ROLES.includes(user?.role);
+  const isChairSuper = ['SuperAdmin', 'Chairman'].includes(user?.role);
 
   const [schedule, setSchedule] = useState([]);
   const [date, setDate] = useState(today());
@@ -73,6 +74,7 @@ export default function EventDay() {
   const [flash, setFlash] = useState('');
   const [busy, setBusy] = useState(false);
   const [draw, setDraw] = useState(null);
+  const [manualEdit, setManualEdit] = useState(null);
 
   useEffect(() => { scheduleApi.list(token).then(setSchedule).catch(() => {}); }, [token]);
 
@@ -161,11 +163,13 @@ export default function EventDay() {
     try { const r = await chestApi.clear(token, eventId, groupId, reason.trim()); setFlash(`Cleared ${r.removed} chest number(s).`); loadRoster(); reloadGroups(); }
     catch (err) { setFlash(err.message); }
   }
-  async function setManual(reg) {
-    const v = window.prompt(`Chest number for ${reg.name} (${selectedGroupCode}):`, reg.chest_number || '');
-    if (v == null || v === '') return;
-    try { await chestApi.manual(token, reg.registration_id, Number(eventId), Number(v)); loadRoster(); }
-    catch (err) { setFlash(err.message); }
+  function setManual(reg) { setManualEdit(reg); }
+  async function submitManual(number, mode) {
+    try {
+      await chestApi.manual(token, manualEdit.registration_id, Number(eventId), number, mode);
+      loadRoster(); reloadGroups();
+      return null;
+    } catch (err) { return err.message || 'Could not update the chest number.'; }
   }
 
   const counts = useMemo(() => ({
@@ -182,6 +186,15 @@ export default function EventDay() {
   return (
     <AdminLayout title="Event day" subtitle="Mark attendance, then assign chest numbers per age group. Numbers restart at 1 for each group and lock once judging starts.">
       {draw && <DrawOverlay items={draw} onClose={() => setDraw(null)} />}
+      {manualEdit && (
+        <ManualChestModal
+          reg={manualEdit}
+          roster={roster}
+          groupCode={selectedGroupCode}
+          onClose={() => setManualEdit(null)}
+          onSubmit={submitManual}
+        />
+      )}
 
       <Card className="mb-4">
         <div className="flex flex-wrap items-end gap-4">
@@ -258,6 +271,11 @@ export default function EventDay() {
               {counts.unmarked} participant(s) not yet marked — mark everyone present or absent to enable chest assignment.
             </div>
           )}
+          {!locked && canMark && !isChairSuper && counts.withChest > 0 && (
+            <div className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              Chest numbers are assigned for this group — attendance can now be changed only by a Chairman or SuperAdmin.
+            </div>
+          )}
 
           <Card className="p-0 overflow-hidden">
             {loading ? <div className="p-6"><PageLoader label="Loading roster…" /></div>
@@ -286,7 +304,7 @@ export default function EventDay() {
                             <td className={`px-3 py-2 font-medium ${absent ? 'text-red-600 line-through' : 'text-slate-800'}`}>{r.name}</td>
                             <td className="px-3 py-2"><Badge tone={r.status === 'attended' ? 'success' : absent ? 'danger' : 'slate'}>{r.status}</Badge></td>
                             <td className="px-3 py-2">
-                              {canMark && !locked ? (
+                              {canMark && !locked && (isChairSuper || counts.withChest === 0) ? (
                                 <div className="flex items-center justify-end gap-1.5">
                                   <Button size="sm" variant={r.status === 'attended' ? 'primary' : 'outline'} icon={Check} onClick={() => mark(r, true)}>Present</Button>
                                   <Button size="sm" variant={absent ? 'danger' : 'outline'} icon={X} onClick={() => mark(r, false)}>Absent</Button>
@@ -307,5 +325,65 @@ export default function EventDay() {
         </>
       )}
     </AdminLayout>
+  );
+}
+
+// Manual chest edit — enter a number; if it's already taken, choose whether to
+// SWAP with the current holder or INSERT (shift the others).
+function ManualChestModal({ reg, roster, groupCode, onClose, onSubmit }) {
+  const [val, setVal] = useState(reg.chest_number ?? '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const target = Number(val);
+  const valid = Number.isInteger(target) && target >= 1;
+  const occupant = roster.find((r) => r.chest_number === target && r.registration_id !== reg.registration_id);
+  const same = valid && target === reg.chest_number;
+  const canSwap = reg.chest_number != null;
+
+  async function go(mode) {
+    if (!valid) { setErr('Enter a valid chest number.'); return; }
+    setBusy(true); setErr('');
+    const e = await onSubmit(target, mode);
+    setBusy(false);
+    if (e) setErr(e); else onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-base font-semibold text-navy-900">Chest number — {reg.name}</h2>
+        <p className="mb-3 text-xs text-slate-500">Group {groupCode || ''} · current: {reg.chest_number ?? '—'}</p>
+        <input type="number" min="1" value={val} autoFocus
+          onChange={(e) => { setVal(e.target.value); setErr(''); }}
+          className="mb-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300" />
+        {err && <div className="mb-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">{err}</div>}
+        {!valid || same ? (
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button variant="primary" disabled>{same ? 'No change' : 'Save'}</Button>
+          </div>
+        ) : occupant ? (
+          <div className="flex flex-col gap-2">
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+              Chest {target} currently belongs to <b>{occupant.name}</b>. How should this apply?
+            </div>
+            {canSwap && (
+              <Button variant="primary" loading={busy} onClick={() => go('swap')}>
+                Swap — {occupant.name} takes {reg.chest_number}
+              </Button>
+            )}
+            <Button variant={canSwap ? 'outline' : 'primary'} loading={busy} onClick={() => go('reorder')}>
+              Insert at {target} — shift the others
+            </Button>
+            <button className="mt-0.5 text-xs text-slate-500 hover:underline" onClick={onClose}>Cancel</button>
+          </div>
+        ) : (
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button variant="primary" loading={busy} onClick={() => go('set')}>Save</Button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
