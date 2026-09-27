@@ -195,8 +195,15 @@ router.put('/manual/:reg_id', requireRole('Chairman', 'SuperAdmin'), async (req,
     if (!reg[0]) return res.status(404).json({ error: 'Registration not found for this event' });
     if (await groupLocked(event_id, reg[0].age_group_id))
       return res.status(409).json({ error: 'Chest numbers are locked — judging has started for this group.' });
+    // Rule #4 DB trigger (fn_enforce_manual_chest_role) authorises manual chest
+    // entry from the session var app.current_role. Set it LOCAL to this
+    // transaction so the trigger sees the signed-in staff role (never leaks to
+    // other pooled requests).
+    const client = await pool.connect();
     try {
-      const { rows } = await pool.query(
+      await client.query('BEGIN');
+      await client.query(`SELECT set_config('app.current_role', $1, true)`, [req.user.role || '']);
+      const { rows } = await client.query(
         `INSERT INTO chest_assignments
            (year_id, event_id, age_group_id, registration_id, chest_number, allocation_mode, allocated_by)
          VALUES ($1,$2,$3,$4,$5,'manual',$6)
@@ -205,12 +212,16 @@ router.put('/manual/:reg_id', requireRole('Chairman', 'SuperAdmin'), async (req,
                age_group_id = EXCLUDED.age_group_id, allocated_by = EXCLUDED.allocated_by, allocated_at = NOW()
          RETURNING registration_id, chest_number`,
         [reg[0].year_id, event_id, reg[0].age_group_id, req.params.reg_id, chest_number, req.user.id]);
+      await client.query('COMMIT');
       await logAudit({ actorId: req.user.id, actorRole: req.user.role,
         action: 'MANUAL_CHEST_NUMBER', entity: 'chest_assignments', entityId: req.params.reg_id, details: { event_id, chest_number } });
       res.json(rows[0]);
     } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
       if (e.code === '23505') return res.status(409).json({ error: `Chest number ${chest_number} is already used in this group` });
       throw e;
+    } finally {
+      client.release();
     }
   } catch (err) { next(err); }
 });
