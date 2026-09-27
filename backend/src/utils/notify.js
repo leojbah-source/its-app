@@ -68,4 +68,23 @@ async function sendWhatsApp(toPhone, message) {
   return { ...r, link };
 }
 
-module.exports = { sendWhatsApp, sendWhatsAppChat, waLink, groupChatId };
+// Send an image (e.g. the ITS logo) with a text caption via Green API's
+// sendFileByUrl. Falls back to a plain text message when not configured or on error.
+async function sendWhatsAppImage(toPhone, imageUrl, caption) {
+  if (!toPhone) return { skipped: true, delivered: false };
+  if (!imageUrl || process.env.WHATSAPP_PROVIDER !== 'green-api' || !process.env.WHATSAPP_API_BASE_URL) {
+    return sendWhatsApp(toPhone, caption);
+  }
+  try {
+    const url = `${process.env.WHATSAPP_API_BASE_URL}/waInstance${process.env.WHATSAPP_INSTANCE_ID}/sendFileByUrl/${process.env.WHATSAPP_API_KEY}`;
+    const { data } = await axios.post(url, {
+      chatId: `${intlDigits(toPhone)}@c.us`, urlFile: imageUrl, fileName: 'its-logo.png', caption,
+    });
+    return { ...data, delivered: true };
+  } catch (err) {
+    console.error('WhatsApp image send failed, falling back to text:', err.message);
+    return sendWhatsApp(toPhone, caption);
+  }
+}
+
+module.exports = { sendWhatsApp, sendWhatsAppChat, sendWhatsAppImage, waLink, groupChatId };

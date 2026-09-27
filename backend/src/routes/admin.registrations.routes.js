@@ -19,7 +19,7 @@ const express = require('express');
 const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
-const { sendWhatsApp } = require('../utils/notify');
+const { sendWhatsApp, sendWhatsAppImage } = require('../utils/notify');
 const { sendEmail } = require('../utils/email');
 
 const router = express.Router();
@@ -597,6 +597,16 @@ async function reminderContext(participantId) {
   return { p: pr[0], message };
 }
 
+// Public URL of the ITS logo (for image+caption WhatsApp), or null.
+async function itsLogoUrl() {
+  const { rows } = await pool.query(`SELECT its_logo_url, website_domain FROM year_config WHERE is_active = TRUE LIMIT 1`);
+  const y = rows[0] || {};
+  if (!y.its_logo_url) return null;
+  if (/^https?:\/\//i.test(y.its_logo_url)) return y.its_logo_url;
+  const host = String(y.website_domain || 'talentscan.kcabah.com').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  return `https://${host}${y.its_logo_url.startsWith('/') ? '' : '/'}${y.its_logo_url}`;
+}
+
 // GET /participants/:id/reminder — prefilled message + last reminder date
 router.get('/participants/:id/reminder', requireRole(...REMINDER_ROLES), async (req, res, next) => {
   try {
@@ -613,7 +623,8 @@ router.post('/participants/:id/remind', requireRole(...REMINDER_ROLES), async (r
     if (!ctx) return res.status(404).json({ error: 'Participant not found' });
     if (!ctx.p.guardian_phone) return res.status(400).json({ error: 'No WhatsApp/contact number on file for this participant.' });
     const message = (req.body.message && req.body.message.trim()) || ctx.message;
-    const out = await sendWhatsApp(ctx.p.guardian_phone, message);
+    const logo = await itsLogoUrl();
+    const out = await sendWhatsAppImage(ctx.p.guardian_phone, logo, message);
     await pool.query(`UPDATE participants SET last_reminder_at = NOW(), reminder_count = COALESCE(reminder_count,0)+1 WHERE id = $1`, [req.params.id]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'SEND_REMINDER', entity: 'participants', entityId: req.params.id, details: { delivered: !!out.delivered } });
     res.json({ delivered: !!out.delivered, last_reminder_at: new Date().toISOString() });
@@ -630,18 +641,22 @@ router.post('/registrations/reminders/send-bulk', requireRole(...REMINDER_ROLES)
       `SELECT p.id FROM participants p
        WHERE p.year_id = $1 AND p.confirmed_at IS NULL
          AND p.guardian_phone IS NOT NULL AND p.guardian_phone <> ''
+         AND EXISTS (SELECT 1 FROM registrations r WHERE r.participant_id = p.id AND r.status NOT IN ('withdrawn','swapped'))
          AND (p.last_reminder_at IS NULL OR p.last_reminder_at < NOW() - INTERVAL '5 days')
        ORDER BY p.id`, [yearId]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'SEND_REMINDER_BULK', entity: 'participants', details: { eligible: rows.length } });
     res.json({ eligible: rows.length });
     // Send in the background, throttled.
     (async () => {
+      const logo = await itsLogoUrl();
       for (const r of rows) {
         try {
           const ctx = await reminderContext(r.id);
           if (ctx?.p.guardian_phone) {
-            await sendWhatsApp(ctx.p.guardian_phone, ctx.message).catch(() => {});
+            const out = await sendWhatsAppImage(ctx.p.guardian_phone, logo, ctx.message).catch(() => ({ delivered: false }));
             await pool.query(`UPDATE participants SET last_reminder_at = NOW(), reminder_count = COALESCE(reminder_count,0)+1 WHERE id = $1`, [r.id]).catch(() => {});
+            await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'SEND_REMINDER',
+              entity: 'participants', entityId: r.id, details: { delivered: !!out.delivered, bulk: true } }).catch(() => {});
           }
         } catch { /* continue */ }
         await new Promise((done) => setTimeout(done, 900));
