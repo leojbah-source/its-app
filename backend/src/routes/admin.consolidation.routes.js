@@ -165,7 +165,9 @@ router.get('/review', requireRole(...VIEW_ROLES), async (req, res, next) => {
               c.name AS category_name, c.sort_order AS cat_sort,
               ag.id AS age_group_id, ag.code AS age_group_code,
               ag.label AS age_group_label, ag.sort_order AS ag_sort,
-              COUNT(r.id)::int AS cnt
+              COUNT(r.id)::int AS cnt,
+              COUNT(r.id) FILTER (WHERE p.gender = 'M')::int AS boys_cnt,
+              COUNT(r.id) FILTER (WHERE p.gender = 'F')::int AS girls_cnt
          FROM registrations r
          JOIN events e ON e.id = r.event_id AND e.is_cancelled = FALSE
          LEFT JOIN categories c ON c.id = e.category_id
@@ -222,7 +224,7 @@ router.get('/review', requireRole(...VIEW_ROLES), async (req, res, next) => {
         is_generated: c.is_generated, category_name: c.category_name, cat_sort: c.cat_sort,
         age_group_id: c.age_group_id, age_group_code: c.age_group_code,
         age_group_label: c.age_group_label, ag_sort: c.ag_sort,
-        count: c.cnt, status, suggestion, partner,
+        count: c.cnt, boys_count: c.boys_cnt, girls_count: c.girls_cnt, status, suggestion, partner,
       };
     }).sort((a, b) =>
       (a.cat_sort ?? 99) - (b.cat_sort ?? 99) ||
@@ -328,16 +330,16 @@ router.post('/merge', requireRole(...ACT_ROLES), async (req, res, next) => {
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'CONSOLIDATE_MERGE',
       entity: 'events', entityId: commonId, details: { source: [aId, bId], age_group_id: ageGroupId, moved: moved.length }, reason: note });
 
-    // Notify affected parents.
+    // Notify affected parents (unless the admin turned notifications off for this action).
+    if (req.body.notify !== false) {
     const logo = logoUrl(y);
-    const grp = all[0] ? '' : '';
     notifyParents(all, {
       logo,
       subject: `Update: ${base} is now a combined event — ${y.event_year_label || 'ITS 2026'}`,
       waMessage: (r) => `Dear ${r.parent_name || 'Parent'},\n\nAn update on ${r.full_name}'s entry for *${base}*. As the boys' and girls' entries in this age group were few, they have been combined into a single event, *${base} (Common)*. Your child's registration has been moved automatically — no action is needed. The date, time and venue will appear in the schedule.\n\nKCA Indian Talent Scan Team`,
       html: (r) => emailShell(`<p>Dear ${esc(r.parent_name || 'Parent')},</p><p>An update on <b>${esc(r.full_name)}</b>'s entry for <b>${esc(base)}</b>. As the boys' and girls' entries in this age group were few, they have been combined into a single event, <b>${esc(base)} (Common)</b>. Your child's registration has been moved automatically — no action is needed.</p>`),
     });
-    void grp;
+    }
 
     res.json({ ok: true, consolidation_id: cons[0].id, common_event: { id: commonId, event_code: common.event_code, event_name: common.event_name }, moved: all.length });
   } catch (err) {
@@ -377,6 +379,7 @@ router.post('/cancel', requireRole(...ACT_ROLES), async (req, res, next) => {
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'CONSOLIDATE_CANCEL',
       entity: 'events', entityId: eventId, details: { age_group_id: ageGroupId, affected: regs.length }, reason: note });
 
+    if (req.body.notify !== false) {
     const logo = logoUrl(y);
     const base = ev[0].event_name;
     notifyParents(regs, {
@@ -385,6 +388,7 @@ router.post('/cancel', requireRole(...ACT_ROLES), async (req, res, next) => {
       waMessage: (r) => `Dear ${r.parent_name || 'Parent'},\n\nWe're sorry to inform you that *${base}* in ${r.full_name}'s age group has fewer than the minimum entries and will not be held this year.\n\nYou may choose another eligible event instead, or request a refund of the entry fee. Please reply here or contact us on WhatsApp 3898 4900 and we'll help you with the change or refund.\n\nKCA Indian Talent Scan Team`,
       html: (r) => emailShell(`<p>Dear ${esc(r.parent_name || 'Parent')},</p><p>We're sorry to inform you that <b>${esc(base)}</b> in ${esc(r.full_name)}'s age group has fewer than the minimum entries and will not be held this year.</p><p>You may choose another eligible event instead, or request a refund of the entry fee. Please reply to this email or contact us on WhatsApp 3898 4900 and we'll help you with the change or refund.</p>`),
     });
+    }
 
     res.json({ ok: true, consolidation_id: cons[0].id, affected: regs.length });
   } catch (err) {
@@ -455,6 +459,7 @@ router.post('/split', requireRole(...SPLIT_ROLES), async (req, res, next) => {
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'CONSOLIDATE_SPLIT',
       entity: 'events', entityId: eventId, details: { mode, targets: [evA.id, evB.id], moved: moved.length }, reason: note });
 
+    if (req.body.notify !== false) {
     const logo = logoUrl(y);
     const nameFor = (r) => (groupA.find((g) => g.reg_id === r.reg_id) ? evA.event_name : evB.event_name);
     notifyParents(regs, {
@@ -463,6 +468,7 @@ router.post('/split', requireRole(...SPLIT_ROLES), async (req, res, next) => {
       waMessage: (r) => `Dear ${r.parent_name || 'Parent'},\n\nAs *${base}* had a large number of entries, it has been split into groups. ${r.full_name} is now entered in *${nameFor(r)}*. The registration has been moved automatically — no action is needed. The date, time and venue will appear in the schedule.\n\nKCA Indian Talent Scan Team`,
       html: (r) => emailShell(`<p>Dear ${esc(r.parent_name || 'Parent')},</p><p>As <b>${esc(base)}</b> had a large number of entries, it has been split into groups. <b>${esc(r.full_name)}</b> is now entered in <b>${esc(nameFor(r))}</b>. The registration has been moved automatically — no action is needed.</p>`),
     });
+    }
 
     res.json({ ok: true, consolidation_id: cons[0].id, events: [
       { id: evA.id, event_code: evA.event_code, event_name: evA.event_name, count: groupA.length },

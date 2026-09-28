@@ -6,7 +6,7 @@
 // Every action moves the affected registrations, records itself, notifies the
 // parents (WhatsApp + email) and can be reverted from the history below.
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { RefreshCw, Combine, Scissors, Ban, Undo2, CheckCircle2, TriangleAlert } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
@@ -31,6 +31,8 @@ export default function Consolidation() {
   const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
   const [modal, setModal] = useState(null); // { type:'merge'|'cancel'|'split', cell, ... }
+  const [ageFilter, setAgeFilter] = useState('all');
+  const historyRef = useRef(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -42,9 +44,10 @@ export default function Consolidation() {
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
-  const flashOk = (m) => { setFlash(m); setTimeout(() => setFlash(''), 6000); };
+  const flashOk = (m) => { setFlash(m); setTimeout(() => setFlash(''), 8000); };
+  const jumpToHistory = () => setTimeout(() => historyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
 
-  async function doMerge(cell) {
+  async function doMerge(cell, notify = true) {
     setBusy(true);
     try {
       const boys = cell.gender_split === 'boys' ? cell : cell.partner;
@@ -53,26 +56,27 @@ export default function Consolidation() {
         age_group_id: cell.age_group_id,
         boys_event_id: (cell.gender_split === 'boys' ? cell.event_id : cell.partner.event_id),
         girls_event_id: (cell.gender_split === 'girls' ? cell.event_id : cell.partner.event_id),
+        notify,
       });
       void boys; void girls;
-      flashOk(`Merged into ${r.common_event.event_name} — ${r.moved} entr${r.moved === 1 ? 'y' : 'ies'} moved, parents notified.`);
-      setModal(null); await load();
+      flashOk(`Merged into ${r.common_event.event_name} — ${r.moved} entr${r.moved === 1 ? 'y' : 'ies'} moved${notify ? ', parents notified' : ' (no notifications sent)'}. You can undo this from Recent actions below.`);
+      setModal(null); await load(); jumpToHistory();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
-  async function doCancel(cell, reason) {
+  async function doCancel(cell, reason, notify = true) {
     setBusy(true);
     try {
-      const r = await consolidationApi.cancel(token, { event_id: cell.event_id, age_group_id: cell.age_group_id, reason });
-      flashOk(`Cancelled — ${r.affected} parent(s) notified to change or request a refund.`);
-      setModal(null); await load();
+      const r = await consolidationApi.cancel(token, { event_id: cell.event_id, age_group_id: cell.age_group_id, reason, notify });
+      flashOk(`Cancelled — ${r.affected} entr${r.affected === 1 ? 'y' : 'ies'} affected${notify ? ', parent(s) notified to change or request a refund' : ' (no notifications sent)'}. Undo from Recent actions below.`);
+      setModal(null); await load(); jumpToHistory();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
-  async function doSplit(cell, mode) {
+  async function doSplit(cell, mode, notify = true) {
     setBusy(true);
     try {
-      const r = await consolidationApi.split(token, { event_id: cell.event_id, age_group_id: cell.age_group_id, mode });
-      flashOk(`Split into ${r.events.map((x) => `${x.event_name} (${x.count})`).join(' + ')} — parents notified.`);
-      setModal(null); await load();
+      const r = await consolidationApi.split(token, { event_id: cell.event_id, age_group_id: cell.age_group_id, mode, notify });
+      flashOk(`Split into ${r.events.map((x) => `${x.event_name} (${x.count})`).join(' + ')}${notify ? ' — parents notified' : ' (no notifications sent)'}. Undo from Recent actions below.`);
+      setModal(null); await load(); jumpToHistory();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
   async function doRevert(id) {
@@ -95,7 +99,13 @@ export default function Consolidation() {
 
   const cells = data?.cells || [];
   const attention = cells.filter((c) => c.status !== 'ok');
-  const shown = showAll ? cells : attention;
+  const base = showAll ? cells : attention;
+  const shown = ageFilter === 'all' ? base : base.filter((c) => String(c.age_group_id) === ageFilter);
+  const ageGroups = [];
+  const seen = new Set();
+  for (const c of [...cells].sort((a, b) => (a.ag_sort ?? 99) - (b.ag_sort ?? 99))) {
+    if (c.age_group_id != null && !seen.has(c.age_group_id)) { seen.add(c.age_group_id); ageGroups.push({ id: c.age_group_id, code: c.age_group_code }); }
+  }
   const counts = {
     under: cells.filter((c) => c.status === 'under').length,
     over: cells.filter((c) => c.status === 'over').length,
@@ -145,9 +155,20 @@ export default function Consolidation() {
       <Card
         title="Cells needing attention"
         actions={
-          <label className="flex items-center gap-2 text-xs text-slate-500">
-            <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show all cells
-          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-xs text-slate-400">Age:</span>
+              <button onClick={() => setAgeFilter('all')}
+                className={`rounded-md px-2 py-1 text-xs font-medium ${ageFilter === 'all' ? 'bg-navy-600 text-white' : 'bg-slate-100 text-slate-600'}`}>All</button>
+              {ageGroups.map((g) => (
+                <button key={g.id} onClick={() => setAgeFilter(String(g.id))}
+                  className={`rounded-md px-2 py-1 text-xs font-medium ${ageFilter === String(g.id) ? 'bg-navy-600 text-white' : 'bg-slate-100 text-slate-600'}`}>{g.code}</button>
+              ))}
+            </div>
+            <label className="flex items-center gap-2 text-xs text-slate-500">
+              <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show all cells
+            </label>
+          </div>
         }
       >
         {shown.length === 0 ? (
@@ -178,7 +199,12 @@ export default function Consolidation() {
                     </td>
                     <td className="px-3 text-slate-600">{genderLabel[c.gender_split] || c.gender_split}</td>
                     <td className="px-3 text-slate-600">{c.age_group_code}</td>
-                    <td className="px-3 text-center font-semibold text-slate-800">{c.count}</td>
+                    <td className="px-3 text-center font-semibold text-slate-800">
+                      {c.count}
+                      {(c.boys_count > 0 || c.girls_count > 0) && (
+                        <div className="text-[10px] font-normal text-slate-400">♂{c.boys_count} · ♀{c.girls_count}</div>
+                      )}
+                    </td>
                     <td className="px-3"><StatusBadge status={c.status} /></td>
                     <td className="px-3">
                       {c.status === 'cancelled' && <span className="text-xs text-slate-400">See history to undo</span>}
@@ -208,7 +234,7 @@ export default function Consolidation() {
         )}
       </Card>
 
-      <div className="mt-6">
+      <div className="mt-6" ref={historyRef}>
         <Card title="Recent actions">
           {history.length === 0 ? (
             <div className="py-8 text-center text-sm text-slate-400">No consolidation actions yet.</div>
@@ -270,6 +296,7 @@ function ActionModal({ modal, busy, onClose, onMerge, onCancel, onSplit, min }) 
   const c = modal.cell;
   const [reason, setReason] = useState('');
   const [mode, setMode] = useState(modal.mode || 'gender');
+  const [notify, setNotify] = useState(true);
   const genderSplittable = c.gender_split === 'common' || c.gender_split === 'none';
 
   return (
@@ -284,9 +311,10 @@ function ActionModal({ modal, busy, onClose, onMerge, onCancel, onSplit, min }) 
               <b>{c.count + c.partner.cnt}</b>. All these registrations move to the new event and the parents
               are notified by WhatsApp + email.
             </p>
+            <label className="mt-5 flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Notify parents (WhatsApp + email)</label>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-              <Button variant="primary" icon={Combine} loading={busy} onClick={() => onMerge(c)}>Merge now</Button>
+              <Button variant="primary" icon={Combine} loading={busy} onClick={() => onMerge(c, notify)}>Merge now</Button>
             </div>
           </>
         )}
@@ -301,9 +329,10 @@ function ActionModal({ modal, busy, onClose, onMerge, onCancel, onSplit, min }) 
             <label className="mt-4 block text-xs font-medium text-slate-500">Reason (optional, not shown to parents)</label>
             <input value={reason} onChange={(e) => setReason(e.target.value)}
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="e.g. only 2 entries" />
+            <label className="mt-5 flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Notify parents (WhatsApp + email)</label>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="ghost" onClick={onClose} disabled={busy}>Back</Button>
-              <Button variant="danger" icon={Ban} loading={busy} onClick={() => onCancel(c, reason)}>Cancel cell</Button>
+              <Button variant="danger" icon={Ban} loading={busy} onClick={() => onCancel(c, reason, notify)}>Cancel cell</Button>
             </div>
           </>
         )}
@@ -312,8 +341,11 @@ function ActionModal({ modal, busy, onClose, onMerge, onCancel, onSplit, min }) 
             <h3 className="text-lg font-bold text-navy-800">Split into two events</h3>
             <p className="mt-2 text-sm text-slate-600">
               <b>{c.event_code} — {c.base || c.event_name}</b>, age group <b>{c.age_group_code}</b>, has <b>{c.count}</b> entries.
-              Choose how to split it into two new events. Registrations move automatically and parents are notified.
+              Choose how to split it into two new events. Registrations move automatically and, unless you turn it off below, parents are notified.
             </p>
+            <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              This cell has <b>{c.boys_count}</b> boys and <b>{c.girls_count}</b> girls.
+            </div>
             <div className="mt-4 space-y-2">
               <label className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 ${mode === 'gender' ? 'border-navy-400 bg-navy-50' : 'border-slate-200'} ${!genderSplittable ? 'opacity-50' : ''}`}>
                 <input type="radio" name="mode" className="mt-1" checked={mode === 'gender'} disabled={!genderSplittable} onChange={() => setMode('gender')} />
@@ -324,9 +356,10 @@ function ActionModal({ modal, busy, onClose, onMerge, onCancel, onSplit, min }) 
                 <span className="text-sm"><b>By age</b> — A (older half) and B (younger half)</span>
               </label>
             </div>
+            <label className="mt-5 flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Notify parents (WhatsApp + email)</label>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-              <Button variant="primary" icon={Scissors} loading={busy} onClick={() => onSplit(c, mode)}>Split now</Button>
+              <Button variant="primary" icon={Scissors} loading={busy} onClick={() => onSplit(c, mode, notify)}>Split now</Button>
             </div>
           </>
         )}
