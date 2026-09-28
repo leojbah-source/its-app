@@ -92,6 +92,7 @@ export default function TimerPortal() {
         ) : !data ? <p className="py-8 text-center text-sm text-slate-500">Loading…</p> : (
           <div>
             {events.length > 1 && <button onClick={backToEvents} className="mb-2 inline-flex items-center gap-1 text-sm text-navy-600 hover:underline"><ChevronLeft size={16} /> Events</button>}
+            {current && <button onClick={() => window.open(`/timer/stage?event_id=${current.event_id}`, '_blank', 'noopener')} className="mb-2 ml-3 inline-flex items-center gap-1 text-sm text-navy-600 hover:underline">Open stage screen ↗</button>}
             <div className="mb-3 rounded-xl bg-navy-700 p-3 text-white">
               <div className="text-xs uppercase tracking-wide text-navy-200">Timing</div>
               <div className="font-semibold">{current.event_code} · {current.event_name}</div>

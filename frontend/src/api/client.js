@@ -84,6 +84,7 @@ export const publicApi = {
   resultCards: (yearId, eventId) => request(`/api/public/result-cards${qs({ year_id: yearId, event_id: eventId })}`),
   notices: (yearId) => request(`/api/public/notices${qs({ year_id: yearId })}`),
   awards: (yearId) => request(`/api/public/awards/${yearId}`),
+  stage: (eventId) => request(`/api/public/stage/${eventId}`),
 };
 
 // Participant PWA (token = pwa). Never exposes chest numbers (rule #22).

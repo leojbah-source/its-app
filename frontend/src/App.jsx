@@ -20,6 +20,7 @@ import Results from './pages/judging/Results';
 import ResultSheet from './pages/judging/ResultSheet';
 import McPortal from './pages/mc/McPortal';
 import TimerPortal from './pages/timer/TimerPortal';
+import StageDisplay from './pages/timer/StageDisplay';
 import Awards from './pages/Awards';
 import Notices from './pages/Notices';
 import Finance from './pages/Finance';
@@ -135,6 +136,7 @@ export default function App() {
                 path="/timer"
                 element={<ProtectedRoute allowedRoles={['Timer', 'SuperAdmin', 'Chairman']}><TimerPortal /></ProtectedRoute>}
               />
+              <Route path="/timer/stage" element={<StageDisplay />} />
               <Route
                 path="/admin/awards"
                 element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><Awards /></ProtectedRoute>}

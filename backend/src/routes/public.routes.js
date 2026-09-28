@@ -44,6 +44,26 @@ router.get('/year', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /api/public/stage/:event_id — the currently running timing for a big stage
+// screen (chest number + times only; no personal data). Public and read-only.
+router.get('/stage/:event_id', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT pt.chest_no AS chest_number,
+              EXTRACT(EPOCH FROM pt.start_time) * 1000 AS start_ms,
+              EXTRACT(EPOCH FROM NOW()) * 1000 AS server_ms,
+              e.event_name, e.allotted_time_seconds, e.yellow_alert_seconds, e.grace_period_seconds
+       FROM participant_timings pt JOIN events e ON e.id = pt.event_id
+       WHERE pt.event_id = $1 AND pt.start_time IS NOT NULL AND pt.end_time IS NULL
+       ORDER BY pt.start_time DESC LIMIT 1`, [req.params.event_id]);
+    if (rows[0]) return res.json({ running: rows[0], server_ms: rows[0].server_ms });
+    const { rows: e2 } = await pool.query(
+      `SELECT event_name, allotted_time_seconds, yellow_alert_seconds, grace_period_seconds FROM events WHERE id = $1`,
+      [req.params.event_id]);
+    res.json({ running: null, event: e2[0] || null, server_ms: Date.now() });
+  } catch (err) { next(err); }
+});
+
 // GET /api/public/schedule?year_id=
 router.get('/schedule', async (req, res, next) => {
   try {

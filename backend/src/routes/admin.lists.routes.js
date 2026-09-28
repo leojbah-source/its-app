@@ -51,6 +51,7 @@ router.get('/by-event', requireRole(...staffRoles), async (req, res, next) => {
        LEFT JOIN schools s ON s.id = p.school_id
        WHERE r.year_id = $1 AND r.status NOT IN ('withdrawn','swapped')
          AND e.is_cancelled = FALSE
+         AND (p.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
        ORDER BY c.sort_order NULLS LAST, e.event_code, ag.sort_order, p.full_name`,
       [yc.id]);
 
@@ -95,7 +96,7 @@ router.get('/by-participant', requireRole(...staffRoles), async (req, res, next)
          AND r.status NOT IN ('withdrawn','swapped')
        JOIN events e ON e.id = r.event_id AND e.is_cancelled = FALSE
        LEFT JOIN categories cat ON cat.id = e.category_id
-       WHERE p.year_id = $1
+       WHERE p.year_id = $1 AND p.confirmed_at IS NOT NULL
        ORDER BY ag.sort_order, p.full_name, e.event_code`,
       [yc.id]);
 
@@ -139,7 +140,7 @@ router.get('/final', requireRole(...staffRoles), async (req, res, next) => {
        JOIN registrations r ON r.participant_id = p.id
          AND r.status NOT IN ('withdrawn','swapped')
        JOIN events e ON e.id = r.event_id AND e.is_cancelled = FALSE
-       WHERE p.year_id = $1
+       WHERE p.year_id = $1 AND p.confirmed_at IS NOT NULL
        GROUP BY p.id, ag.code, ag.sort_order, s.name
        ORDER BY ag.sort_order, p.full_name`,
       [yc.id]);
