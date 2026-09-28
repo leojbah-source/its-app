@@ -305,6 +305,8 @@ export const consolidationApi = {
   split: (token, body) => request('/api/admin/consolidation/split', { method: 'POST', token, body }),
   revert: (token, id) => request(`/api/admin/consolidation/${id}/revert`, { method: 'POST', token, body: {} }),
   publishFinal: (token) => request('/api/admin/consolidation/publish-final', { method: 'POST', token, body: {} }),
+  notificationsPending: (token) => request('/api/admin/consolidation/notifications/pending', { token }),
+  notificationsSend: (token) => request('/api/admin/consolidation/notifications/send', { method: 'POST', token, body: {} }),
 };
 
 export const venuesApi = {

@@ -430,7 +430,7 @@ router.post('/split', requireRole(...SPLIT_ROLES), async (req, res, next) => {
       const half = Math.ceil(sorted.length / 2);
       groupA = sorted.slice(0, half);  // older group
       groupB = sorted.slice(half);     // younger group
-      aName = `${base} – A (older)`; bName = `${base} – B (younger)`;
+      aName = `${base} – Group A`; bName = `${base} – Group B`;
       aCode = `${src.event_code}A`; bCode = `${src.event_code}B`;
       aGender = src.gender_split; bGender = src.gender_split;
       aNote = `Split from ${src.event_code} by age (A/older)`; bNote = `Split from ${src.event_code} by age (B/younger)`;
@@ -534,5 +534,106 @@ router.post('/publish-final', requireRole('SuperAdmin', 'Admin'), async (req, re
     res.json(rows[0]);
   } catch (err) { next(err); }
 });
+
+
+// ── Batch notifications ──────────────────────────────────────────────────────
+// After all consolidation is done, notify each affected parent ONCE with a
+// consolidated message listing only their own child's affected events. Only
+// actions that are not reverted and not yet notified are included.
+
+/** Gather pending (unnotified, unreverted) changes grouped by parent. */
+async function pendingByParent(db, yearId) {
+  const { rows } = await db.query(
+    `SELECT ec.id AS cons_id, ec.kind,
+            p.full_name AS child, p.created_by AS parent_id, p.guardian_phone,
+            u.full_name AS parent_name, u.email AS parent_email,
+            u.whatsapp_number, u.phone AS parent_phone,
+            fe.event_name AS from_name, te.event_name AS to_name
+       FROM event_consolidations ec
+       CROSS JOIN LATERAL jsonb_array_elements(ec.moved) AS m
+       JOIN registrations r ON r.id = (m->>'reg_id')::int
+       JOIN participants p ON p.id = r.participant_id
+       LEFT JOIN users u ON u.id = p.created_by
+       LEFT JOIN events fe ON fe.id = NULLIF(m->>'from_event_id','')::int
+       LEFT JOIN events te ON te.id = NULLIF(m->>'to_event_id','')::int
+      WHERE ec.year_id = $1 AND ec.notified_at IS NULL AND ec.reverted_at IS NULL
+      ORDER BY p.created_by, p.full_name`, [yearId]);
+
+  const groups = new Map();       // parent_id (or email) -> group
+  const consIds = new Set();
+  for (const r of rows) {
+    consIds.add(r.cons_id);
+    const key = r.parent_id != null ? `u${r.parent_id}` : (r.parent_email || `x${r.cons_id}`);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        parent_name: r.parent_name || 'Parent',
+        parent_email: r.parent_email || null,
+        phone: r.whatsapp_number || r.parent_phone || r.guardian_phone || null,
+        items: [],
+      });
+    }
+    groups.get(key).items.push({ child: r.child, kind: r.kind, from_name: r.from_name, to_name: r.to_name });
+  }
+  return { groups: [...groups.values()], consIds: [...consIds] };
+}
+
+function lineFor(it) {
+  if (it.kind === 'merge') return `${it.child} — ${it.from_name}: now combined into ${it.to_name}. No action needed.`;
+  if (it.kind === 'split') return `${it.child} — ${it.from_name}: now moved to ${it.to_name} (the event was split). No action needed.`;
+  return `${it.child} — ${it.from_name}: this event will not be held (too few entries). Please choose another event or request a refund.`;
+}
+
+// GET /notifications/pending — how many parents / changes are waiting to be sent
+router.get('/notifications/pending', requireRole(...VIEW_ROLES), async (req, res, next) => {
+  try {
+    const y = await activeYear();
+    if (!y) return res.json({ parent_count: 0, change_count: 0, preview: [] });
+    const { groups, consIds } = await pendingByParent(pool, y.id);
+    const preview = groups.slice(0, 6).map((g) => ({ parent_name: g.parent_name, has_phone: !!g.phone, has_email: !!g.parent_email, lines: g.items.map(lineFor) }));
+    res.json({
+      parent_count: groups.length,
+      change_count: consIds.length,
+      preview,
+    });
+  } catch (err) { next(err); }
+});
+
+// POST /notifications/send — send one consolidated WhatsApp + email per parent
+router.post('/notifications/send', requireRole(...ACT_ROLES), async (req, res, next) => {
+  try {
+    const y = await activeYear();
+    if (!y) return res.status(400).json({ error: 'No active year' });
+    const { groups, consIds } = await pendingByParent(pool, y.id);
+    if (consIds.length === 0) return res.json({ ok: true, parents: 0, changes: 0 });
+
+    // Mark included actions notified up-front so a double-click can't re-send.
+    await pool.query(
+      `UPDATE event_consolidations SET notified_at = NOW(), notified_by = $2
+        WHERE id = ANY($1) AND notified_at IS NULL`, [consIds, req.user.id]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'CONSOLIDATE_NOTIFY',
+      entity: 'event_consolidations', entityId: null, details: { parents: groups.length, changes: consIds.length } });
+
+    const logo = logoUrl(y);
+    const label = y.event_year_label || 'ITS 2026';
+    // Send in the background (throttled), best-effort.
+    (async () => {
+      for (const g of groups) {
+        const lines = g.items.map(lineFor);
+        const wa = `Dear ${g.parent_name},\n\nSome updates to your entries for KCA Indian Talent Scan (ITS) 2026:\n\n${lines.map((l) => '• ' + l).join('\n')}\n\nThe date, time and venue for your events will appear in the schedule. For any change or refund, contact us on WhatsApp 3898 4900.\n\nKCA Indian Talent Scan Team`;
+        try { if (g.phone && logo) await sendWhatsAppImage(g.phone, logo, wa); } catch (e) { console.error('notify WA:', e.message); }
+        try {
+          if (g.parent_email) {
+            const html = emailShell(`<p>Dear ${esc(g.parent_name)},</p><p>Some updates to your entries for KCA Indian Talent Scan (ITS) 2026:</p><ul>${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul><p>The date, time and venue for your events will appear in the schedule. For any change or refund, contact us on WhatsApp 3898 4900.</p>`);
+            await sendEmail({ to: g.parent_email, subject: `Update on your entries — ${label}`, html });
+          }
+        } catch (e) { console.error('notify email:', e.message); }
+        await new Promise((r) => setTimeout(r, 900));
+      }
+    })().catch((e) => console.error('notify batch:', e.message));
+
+    res.json({ ok: true, parents: groups.length, changes: consIds.length });
+  } catch (err) { next(err); }
+});
+
 
 module.exports = router;

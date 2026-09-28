@@ -7,7 +7,7 @@
 // parents (WhatsApp + email) and can be reverted from the history below.
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { RefreshCw, Combine, Scissors, Ban, Undo2, CheckCircle2, TriangleAlert } from 'lucide-react';
+import { RefreshCw, Combine, Scissors, Ban, Undo2, CheckCircle2, TriangleAlert, Send } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -32,13 +32,15 @@ export default function Consolidation() {
   const [busy, setBusy] = useState(false);
   const [modal, setModal] = useState(null); // { type:'merge'|'cancel'|'split', cell, ... }
   const [ageFilter, setAgeFilter] = useState('all');
+  const [pending, setPending] = useState(null);
+  const [notifyModal, setNotifyModal] = useState(false);
   const historyRef = useRef(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [rev, hist] = await Promise.all([consolidationApi.review(token), consolidationApi.history(token)]);
-      setData(rev); setHistory(hist);
+      const [rev, hist, pend] = await Promise.all([consolidationApi.review(token), consolidationApi.history(token), consolidationApi.notificationsPending(token)]);
+      setData(rev); setHistory(hist); setPending(pend);
     } catch (e) { setError(e.message || 'Failed to load'); }
     finally { setLoading(false); }
   }, [token]);
@@ -47,7 +49,7 @@ export default function Consolidation() {
   const flashOk = (m) => { setFlash(m); setTimeout(() => setFlash(''), 8000); };
   const jumpToHistory = () => setTimeout(() => historyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
 
-  async function doMerge(cell, notify = true) {
+  async function doMerge(cell, notify = false) {
     setBusy(true);
     try {
       const boys = cell.gender_split === 'boys' ? cell : cell.partner;
@@ -63,7 +65,7 @@ export default function Consolidation() {
       setModal(null); await load(); jumpToHistory();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
-  async function doCancel(cell, reason, notify = true) {
+  async function doCancel(cell, reason, notify = false) {
     setBusy(true);
     try {
       const r = await consolidationApi.cancel(token, { event_id: cell.event_id, age_group_id: cell.age_group_id, reason, notify });
@@ -71,7 +73,7 @@ export default function Consolidation() {
       setModal(null); await load(); jumpToHistory();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
-  async function doSplit(cell, mode, notify = true) {
+  async function doSplit(cell, mode, notify = false) {
     setBusy(true);
     try {
       const r = await consolidationApi.split(token, { event_id: cell.event_id, age_group_id: cell.age_group_id, mode, notify });
@@ -88,6 +90,15 @@ export default function Consolidation() {
       await load();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
+  async function sendNotifications() {
+    setBusy(true);
+    try {
+      const r = await consolidationApi.notificationsSend(token);
+      flashOk(r.changes === 0 ? 'Nothing pending — no notifications to send.' : `Sending to ${r.parents} parent(s) covering ${r.changes} change(s). WhatsApp + email are going out now.`);
+      setNotifyModal(false); await load();
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
   async function publishFinal() {
     if (!window.confirm('Publish the Final list? This stamps the final event & participant lists as published.')) return;
     setBusy(true);
@@ -126,6 +137,11 @@ export default function Consolidation() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" icon={RefreshCw} onClick={load} disabled={busy}>Refresh</Button>
+          {canAct(role) && (
+            <Button variant="primary" size="sm" icon={Send} onClick={() => setNotifyModal(true)} disabled={busy || !(pending?.change_count > 0)}>
+              Send notifications{pending?.change_count > 0 ? ` (${pending.parent_count})` : ''}
+            </Button>
+          )}
           {['SuperAdmin', 'Admin'].includes(role) && (
             <Button variant="gold" size="sm" onClick={publishFinal} disabled={busy}>Publish Final list</Button>
           )}
@@ -141,6 +157,12 @@ export default function Consolidation() {
       {data?.final_published && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
           <CheckCircle2 size={16} /> Final list published {fmt(data.final_published_at)}.
+        </div>
+      )}
+      {pending?.change_count > 0 && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+          <span>{pending.parent_count} parent(s) have {pending.change_count} un-notified change(s). Finish your consolidation, then send one message per parent.</span>
+          {canAct(role) && <Button size="sm" variant="primary" icon={Send} onClick={() => setNotifyModal(true)} disabled={busy}>Send notifications</Button>}
         </div>
       )}
       {flash && <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">{flash}</div>}
@@ -267,6 +289,38 @@ export default function Consolidation() {
         <ActionModal modal={modal} busy={busy} onClose={() => setModal(null)}
           onMerge={doMerge} onCancel={doCancel} onSplit={doSplit} min={th.min} />
       )}
+
+      {notifyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setNotifyModal(false)}>
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-navy-800">Send notifications to parents</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              This sends <b>one</b> WhatsApp + email to each affected parent, listing only their own child's
+              merged, split or cancelled events. Reverted actions are skipped, and no parent is messaged twice.
+            </p>
+            <div className="mt-3 rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <b>{pending?.parent_count || 0}</b> parent(s) · <b>{pending?.change_count || 0}</b> change(s) pending.
+            </div>
+            {pending?.preview?.length > 0 && (
+              <div className="mt-3 max-h-52 overflow-y-auto rounded-lg border border-slate-200 p-3 text-xs text-slate-600">
+                <div className="mb-1 font-semibold text-slate-500">Preview (first {pending.preview.length}):</div>
+                {pending.preview.map((g, i) => (
+                  <div key={i} className="mb-2">
+                    <div className="font-medium text-slate-700">{g.parent_name} {g.has_phone ? '· WhatsApp' : ''} {g.has_email ? '· email' : ''}</div>
+                    <ul className="ml-4 list-disc">{g.lines.map((l, j) => <li key={j}>{l}</li>)}</ul>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setNotifyModal(false)} disabled={busy}>Cancel</Button>
+              <Button variant="primary" icon={Send} loading={busy} disabled={!(pending?.change_count > 0)} onClick={sendNotifications}>
+                Send to {pending?.parent_count || 0} parent(s)
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
 }
@@ -296,7 +350,6 @@ function ActionModal({ modal, busy, onClose, onMerge, onCancel, onSplit, min }) 
   const c = modal.cell;
   const [reason, setReason] = useState('');
   const [mode, setMode] = useState(modal.mode || 'gender');
-  const [notify, setNotify] = useState(true);
   const genderSplittable = c.gender_split === 'common' || c.gender_split === 'none';
 
   return (
@@ -311,10 +364,10 @@ function ActionModal({ modal, busy, onClose, onMerge, onCancel, onSplit, min }) 
               <b>{c.count + c.partner.cnt}</b>. All these registrations move to the new event and the parents
               are notified by WhatsApp + email.
             </p>
-            <label className="mt-5 flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Notify parents (WhatsApp + email)</label>
+            <p className="mt-5 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">Parents are not messaged now. When you've finished all changes, use <b>Send notifications</b> to send one consolidated message per parent.</p>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-              <Button variant="primary" icon={Combine} loading={busy} onClick={() => onMerge(c, notify)}>Merge now</Button>
+              <Button variant="primary" icon={Combine} loading={busy} onClick={() => onMerge(c)}>Merge now</Button>
             </div>
           </>
         )}
@@ -329,10 +382,10 @@ function ActionModal({ modal, busy, onClose, onMerge, onCancel, onSplit, min }) 
             <label className="mt-4 block text-xs font-medium text-slate-500">Reason (optional, not shown to parents)</label>
             <input value={reason} onChange={(e) => setReason(e.target.value)}
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="e.g. only 2 entries" />
-            <label className="mt-5 flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Notify parents (WhatsApp + email)</label>
+            <p className="mt-5 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">Parents are not messaged now. When you've finished all changes, use <b>Send notifications</b> to send one consolidated message per parent.</p>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="ghost" onClick={onClose} disabled={busy}>Back</Button>
-              <Button variant="danger" icon={Ban} loading={busy} onClick={() => onCancel(c, reason, notify)}>Cancel cell</Button>
+              <Button variant="danger" icon={Ban} loading={busy} onClick={() => onCancel(c, reason)}>Cancel cell</Button>
             </div>
           </>
         )}
@@ -356,10 +409,10 @@ function ActionModal({ modal, busy, onClose, onMerge, onCancel, onSplit, min }) 
                 <span className="text-sm"><b>By age</b> — A (older half) and B (younger half)</span>
               </label>
             </div>
-            <label className="mt-5 flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Notify parents (WhatsApp + email)</label>
+            <p className="mt-5 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">Parents are not messaged now. When you've finished all changes, use <b>Send notifications</b> to send one consolidated message per parent.</p>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-              <Button variant="primary" icon={Scissors} loading={busy} onClick={() => onSplit(c, mode, notify)}>Split now</Button>
+              <Button variant="primary" icon={Scissors} loading={busy} onClick={() => onSplit(c, mode)}>Split now</Button>
             </div>
           </>
         )}
