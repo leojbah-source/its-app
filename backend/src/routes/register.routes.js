@@ -18,6 +18,7 @@
 
 const express = require('express');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -361,6 +362,102 @@ router.put('/account', authenticate, async (req, res, next) => {
       `SELECT id, full_name, email, phone, whatsapp_number, kca_member_no, membership_status
        FROM users WHERE id = $1`, [req.user.id]);
     res.json({ ...rows[0], membership });
+  } catch (err) { next(err); }
+});
+
+// ── Password reset (parent self-service) ─────────────────────────────────────
+// Parents sign in with email + password. If they forget it, they request a
+// reset link by email; the link carries a single-use token (only its SHA-256
+// hash is stored) valid for 1 hour. Responses are intentionally generic so the
+// endpoint cannot be used to discover which emails have accounts.
+const RESET_TTL_MS = 60 * 60 * 1000; // 1 hour
+const sha256 = (t) => crypto.createHash('sha256').update(t).digest('hex');
+
+/** Resolve the public site host (no scheme, no trailing slash) for links. */
+async function resetSiteBase() {
+  const { rows } = await pool.query(
+    `SELECT website_domain FROM year_config WHERE is_active = TRUE LIMIT 1`);
+  const host = String(rows[0]?.website_domain || 'talentscan.kcabah.com')
+    .replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  return `https://${host}`;
+}
+
+// POST /api/register/forgot-password  { email }
+router.post('/forgot-password', async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    // Always return the same response, whether or not the email exists.
+    const generic = { ok: true };
+    if (!email) return res.json(generic);
+
+    const { rows } = await pool.query(
+      `SELECT id, full_name, email FROM users WHERE lower(email) = $1 AND is_active = TRUE LIMIT 1`,
+      [email]);
+    const user = rows[0];
+    if (!user) return res.json(generic);
+
+    // Invalidate any earlier unused tokens for this user, then issue a new one.
+    await pool.query(
+      `UPDATE password_resets SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
+      [user.id]);
+    const token = crypto.randomBytes(32).toString('hex');
+    await pool.query(
+      `INSERT INTO password_resets (user_id, token_hash, expires_at)
+       VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
+      [user.id, sha256(token)]);
+
+    const base = await resetSiteBase();
+    const link = `${base}/register/reset?token=${token}`;
+    const name = (user.full_name || '').split(' ')[0] || 'there';
+    const html =
+      `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#0f172a;line-height:1.6">` +
+      `<p>Dear ${name},</p>` +
+      `<p>We received a request to reset the password for your KCA Indian Talent Scan (ITS) 2026 registration account.</p>` +
+      `<p><a href="${link}" style="display:inline-block;background:#1e3a8a;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600">Reset my password</a></p>` +
+      `<p style="font-size:13px;color:#475569">Or paste this link into your browser:<br><a href="${link}">${link}</a></p>` +
+      `<p style="font-size:13px;color:#475569">This link is valid for 1 hour and can be used once. If you did not request this, you can safely ignore this email — your password will not change.</p>` +
+      `<p style="margin-top:18px">Warm regards,<br>KCA Indian Talent Scan Team</p>` +
+      `</div>`;
+    // Fire-and-forget; never reveal delivery status to the caller.
+    sendEmail({ to: user.email, subject: 'Reset your ITS 2026 registration password', html })
+      .catch((e) => console.error('reset email failed:', e.message));
+
+    return res.json(generic);
+  } catch (err) { next(err); }
+});
+
+// POST /api/register/reset-password  { token, password }
+router.post('/reset-password', async (req, res, next) => {
+  try {
+    const token = String(req.body.token || '').trim();
+    const password = String(req.body.password || '');
+    if (!token) return res.status(400).json({ error: 'Reset link is missing its token. Please request a new one.' });
+    if (password.length < 6)
+      return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+
+    const { rows } = await pool.query(
+      `SELECT id, user_id FROM password_resets
+       WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
+       ORDER BY id DESC LIMIT 1`,
+      [sha256(token)]);
+    const row = rows[0];
+    if (!row)
+      return res.status(400).json({ error: 'This reset link is invalid or has expired. Please request a new one.' });
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    await pool.query(
+      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+      [passwordHash, row.user_id]);
+    // Consume this token and clear any other outstanding ones for the user.
+    await pool.query(
+      `UPDATE password_resets SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
+      [row.user_id]);
+
+    try {
+      await logAudit({ actorId: row.user_id, actorRole: 'Viewer', action: 'PASSWORD_RESET', entity: 'users', entityId: row.user_id });
+    } catch (e) { /* audit is best-effort */ }
+
+    return res.json({ ok: true });
   } catch (err) { next(err); }
 });
 

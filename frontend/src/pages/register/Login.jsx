@@ -73,6 +73,17 @@ export default function Login() {
           </div>
         </div>
 
+        {/* Forgot password */}
+        <div className="-mt-2 text-right">
+          <button
+            type="button"
+            onClick={() => navigate('/register/forgot')}
+            className="text-sm font-medium text-navy-700 hover:underline"
+          >
+            Forgot password?
+          </button>
+        </div>
+
         {/* Error */}
         {error && (
           <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">

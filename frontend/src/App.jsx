@@ -33,6 +33,8 @@ import JudgeReview from './pages/JudgeReview';
 import Landing from './pages/register/Landing';
 import SignupPage from './pages/register/Signup';
 import LoginPage from './pages/register/Login';
+import ForgotPassword from './pages/register/ForgotPassword';
+import ResetPassword from './pages/register/ResetPassword';
 import Dashboard from './pages/register/Dashboard';
 import ParticipantAdd from './pages/register/ParticipantAdd';
 import ParticipantDetail from './pages/register/ParticipantDetail';
@@ -172,6 +174,8 @@ export default function App() {
               <Route path="/register" element={<Landing />} />
               <Route path="/register/login" element={<LoginPage />} />
               <Route path="/register/signup" element={<SignupPage />} />
+              <Route path="/register/forgot" element={<ForgotPassword />} />
+              <Route path="/register/reset" element={<ResetPassword />} />
               <Route
                 path="/register/dashboard"
                 element={<ParentRoute><Dashboard /></ParentRoute>}

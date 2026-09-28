@@ -52,6 +52,14 @@ export const portalApi = {
     return req(`/api/register/events${qs ? `?${qs}` : ''}`);
   },
 
+  /** Request a password-reset email. Always resolves (generic response). */
+  forgotPassword: (email) =>
+    req('/api/register/forgot-password', { method: 'POST', body: { email } }),
+
+  /** Set a new password using the token from the reset email. */
+  resetPassword: (token, password) =>
+    req('/api/register/reset-password', { method: 'POST', body: { token, password } }),
+
   // ── Authenticated ─────────────────────────────────────────────────────────
   /** All participants created by or registered by the current user. */
   myParticipants: (token) =>
