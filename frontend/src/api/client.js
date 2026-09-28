@@ -297,6 +297,16 @@ export const listsApi = {
   publishInitial: (token) => request('/api/admin/lists/publish-initial', { method: 'POST', token, body: {} }),
 };
 
+export const consolidationApi = {
+  review: (token) => request('/api/admin/consolidation/review', { token }),
+  history: (token) => request('/api/admin/consolidation/history', { token }),
+  merge: (token, body) => request('/api/admin/consolidation/merge', { method: 'POST', token, body }),
+  cancel: (token, body) => request('/api/admin/consolidation/cancel', { method: 'POST', token, body }),
+  split: (token, body) => request('/api/admin/consolidation/split', { method: 'POST', token, body }),
+  revert: (token, id) => request(`/api/admin/consolidation/${id}/revert`, { method: 'POST', token, body: {} }),
+  publishFinal: (token) => request('/api/admin/consolidation/publish-final', { method: 'POST', token, body: {} }),
+};
+
 export const venuesApi = {
   list: (token) => request('/api/admin/schedule/venues', { token }),
   save: (token, venues) => request('/api/admin/schedule/venues', { method: 'PUT', token, body: { venues } }),

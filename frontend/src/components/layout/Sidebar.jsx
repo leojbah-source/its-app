@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   Settings, ListChecks, Users, Gavel, CalendarClock, Trophy, Wallet,
   Sparkles, ClipboardList, ChevronDown, ClipboardCheck, Megaphone, BadgeDollarSign,
-  UserCog, UserCheck,
+  UserCog, UserCheck, Combine,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { yearConfigApi, API_BASE } from '../../api/client';
@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { to: '/admin/events', label: 'Events', icon: ListChecks, active: true, roles: ORG },
   { to: '/admin/registrations', label: 'Registrations', icon: Users, active: true, roles: [...ORG, 'Registrar'] },
   { to: '/admin/lists', label: 'Lists', icon: ClipboardList, active: true, roles: ORG },
+  { to: '/admin/consolidation', label: 'Consolidation', icon: Combine, active: true, roles: ORG },
   { to: '/admin/schedule', label: 'Schedule', icon: CalendarClock, active: true, roles: ORG },
   { to: '/admin/judging/assignment', label: 'Event assignment', icon: UserCheck, active: true, roles: ['SuperAdmin', 'Chairman'] },
   { to: '/admin/event-day', label: 'Event Day', icon: ClipboardCheck, active: true, roles: ORG },

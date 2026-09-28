@@ -261,7 +261,7 @@ router.get('/events', async (req, res, next) => {
        FROM events e
        JOIN event_age_groups eag ON eag.event_id = e.id
        LEFT JOIN categories c ON c.id = e.category_id
-       WHERE e.year_id = $1 ${ageFilter} ${kindFilter} AND e.is_cancelled = FALSE
+       WHERE e.year_id = $1 ${ageFilter} ${kindFilter} AND e.is_cancelled = FALSE AND e.is_generated = FALSE
        ORDER BY e.event_code`,
       args,
     );

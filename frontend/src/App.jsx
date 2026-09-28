@@ -12,6 +12,7 @@ import YearConfig from './pages/YearConfig';
 import Events from './pages/Events';
 import Registrations from './pages/Registrations';
 import Lists from './pages/Lists';
+import Consolidation from './pages/Consolidation';
 import Schedule from './pages/Schedule';
 import EventDay from './pages/EventDay';
 import Judges from './pages/Judges';
@@ -105,6 +106,10 @@ export default function App() {
               <Route
                 path="/admin/lists"
                 element={<ProtectedRoute allowedRoles={ORG}><Lists /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/consolidation"
+                element={<ProtectedRoute allowedRoles={ORG}><Consolidation /></ProtectedRoute>}
               />
               <Route
                 path="/admin/schedule"
