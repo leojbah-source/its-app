@@ -205,18 +205,27 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
   const [saved, setSaved] = useState({});
   const [savingCell, setSavingCell] = useState(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (showLoader = true) => {
+    if (showLoader) setLoading(true);
     try { const sh = await judgeApi.sheet(token, current.assignment_id, groupId); setSheet(sh);
       const m = {}; for (const s of sh.scores) m[`${s.registration_id}:${s.criterion_id}`] = String(s.score_value);
       setVals(m); setSaved(m);
-    } catch (e) { setFlash(e.message); } finally { setLoading(false); }
+    } catch (e) { setFlash(e.message); } finally { if (showLoader) setLoading(false); }
   }, [token, current, groupId]);
   useEffect(() => { load(); }, [load]);
 
   const criteria = useMemo(() => (sheet ? [...sheet.criteria].sort((a, b) => a.sequence_order - b.sequence_order) : []), [sheet]);
   const maxByCrit = useMemo(() => Object.fromEntries(criteria.map((c) => [c.id, Number(c.max_score)])), [criteria]);
   const canScore = sheet?.agreement?.all_agreed;
+  // While scoring is still locked (waiting for all judges to agree), refresh
+  // every 5s so this judge's sheet unlocks as soon as the last judge agrees —
+  // the briefing screen polls, but a judge waiting on the scoresheet otherwise
+  // would stay frozen. Stop once open so active score entry is never clobbered.
+  useEffect(() => {
+    if (canScore) return undefined;
+    const iv = setInterval(() => load(false), 5000);
+    return () => clearInterval(iv);
+  }, [canScore, load]);
   const isDone = !!sheet?.done?.i_done;
   const published = !!sheet?.result_state?.published; // result out → view only, no edits
   const totalFor = useCallback((reg) => criteria.reduce((t, c) => { const v = Number(saved[`${reg}:${c.id}`]); return t + (Number.isFinite(v) ? v : 0); }, 0), [criteria, saved]);
