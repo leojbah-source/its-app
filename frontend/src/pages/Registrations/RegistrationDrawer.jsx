@@ -50,6 +50,7 @@ function DocLink({ url, label }) {
 export default function RegistrationDrawer({ registration, token, onClose, onUpdated }) {
   const { user } = useAuth();
   const isChairman = ['Chairman', 'SuperAdmin'].includes(user?.role);
+  const canEditParent = ['SuperAdmin', 'Admin', 'Coordinator', 'Registrar'].includes(user?.role);
   const isRegistrar = user?.role === 'Registrar'; // may action cash payments only
 
   const [data, setData] = useState(null);
@@ -67,6 +68,8 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [msgBusy, setMsgBusy] = useState('');
   const [msgErr, setMsgErr] = useState('');
   const [editContact, setEditContact] = useState(false);
+  const [editEmail, setEditEmail] = useState(false);
+  const [emailVal, setEmailVal] = useState('');
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
 
@@ -118,6 +121,15 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
     try {
       await participantsApi.updateContact(token, participantId, { guardian_name: contactName, guardian_phone: contactPhone });
       setFlash('Contact updated.'); setEditContact(false); load();
+    } catch (e) { setFlash(e.message); }
+    finally { setBusy(''); }
+  }
+
+  async function saveEmail() {
+    setBusy('email'); setFlash('');
+    try {
+      await participantsApi.updateParentEmail(token, participantId, { email: emailVal.trim() });
+      setFlash('Parent email updated.'); setEditEmail(false); load();
     } catch (e) { setFlash(e.message); }
     finally { setBusy(''); }
   }
@@ -232,7 +244,30 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                   <Field label="Group" value={p.age_group_code} />
                   <Field label="School" value={p.school_name} />
                   <Field label="Entry method" value={p.cpr_verified_method === 'ocr' ? 'OCR scan' : 'Manual'} />
-                  <Field label="Parent" value={p.parent_name} />
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Parent (login email)</p>
+                    {!editEmail ? (
+                      <p className="text-sm font-medium text-slate-800">
+                        {p.parent_name || '—'}
+                        <span className="block text-xs font-normal text-slate-500">{p.parent_email || 'no email on file'}</span>
+                        {canEditParent && (
+                          <button
+                            onClick={() => { setEmailVal(p.parent_email || ''); setEditEmail(true); }}
+                            className="text-[11px] font-normal text-navy-600 hover:underline">Edit email</button>
+                        )}
+                      </p>
+                    ) : (
+                      <div className="mt-1 space-y-1.5">
+                        <input type="email" value={emailVal} onChange={(e) => setEmailVal(e.target.value)} placeholder="parent@example.com"
+                          className="w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+                        <p className="text-[10px] text-slate-400">Used for the password-reset link and confirmation emails.</p>
+                        <div className="flex gap-2">
+                          <Button variant="primary" size="sm" loading={busy === 'email'} onClick={saveEmail}>Save</Button>
+                          <Button variant="outline" size="sm" onClick={() => setEditEmail(false)}>Cancel</Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <div>
                     <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Parent contact</p>
                     {!editContact ? (

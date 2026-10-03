@@ -282,6 +282,7 @@ export const participantsApi = {
   remind: (token, id, message) => request(`/api/admin/participants/${id}/remind`, { method: 'POST', token, body: { message } }),
   /** Staff correct the guardian name / contact number. */
   updateContact: (token, id, body) => request(`/api/admin/participants/${id}/contact`, { method: 'PUT', token, body }),
+  updateParentEmail: (token, id, body) => request(`/api/admin/participants/${id}/parent-email`, { method: 'PUT', token, body }),
 };
 
 // ── Teams (admin) ────────────────────────────────────────────────────────────

@@ -374,12 +374,31 @@ const RESET_TTL_MS = 60 * 60 * 1000; // 1 hour
 const sha256 = (t) => crypto.createHash('sha256').update(t).digest('hex');
 
 /** Resolve the public site host (no scheme, no trailing slash) for links. */
-async function resetSiteBase() {
-  const { rows } = await pool.query(
-    `SELECT website_domain FROM year_config WHERE is_active = TRUE LIMIT 1`);
-  const host = String(rows[0]?.website_domain || 'talentscan.kcabah.com')
-    .replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-  return `https://${host}`;
+// Known hosts that serve THIS app (the parent portal). The reset link must land
+// on the app — never on the KCA website (year_config.website_domain), which is a
+// different site. We take the host from the request the parent actually used,
+// but only accept it if it is one of these (prevents host-header injection);
+// an APP_URL env var, if set, always wins.
+const APP_HOSTS = [
+  'talentscan.kcabah.com',
+  'its-app-staging.onrender.com',
+  'its-app.onrender.com',
+  'localhost:5173', 'localhost:4000', '127.0.0.1:5173', '127.0.0.1:4000',
+];
+function resetSiteBase(req) {
+  if (process.env.APP_URL && /^https?:\/\//i.test(process.env.APP_URL))
+    return process.env.APP_URL.replace(/\/+$/, '');
+  let host = null, proto = 'https';
+  const origin = req.headers.origin;
+  if (origin && /^https?:\/\//i.test(origin)) {
+    try { const u = new URL(origin); host = u.host; proto = u.protocol.replace(':', ''); } catch { /* ignore */ }
+  }
+  if (!host) {
+    host = req.headers['x-forwarded-host'] || req.headers.host || null;
+    proto = String(req.headers['x-forwarded-proto'] || proto).split(',')[0].trim() || 'https';
+  }
+  if (host && APP_HOSTS.includes(String(host).toLowerCase())) return `${proto}://${host}`;
+  return 'https://talentscan.kcabah.com';
 }
 
 // POST /api/register/forgot-password  { email }
@@ -406,7 +425,7 @@ router.post('/forgot-password', async (req, res, next) => {
        VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
       [user.id, sha256(token)]);
 
-    const base = await resetSiteBase();
+    const base = resetSiteBase(req);
     const link = `${base}/register/reset?token=${token}`;
     const name = (user.full_name || '').split(' ')[0] || 'there';
     const html =

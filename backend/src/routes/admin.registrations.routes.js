@@ -700,4 +700,31 @@ router.put('/participants/:id/contact', requireRole(...editRoles), async (req, r
   } catch (err) { next(err); }
 });
 
+// PUT /participants/:id/parent-email — staff correct a parent's login email
+// (e.g. entered incorrectly at signup, so reset/confirmation emails bounce).
+router.put('/participants/:id/parent-email', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      return res.status(400).json({ error: 'Enter a valid email address.' });
+
+    const { rows: pr } = await pool.query(
+      `SELECT p.created_by, u.email AS current_email
+         FROM participants p LEFT JOIN users u ON u.id = p.created_by
+        WHERE p.id = $1`, [req.params.id]);
+    if (!pr[0]) return res.status(404).json({ error: 'Participant not found' });
+    if (!pr[0].created_by) return res.status(400).json({ error: 'No parent account is linked to this participant.' });
+
+    const taken = await pool.query(
+      `SELECT id FROM users WHERE lower(email) = $1 AND id <> $2 LIMIT 1`, [email, pr[0].created_by]);
+    if (taken.rows[0]) return res.status(409).json({ error: 'Another account already uses this email.' });
+
+    await pool.query(`UPDATE users SET email = $1, updated_at = NOW() WHERE id = $2`, [email, pr[0].created_by]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'UPDATE_PARENT_EMAIL',
+      entity: 'users', entityId: pr[0].created_by,
+      before: { email: pr[0].current_email }, details: { email }, reason: `Corrected parent login email for participant ${req.params.id}` });
+    res.json({ ok: true, parent_email: email });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
