@@ -70,6 +70,11 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [editContact, setEditContact] = useState(false);
   const [editEmail, setEditEmail] = useState(false);
   const [emailVal, setEmailVal] = useState('');
+  const [editId, setEditId] = useState(false);
+  const [idName, setIdName] = useState('');
+  const [idCpr, setIdCpr] = useState('');
+  const [idDob, setIdDob] = useState('');
+  const [idGender, setIdGender] = useState('');
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
 
@@ -130,6 +135,24 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
     try {
       await participantsApi.updateParentEmail(token, participantId, { email: emailVal.trim() });
       setFlash('Parent email updated.'); setEditEmail(false); load();
+    } catch (e) { setFlash(e.message); }
+    finally { setBusy(''); }
+  }
+
+  function openIdentityEdit() {
+    setIdName(p?.full_name || '');
+    setIdCpr(p?.cpr_number || '');
+    setIdDob(p?.dob ? new Date(p.dob).toISOString().slice(0, 10) : '');
+    setIdGender(p?.gender || '');
+    setEditId(true);
+  }
+  async function saveIdentity() {
+    setBusy('identity'); setFlash('');
+    try {
+      await participantsApi.updateIdentity(token, participantId, {
+        full_name: idName.trim(), cpr_number: idCpr.trim(), dob: idDob, gender: idGender,
+      });
+      setFlash('Participant details updated.'); setEditId(false); load();
     } catch (e) { setFlash(e.message); }
     finally { setBusy(''); }
   }
@@ -236,7 +259,39 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
             <>
               {/* ── Identity & CPR verification ── */}
               <section>
-                <SectionTitle icon={User}>Identity &amp; CPR verification</SectionTitle>
+                <div className="flex items-center justify-between">
+                  <SectionTitle icon={User}>Identity &amp; CPR verification</SectionTitle>
+                  {canEditParent && !editId && (
+                    <button onClick={openIdentityEdit} className="mb-1 text-[11px] font-medium text-navy-600 hover:underline">Edit details</button>
+                  )}
+                </div>
+                {editId && (
+                  <div className="mb-3 rounded-lg border border-navy-200 bg-navy-50/50 p-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="block text-[11px] font-medium text-slate-500">Full name
+                        <input value={idName} onChange={(e) => setIdName(e.target.value)} className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm font-normal text-slate-800" />
+                      </label>
+                      <label className="block text-[11px] font-medium text-slate-500">CPR number
+                        <input value={idCpr} onChange={(e) => setIdCpr(e.target.value)} className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm font-normal text-slate-800" />
+                      </label>
+                      <label className="block text-[11px] font-medium text-slate-500">Date of birth
+                        <input type="date" value={idDob} onChange={(e) => setIdDob(e.target.value)} className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm font-normal text-slate-800" />
+                      </label>
+                      <label className="block text-[11px] font-medium text-slate-500">Gender
+                        <select value={idGender} onChange={(e) => setIdGender(e.target.value)} className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm font-normal text-slate-800">
+                          <option value="">—</option>
+                          <option value="M">Male</option>
+                          <option value="F">Female</option>
+                        </select>
+                      </label>
+                    </div>
+                    <p className="mt-1.5 text-[10px] text-slate-400">Age group and PWA username update automatically from DOB, name and CPR.</p>
+                    <div className="mt-2 flex gap-2">
+                      <Button variant="primary" size="sm" loading={busy === 'identity'} onClick={saveIdentity}>Save details</Button>
+                      <Button variant="outline" size="sm" onClick={() => setEditId(false)}>Cancel</Button>
+                    </div>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4 mb-3">
                   <Field label="Full name" value={p.full_name} />
                   <Field label="CPR" value={p.cpr_number} />

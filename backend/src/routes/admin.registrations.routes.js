@@ -727,4 +727,63 @@ router.put('/participants/:id/parent-email', requireRole(...editRoles), async (r
   } catch (err) { next(err); }
 });
 
+// PUT /participants/:id/identity — staff correct identity fields entered wrongly
+// (e.g. the CPR typed into the name). The DB triggers recompute age_group_id
+// (from dob) and pwa_username (from name + cpr) automatically, so we never set
+// those here. UNIQUE(year_id, cpr_number) is enforced; a DOB outside every
+// configured age group is rejected by the age-group trigger.
+router.put('/participants/:id/identity', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const sets = [];
+    const vals = [];
+    const add = (col, val) => { vals.push(val); sets.push(`${col} = $${vals.length}`); };
+
+    if (req.body.full_name !== undefined) {
+      const v = String(req.body.full_name || '').trim();
+      if (!v) return res.status(400).json({ error: 'Full name cannot be empty.' });
+      add('full_name', v);
+    }
+    if (req.body.cpr_number !== undefined) {
+      const v = String(req.body.cpr_number || '').trim();
+      if (v.replace(/\D/g, '').length < 6) return res.status(400).json({ error: 'CPR number looks too short.' });
+      add('cpr_number', v);
+    }
+    if (req.body.dob !== undefined) {
+      const v = String(req.body.dob || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(new Date(v).getTime()))
+        return res.status(400).json({ error: 'Enter a valid date of birth.' });
+      add('dob', v);
+    }
+    if (req.body.gender !== undefined) {
+      const v = String(req.body.gender || '').trim().toUpperCase();
+      if (v && v !== 'M' && v !== 'F') return res.status(400).json({ error: 'Gender must be Male or Female.' });
+      add('gender', v || null);
+    }
+    if (!sets.length) return res.status(400).json({ error: 'Nothing to update.' });
+
+    const { rows: before } = await pool.query(
+      `SELECT full_name, cpr_number, dob, gender FROM participants WHERE id = $1`, [req.params.id]);
+    if (!before[0]) return res.status(404).json({ error: 'Participant not found' });
+
+    vals.push(req.params.id);
+    const { rows } = await pool.query(
+      `UPDATE participants SET ${sets.join(', ')}, updated_at = NOW()
+        WHERE id = $${vals.length}
+        RETURNING id, full_name, cpr_number, dob, gender, age_group_id, pwa_username`, vals);
+
+    const { rows: ag } = await pool.query(`SELECT code FROM age_groups WHERE id = $1`, [rows[0].age_group_id]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EDIT_PARTICIPANT_IDENTITY',
+      entity: 'participants', entityId: req.params.id, before: before[0],
+      details: { full_name: rows[0].full_name, cpr_number: rows[0].cpr_number, dob: rows[0].dob, gender: rows[0].gender },
+      reason: 'Staff corrected participant identity details' });
+    res.json({ ...rows[0], age_group_code: ag[0]?.code || null });
+  } catch (err) {
+    if (err && err.code === '23505')
+      return res.status(409).json({ error: 'Another participant in this year already has that CPR number.' });
+    if (err && /age group/i.test(err.message || ''))
+      return res.status(400).json({ error: 'That date of birth does not fall in any configured age group for this year.' });
+    next(err);
+  }
+});
+
 module.exports = router;
