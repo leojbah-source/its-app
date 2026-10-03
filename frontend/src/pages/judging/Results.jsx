@@ -58,6 +58,12 @@ export default function Results() {
   }, [token, eventId, groupId]);
   useEffect(() => { loadResults(); }, [loadResults]);
 
+  // Silent refresh (no spinner, keeps the flash message) used by the auto-poll.
+  const pollResults = useCallback(async () => {
+    if (!eventId || !groupId) return;
+    try { setData(await resultsApi.get(token, eventId, groupId)); } catch { /* ignore transient poll errors */ }
+  }, [token, eventId, groupId]);
+
   async function act(kind) {
     setBusy(true); setFlash('');
     try {
@@ -74,6 +80,15 @@ export default function Results() {
   const unreviewedDiv = useMemo(() => (data?.results || []).filter((r) => r.divergence_flag && !r.divergence_notes).length, [data]);
   const tieRows = useMemo(() => (data?.results || []).filter((r) => r.needs_tiebreak), [data]);
   const showTiebreak = Boolean(data?.complete && data?.tiebreak_needed);
+
+  // Auto-refresh the live state (judges done, flags, finalise/publish/stale) every
+  // 5s so the page and its buttons update without a manual reload. Paused during an
+  // action, while the tiebreak modal is open, and once the result is published.
+  useEffect(() => {
+    if (!eventId || !groupId || state.published) return undefined;
+    const iv = setInterval(() => { if (!busy && !tbOpen) { pollResults(); loadGroups(); } }, 5000);
+    return () => clearInterval(iv);
+  }, [eventId, groupId, state.published, busy, tbOpen, pollResults, loadGroups]);
 
   const EXTRA_LABEL = { additional_3rd: "Add'l 3rd", consolation: 'Consolation' };
   async function setExtra(row, type) {
