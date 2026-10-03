@@ -375,11 +375,12 @@ function ResultPreview({ token, current, onBack, onExit, setFlash }) {
         </table>
       </div>
       <p className="mt-2 text-xs text-slate-500">Chest numbers only. Placement = lowest sum of the panel's ranks. Points = rank + grade (participation is not counted here).</p>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button onClick={onBack} className="inline-flex items-center gap-1 rounded-xl border border-navy-300 bg-white px-4 py-2.5 text-sm font-semibold text-navy-700 hover:bg-navy-50"><ChevronLeft size={16} /> Back to scoring</button>
-        {onExit && <button onClick={onExit} className="inline-flex items-center justify-center gap-1 rounded-xl bg-navy-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-navy-700">OK — back to groups</button>}
-      </div>
-      <p className="mt-2 text-[11px] text-slate-400">Publishing the result is done by the Chairman on the admin Results screen.</p>
+      {onExit && (
+        <div className="mt-4">
+          <button onClick={onExit} className="inline-flex items-center justify-center gap-1 rounded-xl bg-navy-600 px-5 py-3 text-sm font-semibold text-white hover:bg-navy-700">Proceed to Publish</button>
+          <p className="mt-1.5 text-[11px] text-slate-400">Confirms the panel is done with this group. The Chairman publishes the result from the admin Results screen. Use “Back to scoring” above if you still need to change a mark.</p>
+        </div>
+      )}
     </div>
   );
 }
