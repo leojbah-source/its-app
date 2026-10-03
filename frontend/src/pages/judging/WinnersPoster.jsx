@@ -44,8 +44,11 @@ function WinnerCard({ w, big, onReplace, busyId }) {
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: frameW, marginBottom: big ? 36 : 0 }}>
       <div style={{ width: frameW, height: frameH, borderRadius: '16px', overflow: 'hidden', background: '#e2e8f0', border: '3px solid rgba(255,255,255,.7)', boxShadow: '0 4px 14px rgba(0,0,0,.35)' }}>
         {w.photo_url
-          ? <img crossOrigin="anonymous" src={asset(w.photo_url)} alt={w.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 52 }}>👤</div>}
+          ? <img crossOrigin="anonymous" src={asset(w.photo_url)} alt={w.name}
+                 onError={(e) => { e.currentTarget.style.display = 'none'; if (e.currentTarget.nextSibling) e.currentTarget.nextSibling.style.display = 'flex'; }}
+                 style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          : null}
+        <div style={{ width: '100%', height: '100%', display: w.photo_url ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 64 }}>👤</div>
       </div>
       <div style={{ color: '#fde047', fontWeight: 800, fontSize: big ? 24 : 20, textAlign: 'center', lineHeight: 1.1, marginTop: 10, textShadow: '0 1px 2px rgba(0,0,0,.4)' }}>{w.name || `Chest ${w.chest_number}`}</div>
       <Medal place={w.place} />
@@ -115,7 +118,7 @@ export default function WinnersPoster() {
   const winners = data.winners || [];
   const byPlace = (p) => winners.find((w) => w.place === p);
   const first = byPlace(1), second = byPlace(2), third = byPlace(3);
-  const title = `THE ${(b.event_year_label || 'KCA INDIAN TALENT SCAN').toUpperCase()}`;
+  const title = (b.event_year_label || 'KCA Indian Talent Scan').toUpperCase();
   const eventLine = [ev.event_name, ev.age_group_label || (ev.age_group_code ? `Group ${ev.age_group_code}` : '')].filter(Boolean).join(' · ');
 
   return (
@@ -135,9 +138,9 @@ export default function WinnersPoster() {
         <div ref={posterRef} style={{ width: 820, margin: '0 auto', background: 'linear-gradient(180deg,#eef7ee 0%,#bfe0bf 16%,#2f7d32 48%,#15481a 100%)', fontFamily: 'Arial, Helvetica, sans-serif', paddingBottom: 40 }}>
           {/* header band */}
           <div style={{ background: 'linear-gradient(180deg,#ffffff,#eef7ee)', padding: '18px 26px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '3px solid #0f2f5f' }}>
-            {asset(b.kca_logo_url) ? <img crossOrigin="anonymous" src={asset(b.kca_logo_url)} alt="KCA" style={{ height: 66, objectFit: 'contain' }} /> : <div style={{ width: 90 }} />}
-            {asset(b.its_logo_url) ? <img crossOrigin="anonymous" src={asset(b.its_logo_url)} alt="ITS" style={{ height: 92, objectFit: 'contain' }} /> : <div />}
-            {asset(b.sponsor_logo_url) ? <img crossOrigin="anonymous" src={asset(b.sponsor_logo_url)} alt="Sponsor" style={{ height: 56, objectFit: 'contain' }} />
+            {asset(b.kca_logo_url) ? <img crossOrigin="anonymous" src={asset(b.kca_logo_url)} alt="" onError={(e)=>{e.currentTarget.style.visibility='hidden';}} style={{ height: 66, objectFit: 'contain' }} /> : <div style={{ width: 90 }} />}
+            {asset(b.its_logo_url) ? <img crossOrigin="anonymous" src={asset(b.its_logo_url)} alt="" onError={(e)=>{e.currentTarget.style.visibility='hidden';}} style={{ height: 92, objectFit: 'contain' }} /> : <div />}
+            {asset(b.sponsor_logo_url) ? <img crossOrigin="anonymous" src={asset(b.sponsor_logo_url)} alt="" onError={(e)=>{e.currentTarget.style.visibility='hidden';}} style={{ height: 56, objectFit: 'contain' }} />
               : (b.sponsor_name ? <div style={{ fontWeight: 700, color: '#0f2f5f' }}>{b.sponsor_name}</div> : <div style={{ width: 90 }} />)}
           </div>
 
