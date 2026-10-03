@@ -54,9 +54,10 @@ function baseName(name) {
 function logoUrl(y) {
   if (!y || !y.its_logo_url) return null;
   if (/^https?:\/\//i.test(y.its_logo_url)) return y.its_logo_url;
-  const host = String(y.website_domain || 'talentscan.kcabah.com')
-    .replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-  return `https://${host}${y.its_logo_url.startsWith('/') ? '' : '/'}${y.its_logo_url}`;
+  // The logo file is served by THIS app, not the KCA website (website_domain),
+  // so WhatsApp must fetch it from the app's own public URL.
+  const base = (process.env.APP_URL || 'https://talentscan.kcabah.com').replace(/\/+$/, '');
+  return `${base}${y.its_logo_url.startsWith('/') ? '' : '/'}${y.its_logo_url}`;
 }
 
 const contactPhone = (r) => r.guardian_phone || r.whatsapp_number || r.parent_phone || null;

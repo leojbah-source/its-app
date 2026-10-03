@@ -599,12 +599,14 @@ async function reminderContext(participantId) {
 
 // Public URL of the ITS logo (for image+caption WhatsApp), or null.
 async function itsLogoUrl() {
-  const { rows } = await pool.query(`SELECT its_logo_url, website_domain FROM year_config WHERE is_active = TRUE LIMIT 1`);
-  const y = rows[0] || {};
-  if (!y.its_logo_url) return null;
-  if (/^https?:\/\//i.test(y.its_logo_url)) return y.its_logo_url;
-  const host = String(y.website_domain || 'talentscan.kcabah.com').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-  return `https://${host}${y.its_logo_url.startsWith('/') ? '' : '/'}${y.its_logo_url}`;
+  const { rows } = await pool.query(`SELECT its_logo_url FROM year_config WHERE is_active = TRUE LIMIT 1`);
+  const logo = rows[0]?.its_logo_url;
+  if (!logo) return null;
+  if (/^https?:\/\//i.test(logo)) return logo;
+  // The logo file is served by THIS app, not the KCA website (website_domain),
+  // so WhatsApp must fetch it from the app's own public URL.
+  const base = (process.env.APP_URL || 'https://talentscan.kcabah.com').replace(/\/+$/, '');
+  return `${base}${logo.startsWith('/') ? '' : '/'}${logo}`;
 }
 
 // GET /participants/:id/reminder — prefilled message + last reminder date
