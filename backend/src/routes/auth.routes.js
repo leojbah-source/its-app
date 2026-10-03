@@ -106,22 +106,12 @@ router.post('/verify-otp', async (req, res, next) => {
     const judge = rows[0];
     if (!judge) return res.status(404).json({ error: 'Judge not found' });
 
-    // SINGLE ACTIVE SESSION: a judge may only be signed in on ONE screen. While a
-    // session is active and still within the lock window, a second login is
-    // refused (the judge must sign out on the other screen, or an admin resets
-    // it). A stale session past the window is replaced automatically so a judge
-    // whose tablet died isn't locked out for good.
-    if (judge.active_session && judge.active_session_at) {
-      const ageMs = Date.now() - new Date(judge.active_session_at).getTime();
-      const lockMs = JUDGE_SESSION_LOCK_HOURS * 3600 * 1000;
-      if (ageMs < lockMs) {
-        return res.status(409).json({
-          error: 'ALREADY_SIGNED_IN',
-          message: 'This judge is already signed in on another screen. Sign out there first, or ask an admin to reset the session.',
-        });
-      }
-    }
-
+    // SINGLE ACTIVE SESSION with auto take-over: a judge may be signed in on ONE
+    // screen at a time. Because this login already proved identity (OTP), a fresh
+    // login simply TAKES OVER — the previous session id stops matching, so the
+    // old screen is signed out on its next request (see judge.routes). This means
+    // a judge who hit Back or whose tablet died can just sign in again, with no
+    // "already signed in" lockout and no admin reset needed.
     const sid = crypto.randomUUID();
     await pool.query(`UPDATE judges SET active_session = $1, active_session_at = NOW() WHERE id = $2`, [sid, judge.id]);
     const token = signToken({ id: judge.id, judgeId: judge.id, role: 'Judge', type: 'judge', phone, sid });

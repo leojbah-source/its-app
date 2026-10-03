@@ -214,7 +214,39 @@ async function groupState(eventId, ageGroupId) {
      LEFT JOIN event_results er ON er.registration_id = r.id
      WHERE r.event_id = $1 AND r.age_group_id = $2 AND r.status = 'attended'`, [eventId, ageGroupId]);
   const s = rows[0];
-  return { finalised: s.n > 0 && s.finalised === s.n, published: s.n > 0 && s.published === s.n, computed: s.finalised > 0 || s.published > 0 };
+  const finalised = s.n > 0 && s.finalised === s.n;
+  const published = s.n > 0 && s.published === s.n;
+  let stale_finalise = false;
+  if (finalised && !published) {
+    const { rows: st } = await pool.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM scores sc
+         JOIN registrations r ON r.id = sc.registration_id
+         WHERE r.event_id = $1 AND r.age_group_id = $2
+           AND sc.updated_at > (
+             SELECT MAX(er.finalised_at) FROM event_results er
+             JOIN registrations r2 ON r2.id = er.registration_id
+             WHERE r2.event_id = $1 AND r2.age_group_id = $2 AND er.is_finalised = TRUE)
+       ) AS x`, [eventId, ageGroupId]);
+    stale_finalise = !!st[0].x;
+  }
+  return { finalised, published, computed: s.finalised > 0 || s.published > 0, stale_finalise };
+}
+
+// True when a judge changed any score after this group was finalised, so the
+// finalised result no longer matches the scores and must be finalised again.
+async function finaliseIsStale(eventId, ageGroupId) {
+  const { rows } = await pool.query(
+    `SELECT EXISTS (
+       SELECT 1 FROM scores sc
+       JOIN registrations r ON r.id = sc.registration_id
+       WHERE r.event_id = $1 AND r.age_group_id = $2
+         AND sc.updated_at > (
+           SELECT MAX(er.finalised_at) FROM event_results er
+           JOIN registrations r2 ON r2.id = er.registration_id
+           WHERE r2.event_id = $1 AND r2.age_group_id = $2 AND er.is_finalised = TRUE)
+     ) AS x`, [eventId, ageGroupId]);
+  return !!rows[0].x;
 }
 
 // ── GET /api/admin/results/:event_id/groups — groups + result state ──────────
@@ -463,6 +495,9 @@ router.post('/results/:event_id/:age_group_id/finalise', requireRole(...viewRole
 router.post('/results/:event_id/:age_group_id/publish', requireRole(...publishRoles), async (req, res, next) => {
   try {
     const eventId = Number(req.params.event_id), ag = Number(req.params.age_group_id);
+    if (await finaliseIsStale(eventId, ag)) {
+      return res.status(409).json({ error: 'Scores were changed after this group was finalised. Please Finalise again before publishing.' });
+    }
     const { rows } = await pool.query(
       `UPDATE event_results er SET is_published = TRUE, published_by = $1, published_at = NOW(), updated_at = NOW()
        FROM registrations r
