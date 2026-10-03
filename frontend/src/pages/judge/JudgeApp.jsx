@@ -217,15 +217,19 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
   const criteria = useMemo(() => (sheet ? [...sheet.criteria].sort((a, b) => a.sequence_order - b.sequence_order) : []), [sheet]);
   const maxByCrit = useMemo(() => Object.fromEntries(criteria.map((c) => [c.id, Number(c.max_score)])), [criteria]);
   const canScore = sheet?.agreement?.all_agreed;
-  // While scoring is still locked (waiting for all judges to agree), refresh
-  // every 5s so this judge's sheet unlocks as soon as the last judge agrees —
-  // the briefing screen polls, but a judge waiting on the scoresheet otherwise
-  // would stay frozen. Stop once open so active score entry is never clobbered.
+  // Poll every 5s for shared state — so this sheet unlocks when the last judge
+  // agrees, the "N/total judges done" count keeps up as others submit, and the
+  // preview/lock appears when the Chairman finalises/publishes. This refreshes
+  // ONLY the shared sheet (agreement / done / result_state / participants); it
+  // never touches this judge's own entered values, so active scoring is safe.
   useEffect(() => {
-    if (canScore) return undefined;
-    const iv = setInterval(() => load(false), 5000);
+    const tick = async () => {
+      try { const sh = await judgeApi.sheet(token, current.assignment_id, groupId); setSheet(sh); }
+      catch { /* ignore transient poll errors */ }
+    };
+    const iv = setInterval(tick, 5000);
     return () => clearInterval(iv);
-  }, [canScore, load]);
+  }, [token, current, groupId]);
   const isDone = !!sheet?.done?.i_done;
   const published = !!sheet?.result_state?.published; // result out → view only, no edits
   const totalFor = useCallback((reg) => criteria.reduce((t, c) => { const v = Number(saved[`${reg}:${c.id}`]); return t + (Number.isFinite(v) ? v : 0); }, 0), [criteria, saved]);
