@@ -70,7 +70,7 @@ export default function Results() {
   }
 
   const state = data?.state || {};
-  const flagged = useMemo(() => (data?.results || []).filter((r) => r.tie_flag || r.divergence_flag).length, [data]);
+  const flagged = useMemo(() => (data?.results || []).filter((r) => r.exact_tie || r.divergence_flag).length, [data]);
   const unreviewedDiv = useMemo(() => (data?.results || []).filter((r) => r.divergence_flag && !r.divergence_notes).length, [data]);
   const tieRows = useMemo(() => (data?.results || []).filter((r) => r.needs_tiebreak), [data]);
   const showTiebreak = Boolean(data?.complete && data?.tiebreak_needed);
@@ -170,6 +170,7 @@ export default function Results() {
                   <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="px-3 py-2 text-left">Place</th>
+                      <th className="px-2 py-2 text-center">Final rank</th>
                       <th className="px-3 py-2 text-left">Chest</th>
                       {data.judges.map((j) => <th key={j} className="px-2 py-2 text-center" title={j}>{j.split(' ')[0]}<div className="text-[10px] font-normal normal-case text-slate-400">rank</div></th>)}
                       <th className="px-2 py-2 text-center">Rank sum</th>
@@ -184,6 +185,7 @@ export default function Results() {
                     {data.results.map((r) => (
                       <tr key={r.registration_id} className={showTiebreak && r.needs_tiebreak ? 'bg-red-50/40' : r.place ? 'bg-gold-50/30' : ''}>
                         <td className="px-3 py-2">{r.place ? <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-gold-500 text-xs font-bold text-white">{r.place}</span> : <span className="text-slate-300">—</span>}</td>
+                        <td className="px-2 py-2 text-center font-semibold text-navy-800">{r.final_rank ?? '—'}</td>
                         <td className="px-3 py-2"><span className="font-mono font-semibold text-navy-800">{r.chest_number}</span></td>
                         {r.per_judge.map((pj, i) => <td key={i} className="px-2 py-2 text-center text-slate-600" title={`total ${pj.total}`}>{pj.rank}</td>)}
                         <td className="px-2 py-2 text-center font-semibold text-navy-800">{r.rank_sum}</td>
@@ -206,7 +208,7 @@ export default function Results() {
                           <div className="flex justify-center gap-1">
                             {showTiebreak && r.needs_tiebreak
                               ? <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700" title="Exact tie — needs a rule #8 tiebreaker">tiebreak{r.mark_sum ? ` · ${r.mark_sum}` : ''}</span>
-                              : r.tie_flag && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">tie</span>}
+                              : r.exact_tie && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700" title="Exact tie — identical on rank sum and every criterion">tie</span>}
                             {r.divergence_flag && (state.published
                               ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600" title={r.divergence_notes || ''}>diverge</span>
                               : r.divergence_notes
@@ -221,7 +223,7 @@ export default function Results() {
               </div>
             </Card>
             <p className="mt-2 text-xs text-slate-500">
-              Placement = lowest sum of the {data.judges.length} judges' ranks (ties broken by C1 totals, then C2…, then tiebreaker marks). Grade from average %. Divergence threshold ±{data.absolute_threshold} ranks.
+              Final rank = the resolved order: lowest sum of the {data.judges.length} judges' ranks, equal sums broken by C1 totals, then C2…, then tiebreaker marks — so a shared rank sum is not a tie once the criteria separate them. “Place” shows prize positions only. Grade is from average % (a separate measure, so neighbouring ranks can differ in grade). Divergence threshold ±{data.absolute_threshold} ranks.
               {' '}Prizes: none below {data.no_prize_below} entries; 1st &amp; 2nd only below {data.min_entries_threshold}; full top&nbsp;3 at {data.min_entries_threshold}+.
             </p>
           </>

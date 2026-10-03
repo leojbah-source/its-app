@@ -169,6 +169,9 @@ async function computeGroup(eventId, ageGroupId, cfg) {
     const k = keyOf(r);
     r.exactTie = clusterCount[k] > 1;
     r.needsTiebreak = r.exactTie && clusterMinIdx[k] < maxPlaces; // cluster reaches a prize place
+    // Resolved final ranking (1..n) AFTER the criteria tie-break: distinct for
+    // rows separated by C1/C2… totals; only a genuine exact tie shares a rank.
+    r.final_rank = clusterMinIdx[k] + 1;
     // points
     const rp = r.place === 1 ? cfg.rank_pts_first : r.place === 2 ? cfg.rank_pts_second : r.place === 3 ? cfg.rank_pts_third : 0;
     const gp = r.grade === 'A' ? cfg.grade_a_pts : r.grade === 'B' ? cfg.grade_b_pts : r.grade === 'C' ? cfg.grade_c_pts : 0;
@@ -193,7 +196,7 @@ async function computeGroup(eventId, ageGroupId, cfg) {
     all_done: judges.length > 0 && judges.every((j) => j.done),
     results: ordered.map((r) => ({
       registration_id: r.registration_id, chest_number: r.chest_number, per_judge: r.perJudge,
-      rank_sum: r.rankSum, avg_pct: r.avgPct, place: r.place, grade: r.grade,
+      rank_sum: r.rankSum, avg_pct: r.avgPct, place: r.place, final_rank: r.final_rank, grade: r.grade,
       tie_flag: r.tie, divergence_flag: r.divergence,
       exact_tie: r.exactTie, needs_tiebreak: r.needsTiebreak, mark_sum: r.tbMark,
       rank_points: r.rank_points, grade_points: r.grade_points,

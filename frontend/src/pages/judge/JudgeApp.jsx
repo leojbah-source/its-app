@@ -344,6 +344,7 @@ function ResultPreview({ token, current, onBack, setFlash }) {
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-3 py-2 text-center">Place</th>
+              <th className="px-2 py-2 text-center">Final rank</th>
               <th className="px-3 py-2 text-left">Chest</th>
               {judges.map((j, i) => <th key={i} className="px-2 py-2 text-center font-medium" title={j}><div className="normal-case text-navy-700">{j}</div><div className="text-[10px] font-normal normal-case text-slate-400">rank</div></th>)}
               <th className="px-2 py-2 text-center">Rank sum</th>
@@ -357,6 +358,7 @@ function ResultPreview({ token, current, onBack, setFlash }) {
             {data.results.map((r) => (
               <tr key={r.chest_number} className={r.place ? 'bg-gold-50/50' : ''}>
                 <td className="px-3 py-2 text-center">{r.place ? <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-gold-500 text-xs font-bold text-white">{r.place}</span> : <span className="text-slate-300">—</span>}</td>
+                <td className="px-2 py-2 text-center font-semibold text-navy-800">{r.final_rank ?? '—'}</td>
                 <td className="px-3 py-2"><span className="font-mono font-bold text-navy-800">{r.chest_number}</span></td>
                 {(r.per_judge || []).map((pj, i) => <td key={i} className="px-2 py-2 text-center text-slate-700">{pj.rank ?? '—'}</td>)}
                 <td className="px-2 py-2 text-center font-semibold">{r.rank_sum}</td>
@@ -364,7 +366,7 @@ function ResultPreview({ token, current, onBack, setFlash }) {
                 <td className="px-2 py-2 text-center">{r.grade || '—'}</td>
                 <td className="px-2 py-2 text-center font-semibold text-navy-800">{r.total_points}</td>
                 <td className="px-2 py-2 text-center">
-                  {r.tie_flag && <span className="mr-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">tie</span>}
+                  {r.exact_tie && <span className="mr-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" title="Exact tie">tie</span>}
                   {r.divergence_flag && <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">diverge</span>}
                 </td>
               </tr>

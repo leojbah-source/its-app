@@ -400,9 +400,9 @@ router.get('/result/:assignment_id', async (req, res, next) => {
       published: state.published,
       judges: data.judges,
       results: data.results.map((r) => ({
-        place: r.place, chest_number: r.chest_number, per_judge: r.per_judge,
+        place: r.place, final_rank: r.final_rank, chest_number: r.chest_number, per_judge: r.per_judge,
         rank_sum: r.rank_sum, avg_pct: r.avg_pct, grade: r.grade, total_points: r.total_points,
-        tie_flag: r.tie_flag, divergence_flag: r.divergence_flag,
+        tie_flag: r.tie_flag, exact_tie: r.exact_tie, divergence_flag: r.divergence_flag,
       })),
     });
   } catch (err) { next(err); }
