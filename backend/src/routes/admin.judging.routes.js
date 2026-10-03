@@ -12,6 +12,9 @@ const express = require('express');
 const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const multer = require('multer');
+const path = require('path');
+const { uploadDir } = require('../utils/uploads');
 
 const router = express.Router();
 router.use(authenticate);
@@ -564,6 +567,70 @@ router.get('/results/:event_id/:age_group_id/sheet', requireRole(...viewRoles), 
 });
 
 // Reused by the judge portal's read-only result preview (judge.routes).
+const posterRoles = ['SuperAdmin', 'Admin', 'Chairman'];
+const posterUpload = multer({
+  storage: multer.diskStorage({
+    destination: uploadDir,
+    filename: (req, file, cb) => cb(null, `winner_${Date.now()}_${Math.round(Math.random() * 1e6)}${path.extname(file.originalname).toLowerCase()}`),
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => (['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype) ? cb(null, true) : cb(new Error('Only JPEG, PNG or WebP images are allowed'))),
+});
+
+// GET /results/:event_id/:age_group_id/winners — top-3 (name, photo) + branding
+// for the winners announcement poster. Available once the group is finalised.
+router.get('/results/:event_id/:age_group_id/winners', requireRole(...posterRoles), async (req, res, next) => {
+  try {
+    const cfg = await activeCfg();
+    if (!cfg) return res.status(400).json({ error: 'No active year' });
+    const eventId = Number(req.params.event_id), ag = Number(req.params.age_group_id);
+    const data = await computeGroup(eventId, ag, cfg);
+    const top = data.results.filter((r) => r.place && r.place >= 1 && r.place <= 3).sort((a, b) => a.place - b.place);
+
+    const regIds = top.map((r) => r.registration_id);
+    const people = {};
+    if (regIds.length) {
+      const { rows } = await pool.query(
+        `SELECT r.id AS registration_id, p.id AS participant_id, p.full_name, p.photo_url, s.name AS school
+           FROM registrations r JOIN participants p ON p.id = r.participant_id
+           LEFT JOIN schools s ON s.id = p.school_id WHERE r.id = ANY($1)`, [regIds]);
+      for (const x of rows) people[x.registration_id] = x;
+    }
+    const winners = top.map((r) => ({
+      place: r.place, chest_number: r.chest_number, grade: r.grade,
+      participant_id: people[r.registration_id]?.participant_id || null,
+      name: people[r.registration_id]?.full_name || null,
+      photo_url: people[r.registration_id]?.photo_url || null,
+      school: people[r.registration_id]?.school || null,
+    }));
+
+    const { rows: yc } = await pool.query(
+      `SELECT event_year_label, kca_logo_url, its_logo_url, sponsor_logo_url, sponsor_name
+         FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    const { rows: ev } = await pool.query(
+      `SELECT e.event_name, e.event_code, e.gender_split, c.name AS category_name,
+              ag.code AS age_group_code, ag.label AS age_group_label,
+              (SELECT MIN(event_date) FROM schedule WHERE event_id = $1) AS event_date
+         FROM events e LEFT JOIN categories c ON c.id = e.category_id
+         LEFT JOIN age_groups ag ON ag.id = $2 WHERE e.id = $1`, [eventId, ag]);
+    const state = await groupState(eventId, ag);
+    res.json({ branding: yc[0] || {}, event: ev[0] || {}, state, winners });
+  } catch (err) { next(err); }
+});
+
+// POST /results/winner-photo/:participant_id — replace a winner's photo for the poster
+router.post('/results/winner-photo/:participant_id', requireRole(...posterRoles), posterUpload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No image received (JPEG/PNG/WebP, max 8 MB)' });
+    const url = `/uploads/${req.file.filename}`;
+    const { rows } = await pool.query(
+      `UPDATE participants SET photo_url = $1, updated_at = NOW() WHERE id = $2 RETURNING id`, [url, req.params.participant_id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Participant not found' });
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'UPDATE_WINNER_PHOTO', entity: 'participants', entityId: req.params.participant_id });
+    res.json({ photo_url: url });
+  } catch (err) { next(err); }
+});
+
 router.computeGroup = computeGroup;
 router.activeCfg = activeCfg;
 router.groupState = groupState;

@@ -18,6 +18,7 @@ import EventDay from './pages/EventDay';
 import Judges from './pages/Judges';
 import Assignment from './pages/judging/Assignment';
 import Results from './pages/judging/Results';
+import WinnersPoster from './pages/judging/WinnersPoster';
 import ResultSheet from './pages/judging/ResultSheet';
 import McPortal from './pages/mc/McPortal';
 import TimerPortal from './pages/timer/TimerPortal';
@@ -134,6 +135,10 @@ export default function App() {
               <Route
                 path="/admin/judging/results/print/:eventId/:ageGroupId"
                 element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><ResultSheet /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/judging/winners/:eventId/:groupId"
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Chairman']}><WinnersPoster /></ProtectedRoute>}
               />
               <Route
                 path="/mc"

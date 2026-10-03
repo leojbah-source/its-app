@@ -6,7 +6,7 @@
 // and the judges' 1–10 marks are keyed in to separate the tied chests.
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Calculator, CheckCircle2, Send, AlertTriangle, Scale, X, Printer } from 'lucide-react';
+import { RefreshCw, Calculator, CheckCircle2, Send, AlertTriangle, Scale, X, Printer, Trophy } from 'lucide-react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { Card, Badge } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -162,6 +162,7 @@ export default function Results() {
               {!state.published && <Button variant="outline" icon={Calculator} loading={busy} onClick={() => act('compute')}>Compute &amp; save</Button>}
               {(!state.finalised || state.stale_finalise) && <Button variant="primary" icon={CheckCircle2} loading={busy} disabled={!data.complete || unreviewedDiv > 0 || data.tiebreak_needed || (data.judges_total > 0 && !data.all_done)} onClick={() => act('finalise')}>{state.finalised ? 'Finalise again' : 'Finalise'}</Button>}
               {state.finalised && !state.published && <Button variant="gold" icon={Send} loading={busy} onClick={() => act('publish')}>Publish</Button>}
+              {state.published && <Button variant="gold" icon={Trophy} onClick={() => navigate(`/admin/judging/winners/${eventId}/${groupId}`)}>Winners poster</Button>}
             </div>
 
             {state.stale_finalise && <div className="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">A judge changed a score after this group was finalised, so the finalised result is out of date. Click <b>Finalise again</b> before publishing (publishing is blocked until you do).</div>}
