@@ -4,13 +4,13 @@
 // attendance; assign chest numbers (restart at 1 per group) with a dramatized
 // on-screen draw. Chest numbers LOCK once judging starts (a score exists).
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, Hash, Trash2, Check, X, Lock, Sparkles } from 'lucide-react';
+import { RefreshCw, Hash, Trash2, Check, X, Lock, Sparkles, Video } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import { PageLoader } from '../components/ui/States';
 import { useAuth } from '../context/AuthContext';
-import { scheduleApi, chestApi } from '../api/client';
+import { scheduleApi, chestApi, videoApi } from '../api/client';
 
 const MARK_ROLES = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 const MANUAL_ROLES = ['SuperAdmin', 'Chairman'];
@@ -144,6 +144,23 @@ export default function EventDay() {
     try { await chestApi.markAttendance(token, eventId, reg.registration_id, present); }
     catch (err) { setFlash(err.message); loadRoster(); }
   }
+
+  // ── Video recording opt-in (per registration) ─────────────────────────────
+  async function setVideo(reg, method) {
+    setRoster((prev) => prev.map((x) => (x.registration_id === reg.registration_id
+      ? { ...x, video_wants: true, video_method: method } : x)));
+    try {
+      const r = await videoApi.setRequest(token, eventId, reg.registration_id, method);
+      setRoster((prev) => prev.map((x) => (x.registration_id === reg.registration_id
+        ? { ...x, video_wants: true, video_method: r.payment_method, video_amount: r.amount } : x)));
+    } catch (err) { setFlash(err.message); loadRoster(); }
+  }
+  async function removeVideo(reg) {
+    setRoster((prev) => prev.map((x) => (x.registration_id === reg.registration_id
+      ? { ...x, video_wants: false, video_method: null, video_recorded: false } : x)));
+    try { await videoApi.remove(token, reg.registration_id); }
+    catch (err) { setFlash(err.message); loadRoster(); }
+  }
   async function assign(mode) {
     setBusy(true); setFlash('');
     try {
@@ -179,6 +196,7 @@ export default function EventDay() {
     withChest: roster.filter((r) => r.chest_number != null).length,
     awaiting: roster.filter((r) => r.status === 'attended' && r.chest_number == null).length,
     unmarked: roster.filter((r) => r.status === 'registered').length,
+    video: roster.filter((r) => r.video_wants).length,
   }), [roster]);
 
   const sel = 'rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
@@ -246,6 +264,7 @@ export default function EventDay() {
             <Badge tone="success">{counts.attended} present</Badge>
             <Badge tone="danger">{counts.absent} absent</Badge>
             <Badge tone="gold">{counts.withChest} chests</Badge>
+            {counts.video > 0 && <Badge tone="navy">{counts.video} video</Badge>}
             {locked && <Badge tone="danger"><span className="inline-flex items-center gap-1"><Lock size={11} /> Locked — judging started</span></Badge>}
             <div className="flex-1" />
             {canMark && !locked && (
@@ -283,12 +302,13 @@ export default function EventDay() {
                 <p className="py-10 text-center text-sm text-slate-400">No entries for this group.</p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[720px] text-sm">
+                  <table className="w-full min-w-[860px] text-sm">
                     <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                       <tr>
                         <th className="px-3 py-2 w-20">Chest</th>
                         <th className="px-3 py-2">Name</th>
                         <th className="px-3 py-2">Status</th>
+                        <th className="px-3 py-2">Video</th>
                         <th className="px-3 py-2 text-right">Attendance</th>
                       </tr>
                     </thead>
@@ -303,6 +323,27 @@ export default function EventDay() {
                             </td>
                             <td className={`px-3 py-2 font-medium ${absent ? 'text-red-600 line-through' : 'text-slate-800'}`}>{r.name}</td>
                             <td className="px-3 py-2"><Badge tone={r.status === 'attended' ? 'success' : absent ? 'danger' : 'slate'}>{r.status}</Badge></td>
+                            <td className="px-3 py-2">
+                              {r.video_wants ? (
+                                <div className="flex items-center gap-1.5">
+                                  {canMark && !locked ? (
+                                    <select value={r.video_method || 'cash'} onChange={(e) => setVideo(r, e.target.value)}
+                                      className="rounded border border-slate-300 px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-navy-300">
+                                      <option value="cash">Cash</option>
+                                      <option value="benefitpay">BenefitPay</option>
+                                    </select>
+                                  ) : <Badge tone="navy">{r.video_method === 'benefitpay' ? 'BenefitPay' : 'Cash'}</Badge>}
+                                  {r.video_recorded && <Badge tone="success">recorded</Badge>}
+                                  {canMark && !locked && (
+                                    <button onClick={() => removeVideo(r)} className="text-slate-400 hover:text-red-500" title="Remove video request"><X size={14} /></button>
+                                  )}
+                                </div>
+                              ) : (
+                                canMark && !locked
+                                  ? <Button size="sm" variant="outline" icon={Video} onClick={() => setVideo(r, 'cash')}>Video</Button>
+                                  : <span className="text-xs text-slate-300">—</span>
+                              )}
+                            </td>
                             <td className="px-3 py-2">
                               {canMark && !locked && (isChairSuper || counts.withChest === 0) ? (
                                 <div className="flex items-center justify-end gap-1.5">

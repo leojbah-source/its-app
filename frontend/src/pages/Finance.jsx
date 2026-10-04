@@ -8,7 +8,7 @@ import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import { PageLoader } from '../components/ui/States';
 import { useAuth } from '../context/AuthContext';
-import { financeApi, yearConfigApi } from '../api/client';
+import { financeApi, yearConfigApi, videoApi } from '../api/client';
 
 const money = (v) => `BHD ${Number(v || 0).toFixed(3)}`;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -20,6 +20,7 @@ export default function Finance() {
   const [income, setIncome] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [heads, setHeads] = useState([]);
+  const [videoFin, setVideoFin] = useState(null);
   const [loading, setLoading] = useState(true);
   const [flash, setFlash] = useState('');
 
@@ -30,11 +31,12 @@ export default function Finance() {
   const loadAll = useCallback(async (yId) => {
     setLoading(true); setFlash('');
     try {
-      const [s, i, e, h] = await Promise.all([
+      const [s, i, e, h, v] = await Promise.all([
         financeApi.summary(token, yId), financeApi.income(token, yId),
         financeApi.expenses(token, yId), financeApi.heads(token, yId),
+        videoApi.financeSummary(token, yId).catch(() => null),
       ]);
-      setSummary(s); setIncome(i); setExpenses(e); setHeads(h);
+      setSummary(s); setIncome(i); setExpenses(e); setHeads(h); setVideoFin(v);
     } catch (err) { setFlash(err.message); }
     finally { setLoading(false); }
   }, [token]);
@@ -95,7 +97,7 @@ export default function Finance() {
       </div>
       {summary && (
         <p className="mb-3 text-xs text-slate-500">
-          Cash income = {money(summary.registrationFees)} confirmed registration fees (from Payments) + {money(summary.otherCashIncome)} other cash entered below. In-kind is tracked at value only and does not affect the cash balance.
+          Cash income = {money(summary.registrationFees)} confirmed registration fees (from Payments) + {money(summary.videoIncome)} video-recording collections + {money(summary.otherCashIncome)} other cash entered below. In-kind is tracked at value only and does not affect the cash balance.
         </p>
       )}
 
@@ -121,6 +123,57 @@ export default function Finance() {
             </div>
           </div>
           <p className="mt-2 text-xs text-slate-400">Confirmed payments only — this total is the registration-fee portion of cash income above.</p>
+        </Card>
+      )}
+
+      {videoFin && videoFin.count > 0 && (
+        <Card className="mb-4">
+          <h2 className="mb-2 text-sm font-semibold text-navy-800">Video recording collections</h2>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-xs text-slate-500">Cash</div>
+              <div className="text-base font-bold text-navy-800">{money(videoFin.byMethod?.cash)}</div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-xs text-slate-500">BenefitPay</div>
+              <div className="text-base font-bold text-navy-800">{money(videoFin.byMethod?.benefitpay)}</div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-xs text-slate-500">Videos</div>
+              <div className="text-base font-bold text-navy-800">{videoFin.count}</div>
+            </div>
+            <div className="rounded-lg border border-navy-200 bg-navy-50 px-3 py-2">
+              <div className="text-xs text-navy-600">Total video</div>
+              <div className="text-base font-bold text-navy-800">{money(videoFin.total)}</div>
+            </div>
+          </div>
+          {videoFin.byCollector?.length > 0 && (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[480px] text-sm">
+                <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-2 py-1">Collected by</th>
+                    <th className="px-2 py-1 text-right">Cash</th>
+                    <th className="px-2 py-1 text-right">BenefitPay</th>
+                    <th className="px-2 py-1 text-right">Videos</th>
+                    <th className="px-2 py-1 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {videoFin.byCollector.map((c, idx) => (
+                    <tr key={idx}>
+                      <td className="px-2 py-1 font-medium text-slate-700">{c.collector}</td>
+                      <td className="px-2 py-1 text-right">{money(c.cash)}</td>
+                      <td className="px-2 py-1 text-right">{money(c.benefitpay)}</td>
+                      <td className="px-2 py-1 text-right">{c.count}</td>
+                      <td className="px-2 py-1 text-right font-semibold text-navy-800">{money(c.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="mt-2 text-xs text-slate-400">Computed from Event Day video opt-ins — included in cash income above. Cash collections are shown by the coordinator who took the money.</p>
         </Card>
       )}
 

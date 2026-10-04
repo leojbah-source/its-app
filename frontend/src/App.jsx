@@ -20,6 +20,7 @@ import Assignment from './pages/judging/Assignment';
 import Results from './pages/judging/Results';
 import WinnersPoster from './pages/judging/WinnersPoster';
 import MediaResults from './pages/judging/MediaResults';
+import Videography from './pages/judging/Videography';
 import ResultSheet from './pages/judging/ResultSheet';
 import McPortal from './pages/mc/McPortal';
 import TimerPortal from './pages/timer/TimerPortal';
@@ -145,6 +146,10 @@ export default function App() {
               <Route
                 path="/admin/media"
                 element={<ProtectedRoute allowedRoles={['Media', 'SuperAdmin', 'Admin', 'Chairman']}><MediaResults /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/video"
+                element={<ProtectedRoute allowedRoles={['Media', 'SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer']}><Videography /></ProtectedRoute>}
               />
               <Route
                 path="/mc"

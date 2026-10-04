@@ -264,14 +264,28 @@ router.get('/summary', requireRole(...staffRoles), async (req, res, next) => {
       registrationFeesByMethod[r.method] = (registrationFeesByMethod[r.method] || 0) + amt;
     }
 
-    const totalCashIncome = registrationFees + otherCashIncome;
+    // Performance-video collections (Event Day opt-ins) are real cash income too.
+    const { rows: videoRows } = await pool.query(
+      `SELECT COALESCE(SUM(amount), 0) AS total,
+              COALESCE(SUM(amount) FILTER (WHERE payment_method = 'cash'), 0) AS cash,
+              COALESCE(SUM(amount) FILTER (WHERE payment_method = 'benefitpay'), 0) AS benefitpay,
+              COUNT(*)::int AS count
+       FROM video_requests WHERE year_id = $1`, [year_id]);
+    const videoIncome = Number(videoRows[0].total);
+    const videoByMethod = { cash: Number(videoRows[0].cash), benefitpay: Number(videoRows[0].benefitpay) };
+    const videoCount = videoRows[0].count;
+
+    const totalCashIncome = registrationFees + otherCashIncome + videoIncome;
 
     res.json({
       yearId: Number(year_id),
       registrationFees,
       registrationFeesByMethod,
       otherCashIncome,
-      totalCashIncome,          // registration fees + other cash income
+      videoIncome,              // performance-video collections
+      videoByMethod,            // { cash, benefitpay }
+      videoCount,
+      totalCashIncome,          // registration fees + other cash income + video
       totalInKind,
       totalIncome: totalCashIncome, // kept for existing callers
       totalExpenses,

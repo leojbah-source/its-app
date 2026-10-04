@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   Settings, ListChecks, Users, Gavel, CalendarClock, Trophy, Wallet,
   Sparkles, ClipboardList, ChevronDown, ClipboardCheck, Megaphone, BadgeDollarSign,
-  UserCog, UserCheck, Combine,
+  UserCog, UserCheck, Combine, Video,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { yearConfigApi, API_BASE } from '../../api/client';
@@ -32,6 +32,7 @@ const NAV_ITEMS = [
   },
   { to: '/admin/awards', label: 'Awards', icon: Trophy, active: true, roles: ['SuperAdmin', 'Chairman'] },
   { to: '/admin/media', label: 'Results & posters', icon: Trophy, active: true, roles: ['Media'] },
+  { to: '/admin/video', label: 'Videography', icon: Video, active: true, roles: ['Media', 'SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'] },
   { to: '/admin/notices', label: 'Notices', icon: Megaphone, active: true, roles: ['SuperAdmin', 'Admin', 'Chairman'] },
   { to: '/admin/payments', label: 'Payments', icon: BadgeDollarSign, active: true, roles: ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Accountant'] },
   { to: '/admin/finance', label: 'Finance', icon: Wallet, active: true, roles: ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Accountant'] },

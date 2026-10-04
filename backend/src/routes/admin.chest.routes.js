@@ -72,12 +72,17 @@ router.get('/:event_id/roster', requireRole(...staffRoles), async (req, res, nex
       `SELECT r.id AS registration_id, r.status, r.time_slot_id, r.age_group_id,
               COALESCE(p.full_name, t.team_name) AS name,
               ag.code AS age_group,
-              ca.chest_number
+              ca.chest_number,
+              (vr.id IS NOT NULL) AS video_wants,
+              vr.payment_method AS video_method,
+              vr.amount         AS video_amount,
+              vr.recorded       AS video_recorded
        FROM registrations r
        LEFT JOIN participants p ON p.id = r.participant_id
        LEFT JOIN teams t ON t.id = r.team_id
        LEFT JOIN age_groups ag ON ag.id = r.age_group_id
        LEFT JOIN chest_assignments ca ON ca.registration_id = r.id
+       LEFT JOIN video_requests vr ON vr.registration_id = r.id
        WHERE r.event_id = $1 AND r.status NOT IN ('withdrawn','swapped')
          AND ($2::int IS NULL OR r.age_group_id = $2)
        ORDER BY ca.chest_number NULLS LAST, name`, [req.params.event_id, ag]);

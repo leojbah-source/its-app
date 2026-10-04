@@ -58,6 +58,11 @@ export default function LimitsCard({ config, onChange, errors }) {
           hint="Default: 10"
           {...num('team_size_max')}
         />
+        <Input
+          label="Video recording fee (BHD)"
+          hint="Charged per performance video on Event Day. Default: 5"
+          {...num('video_fee')}
+        />
       </div>
     </Card>
   );

@@ -30,6 +30,7 @@ const pwaRoutes = require('./routes/pwa.routes');
 const adminNoticesRoutes = require('./routes/admin.notices.routes');
 const adminPrintoutsRoutes = require('./routes/admin.printouts.routes');
 const adminUsersRoutes = require('./routes/admin.users.routes');
+const adminVideoRoutes = require('./routes/admin.video.routes');
 const path = require('path');
 
 const app = express();
@@ -79,6 +80,7 @@ app.use('/api/admin/lists', adminListsRoutes);
 app.use('/api/admin/consolidation', adminConsolidationRoutes);
 app.use('/api/admin/schedule', adminScheduleRoutes);
 app.use('/api/admin/reports', adminReportsRoutes);
+app.use('/api/admin/video', adminVideoRoutes);
 app.use('/api/admin/notices', adminNoticesRoutes);
 app.use('/api/admin/printouts', adminPrintoutsRoutes);
 

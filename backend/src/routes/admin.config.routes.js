@@ -87,6 +87,7 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
     const member_subscription_upto = n(req.body.member_subscription_upto);
     const team_size_min           = n(req.body.team_size_min);
     const team_size_max           = n(req.body.team_size_max);
+    const video_fee               = n(req.body.video_fee);
 
     const { rows } = await pool.query(
       `UPDATE year_config SET
@@ -129,8 +130,9 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
          member_subscription_upto = COALESCE($37, member_subscription_upto),
          rules_pdf_url            = COALESCE($38, rules_pdf_url),
          sponsors_text            = COALESCE($39, sponsors_text),
+         video_fee                = COALESCE($40, video_fee),
          updated_at               = NOW()
-       WHERE id = $40 RETURNING *`,
+       WHERE id = $41 RETURNING *`,
       [event_year_label, event_start_date, event_end_date,
        kca_logo_url, its_logo_url, sponsor_logo_url, sponsor_name, kca_iban, benefit_pay_number,
        max_individual_events, category_cap, kca_special_min_points,
@@ -141,7 +143,7 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
        reg_deadline, team_reg_deadline, teacher_name_deadline,
        result_template_url, photo_crop_width, photo_crop_height,
        website_domain, team_size_min, team_size_max, member_subscription_upto,
-       rules_pdf_url, sponsors_text,
+       rules_pdf_url, sponsors_text, video_fee,
        config.id]
     );
     // Upsert age groups by (year_id, code). A blanket DELETE would violate

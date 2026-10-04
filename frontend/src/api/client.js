@@ -390,6 +390,23 @@ export const chestApi = {
     request(`/api/admin/chest/${eventId}${ageGroupId ? `?age_group_id=${ageGroupId}` : ''}`, { method: 'DELETE', token, body: { reason } }),
 };
 
+export const videoApi = {
+  // Coordinator (Event Day): opt a registration in / change method / opt out.
+  setRequest: (token, eventId, registration_id, payment_method) =>
+    request(`/api/admin/video/${eventId}/request`, { method: 'POST', token, body: { registration_id, payment_method } }),
+  setMethod: (token, registration_id, payment_method) =>
+    request(`/api/admin/video/request/${registration_id}`, { method: 'PUT', token, body: { payment_method } }),
+  remove: (token, registration_id) =>
+    request(`/api/admin/video/request/${registration_id}`, { method: 'DELETE', token }),
+  // Videographer (Media): tick recorded / done.
+  setRecorded: (token, registration_id, recorded) =>
+    request(`/api/admin/video/request/${registration_id}/recorded`, { method: 'PUT', token, body: { recorded } }),
+  // Opted-in lists.
+  requests: (token, params = {}) => request(`/api/admin/video/requests${qs(params)}`, { token }),
+  requestsCsv: (token, params = {}) => request(`/api/admin/video/requests${qs({ ...params, format: 'csv' })}`, { token }),
+  financeSummary: (token, yearId) => request(`/api/admin/video/finance-summary${qs({ year_id: yearId })}`, { token }),
+};
+
 export const schoolsApi = {
   list: (token) => request('/api/admin/schools', { token }),
 };
