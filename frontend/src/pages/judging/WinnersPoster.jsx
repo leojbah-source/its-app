@@ -46,26 +46,43 @@ function Medal({ place }) {
   );
 }
 
+const clampPct = (v) => Math.max(0, Math.min(100, v));
+
 function WinnerCard({ w, big, onReplace, busyId }) {
   const fileRef = useRef(null);
+  const drag = useRef(null);
+  const [pos, setPos] = useState({ x: 50, y: 28 }); // bias upward so faces show
   const frameW = big ? 220 : 180;
   const frameH = big ? 270 : 220;
   const silhouette = (
     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 64 }}>👤</div>
   );
+  function onDown(e) { if (!w.photo_url) return; drag.current = { x: e.clientX, y: e.clientY }; try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ } }
+  function onMove(e) {
+    if (!drag.current) return;
+    const dx = e.clientX - drag.current.x, dy = e.clientY - drag.current.y;
+    drag.current = { x: e.clientX, y: e.clientY };
+    setPos((p) => ({ x: clampPct(p.x - (dx / frameW) * 100), y: clampPct(p.y - (dy / frameH) * 100) }));
+  }
+  function onUp() { drag.current = null; }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: frameW, marginBottom: big ? 36 : 0 }}>
-      <div style={{ width: frameW, height: frameH, borderRadius: '16px', overflow: 'hidden', background: '#e2e8f0', border: '3px solid rgba(255,255,255,.7)', boxShadow: '0 4px 14px rgba(0,0,0,.35)' }}>
-        <SafeImg src={asset(w.photo_url)} fallback={silhouette} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      <div onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
+        style={{ width: frameW, height: frameH, borderRadius: '16px', overflow: 'hidden', background: '#e2e8f0', border: '3px solid rgba(255,255,255,.7)', boxShadow: '0 4px 14px rgba(0,0,0,.35)', cursor: w.photo_url ? 'move' : 'default', touchAction: 'none' }}>
+        <SafeImg src={asset(w.photo_url)} fallback={silhouette} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: `${pos.x}% ${pos.y}%` }} />
       </div>
       <div style={{ color: '#fde047', fontWeight: 800, fontSize: big ? 24 : 20, textAlign: 'center', lineHeight: 1.1, marginTop: 10, textShadow: '0 1px 2px rgba(0,0,0,.4)' }}>{w.name || `Chest ${w.chest_number}`}</div>
       <Medal place={w.place} />
       {onReplace && (
-        <div className="noshot" style={{ marginTop: 6 }}>
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onReplace(w, f); e.target.value = ''; }} />
-          <button onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1 rounded-md bg-white/85 px-2 py-1 text-[11px] font-medium text-navy-700 hover:bg-white">
-            {busyId === w.participant_id ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} Replace photo
-          </button>
+        <div className="noshot" style={{ marginTop: 6, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+          {w.photo_url && <div style={{ fontSize: 10, color: 'rgba(255,255,255,.85)' }}>Drag the photo to position the face</div>}
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onReplace(w, f); e.target.value = ''; }} />
+            <button onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1 rounded-md bg-white/85 px-2 py-1 text-[11px] font-medium text-navy-700 hover:bg-white">
+              {busyId === w.participant_id ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} Replace
+            </button>
+            {w.photo_url && <button onClick={() => setPos({ x: 50, y: 28 })} className="rounded-md bg-white/85 px-2 py-1 text-[11px] font-medium text-navy-700 hover:bg-white">Reset</button>}
+          </div>
         </div>
       )}
     </div>
