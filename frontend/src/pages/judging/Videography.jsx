@@ -36,10 +36,15 @@ export default function Videography() {
   const dates = useMemo(() => [...new Set(schedule.map((r) => String(r.event_date).slice(0, 10)))].sort(), [schedule]);
   useEffect(() => { if (!date && dates.length) setDate(dates[0]); }, [dates, date]);
 
+  // Video recording is offered only for dance events (category NATYA) and all team events.
+  const isVideoEvent = (r) => r.event_kind === 'team'
+    || /natya/i.test(r.category_code || '') || /dance/i.test(r.category_name || '');
+
   const events = useMemo(() => {
     const map = new Map();
     for (const r of schedule) {
       if (date && String(r.event_date).slice(0, 10) !== date) continue;
+      if (!isVideoEvent(r)) continue;
       if (!map.has(r.event_id)) map.set(r.event_id, { event_id: r.event_id, code: r.event_code, name: r.event_name });
     }
     return [...map.values()].sort((a, b) => a.code.localeCompare(b.code));

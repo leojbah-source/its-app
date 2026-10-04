@@ -30,7 +30,7 @@ function SafeImg({ src, style, fallback = null }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => { setFailed(false); }, [src]);
   if (!src || failed) return fallback;
-  return <img crossOrigin="anonymous" src={src} alt="" onError={() => setFailed(true)} style={style} />;
+  return <img crossOrigin="anonymous" src={src} alt="" draggable={false} onDragStart={(e) => e.preventDefault()} onError={() => setFailed(true)} style={{ WebkitUserDrag: 'none', userSelect: 'none', ...style }} />;
 }
 
 function Medal({ place }) {
@@ -57,7 +57,7 @@ function WinnerCard({ w, big, onReplace, busyId }) {
   const silhouette = (
     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 64 }}>👤</div>
   );
-  function onDown(e) { if (!w.photo_url) return; drag.current = { x: e.clientX, y: e.clientY }; try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ } }
+  function onDown(e) { if (!w.photo_url) return; e.preventDefault(); drag.current = { x: e.clientX, y: e.clientY }; try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ } }
   function onMove(e) {
     if (!drag.current) return;
     const dx = e.clientX - drag.current.x, dy = e.clientY - drag.current.y;

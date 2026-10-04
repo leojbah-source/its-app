@@ -26,6 +26,17 @@ async function activeYearId() {
   const { rows } = await pool.query(`SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`);
   return rows[0]?.id || null;
 }
+async function eventVideoEligible(eventId) {
+  // Video recording applies only to dance events (category NATYA) and all team events.
+  const { rows } = await pool.query(
+    `SELECT e.event_kind, c.code AS category_code, c.name AS category_name
+     FROM events e LEFT JOIN categories c ON c.id = e.category_id WHERE e.id = $1`, [eventId]);
+  if (!rows[0]) return false;
+  const r = rows[0];
+  return r.event_kind === 'team'
+    || /natya/i.test(r.category_code || '')
+    || /dance/i.test(r.category_name || '');
+}
 async function currentFee() {
   const { rows } = await pool.query(`SELECT COALESCE(video_fee, 5.000) AS fee FROM year_config WHERE is_active = TRUE LIMIT 1`);
   return rows[0] ? Number(rows[0].fee) : 5.000;
@@ -47,6 +58,10 @@ router.post('/:event_id/request', requireRole(...markRoles), async (req, res, ne
     if (!reg[0]) return res.status(404).json({ error: 'Registration not found for this event' });
     if (['withdrawn', 'swapped'].includes(reg[0].status))
       return res.status(409).json({ error: 'This entry is withdrawn/swapped and cannot opt in for video.' });
+    if (reg[0].status === 'absent')
+      return res.status(409).json({ error: 'This participant is marked absent — mark them present before adding a video request.' });
+    if (!(await eventVideoEligible(reg[0].event_id)))
+      return res.status(409).json({ error: 'Video recording applies only to dance and team events.' });
 
     const fee = await currentFee();
     const { rows } = await pool.query(
@@ -128,7 +143,7 @@ router.get('/requests', requireRole(...viewRoles), async (req, res, next) => {
               vr.amount, vr.payment_method, vr.recorded,
               vr.collected_at, vr.recorded_at,
               COALESCE(p.full_name, t.team_name) AS name,
-              e.code AS event_code, e.name AS event_name,
+              e.event_code AS event_code, e.event_name AS event_name,
               ag.code AS age_group, ag.label AS age_group_label,
               ca.chest_number,
               cu.full_name AS collected_by_name,

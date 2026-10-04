@@ -508,7 +508,7 @@ router.get('/', requireRole(...staffRoles, 'Media'), async (req, res, next) => {
       `SELECT s.id, to_char(s.event_date, 'YYYY-MM-DD') AS event_date,
               s.start_time, s.end_time, s.venue, s.status, s.generated_by_scheduler,
               s.event_id, s.time_slot_id, s.age_groups,
-              e.event_code, e.event_name, e.event_kind, c.name AS category_name,
+              e.event_code, e.event_name, e.event_kind, c.name AS category_name, c.code AS category_code,
               (SELECT COUNT(*)::int FROM registrations r
                LEFT JOIN age_groups ag2 ON ag2.id = r.age_group_id
                WHERE r.event_id = e.id AND r.status NOT IN ('withdrawn','swapped')

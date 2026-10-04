@@ -91,7 +91,7 @@ export default function EventDay() {
     const map = new Map();
     for (const r of schedule) {
       if (String(r.event_date).slice(0, 10) !== date) continue;
-      if (!map.has(r.event_id)) map.set(r.event_id, { event_id: r.event_id, code: r.event_code, name: r.event_name, sessions: [] });
+      if (!map.has(r.event_id)) map.set(r.event_id, { event_id: r.event_id, code: r.event_code, name: r.event_name, event_kind: r.event_kind, category_name: r.category_name, category_code: r.category_code, sessions: [] });
       map.get(r.event_id).sessions.push({ venue: r.venue, start: (r.start_time || '').slice(0, 5), end: (r.end_time || '').slice(0, 5), age_groups: r.age_groups });
     }
     return [...map.values()].sort((a, b) => a.code.localeCompare(b.code));
@@ -99,6 +99,12 @@ export default function EventDay() {
 
   const selectedEvent = eventsOnDate.find((e) => String(e.event_id) === String(eventId));
   const selectedGroup = groups.find((g) => String(g.age_group_id) === String(groupId));
+  // Video recording is offered only for dance events (category NATYA) and all team events.
+  const videoEligible = !!selectedEvent && (
+    selectedEvent.event_kind === 'team'
+    || /natya/i.test(selectedEvent.category_code || '')
+    || /dance/i.test(selectedEvent.category_name || '')
+  );
   const selectedGroupCode = selectedGroup?.code;
   const locked = !!selectedGroup?.locked;
   const groupSession = useMemo(() => {
@@ -264,7 +270,7 @@ export default function EventDay() {
             <Badge tone="success">{counts.attended} present</Badge>
             <Badge tone="danger">{counts.absent} absent</Badge>
             <Badge tone="gold">{counts.withChest} chests</Badge>
-            {counts.video > 0 && <Badge tone="navy">{counts.video} video</Badge>}
+            {videoEligible && counts.video > 0 && <Badge tone="navy">{counts.video} video</Badge>}
             {locked && <Badge tone="danger"><span className="inline-flex items-center gap-1"><Lock size={11} /> Locked — judging started</span></Badge>}
             <div className="flex-1" />
             {canMark && !locked && (
@@ -308,7 +314,7 @@ export default function EventDay() {
                         <th className="px-3 py-2 w-20">Chest</th>
                         <th className="px-3 py-2">Name</th>
                         <th className="px-3 py-2">Status</th>
-                        <th className="px-3 py-2">Video</th>
+                        {videoEligible && <th className="px-3 py-2">Video</th>}
                         <th className="px-3 py-2 text-right">Attendance</th>
                       </tr>
                     </thead>
@@ -323,27 +329,33 @@ export default function EventDay() {
                             </td>
                             <td className={`px-3 py-2 font-medium ${absent ? 'text-red-600 line-through' : 'text-slate-800'}`}>{r.name}</td>
                             <td className="px-3 py-2"><Badge tone={r.status === 'attended' ? 'success' : absent ? 'danger' : 'slate'}>{r.status}</Badge></td>
-                            <td className="px-3 py-2">
-                              {r.video_wants ? (
-                                <div className="flex items-center gap-1.5">
-                                  {canMark && !locked ? (
-                                    <select value={r.video_method || 'cash'} onChange={(e) => setVideo(r, e.target.value)}
-                                      className="rounded border border-slate-300 px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-navy-300">
-                                      <option value="cash">Cash</option>
-                                      <option value="benefitpay">BenefitPay</option>
-                                    </select>
-                                  ) : <Badge tone="navy">{r.video_method === 'benefitpay' ? 'BenefitPay' : 'Cash'}</Badge>}
-                                  {r.video_recorded && <Badge tone="success">recorded</Badge>}
-                                  {canMark && !locked && (
-                                    <button onClick={() => removeVideo(r)} className="text-slate-400 hover:text-red-500" title="Remove video request"><X size={14} /></button>
-                                  )}
-                                </div>
-                              ) : (
-                                canMark && !locked
-                                  ? <Button size="sm" variant="outline" icon={Video} onClick={() => setVideo(r, 'cash')}>Video</Button>
-                                  : <span className="text-xs text-slate-300">—</span>
-                              )}
-                            </td>
+                            {videoEligible && (
+                              <td className="px-3 py-2">
+                                {absent ? (
+                                  r.video_wants
+                                    ? <Badge tone="slate">{r.video_method === 'benefitpay' ? 'BenefitPay' : 'Cash'}</Badge>
+                                    : <span className="text-xs text-slate-300">—</span>
+                                ) : r.video_wants ? (
+                                  <div className="flex items-center gap-1.5">
+                                    {canMark && !locked ? (
+                                      <select value={r.video_method || 'cash'} onChange={(e) => setVideo(r, e.target.value)}
+                                        className="rounded border border-slate-300 px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-navy-300">
+                                        <option value="cash">Cash</option>
+                                        <option value="benefitpay">BenefitPay</option>
+                                      </select>
+                                    ) : <Badge tone="navy">{r.video_method === 'benefitpay' ? 'BenefitPay' : 'Cash'}</Badge>}
+                                    {r.video_recorded && <Badge tone="success">recorded</Badge>}
+                                    {canMark && !locked && (
+                                      <button onClick={() => removeVideo(r)} className="text-slate-400 hover:text-red-500" title="Remove video request"><X size={14} /></button>
+                                    )}
+                                  </div>
+                                ) : (
+                                  canMark && !locked
+                                    ? <Button size="sm" variant="outline" icon={Video} onClick={() => setVideo(r, 'cash')}>Video</Button>
+                                    : <span className="text-xs text-slate-300">—</span>
+                                )}
+                              </td>
+                            )}
                             <td className="px-3 py-2">
                               {canMark && !locked && (isChairSuper || counts.withChest === 0) ? (
                                 <div className="flex items-center justify-end gap-1.5">
