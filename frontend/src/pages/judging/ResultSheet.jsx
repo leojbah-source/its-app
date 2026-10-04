@@ -16,7 +16,7 @@ const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`
 export default function ResultSheet() {
   const { eventId, ageGroupId } = useParams();
   const navigate = useNavigate();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
 
@@ -39,7 +39,7 @@ export default function ResultSheet() {
 
       {/* Toolbar — screen only */}
       <div className="no-print mb-4 flex items-center gap-2">
-        <button onClick={() => navigate('/admin/judging/results')} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">
+        <button onClick={() => navigate(user?.role === 'Media' ? '/admin/media' : '/admin/judging/results')} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">
           <ArrowLeft size={15} /> Back to Results
         </button>
         <div className="flex-1" />

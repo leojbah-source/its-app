@@ -90,7 +90,7 @@ function WinnerCard({ w, big, onReplace, busyId }) {
 }
 
 export default function WinnersPoster() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { eventId, groupId } = useParams();
   const navigate = useNavigate();
   const posterRef = useRef(null);
@@ -111,7 +111,7 @@ export default function WinnersPoster() {
     // Opened in its own tab from the Results page — just close it so the Results
     // page (with its selection) is still there underneath. Fallback: navigate.
     if (window.opener && !window.opener.closed) { window.close(); return; }
-    navigate('/admin/judging/results');
+    navigate(user?.role === 'Media' ? '/admin/media' : '/admin/judging/results');
   }
 
   async function replacePhoto(w, file) {
