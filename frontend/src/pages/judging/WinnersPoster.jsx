@@ -1,12 +1,13 @@
 // src/pages/judging/WinnersPoster.jsx
 // Winners announcement poster for a published (or finalised) event + age group.
-// Renders the top-3 with photos + medals in the KCA/ITS house style, and lets
-// the user download it as a PNG (html2canvas) to share, or print it. Photos come
-// from each winner's registered photo; a poor one can be replaced inline.
+// Renders the top-3 with photos + medals in the KCA/ITS house style; lets the
+// user download the PNG, Share it (as a viewable image, e.g. to WhatsApp), or
+// print it. Photos come from each winner's registered photo; a poor one can be
+// replaced inline.
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import html2canvas from 'html2canvas';
-import { ArrowLeft, Download, Printer, Loader2, Camera } from 'lucide-react';
+import { ArrowLeft, Download, Printer, Loader2, Camera, Share2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { resultsApi, API_BASE } from '../../api/client';
 
@@ -23,13 +24,22 @@ const MEDAL = {
   3: { ring: 'linear-gradient(145deg,#fdba74,#b45309)', label: '3' },
 };
 
+// Image that falls back cleanly (and resets when the src changes, so a replaced
+// photo shows immediately instead of staying hidden from a previous error).
+function SafeImg({ src, style, fallback = null }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [src]);
+  if (!src || failed) return fallback;
+  return <img crossOrigin="anonymous" src={src} alt="" onError={() => setFailed(true)} style={style} />;
+}
+
 function Medal({ place }) {
   const m = MEDAL[place] || MEDAL[3];
   return (
     <div style={{ position: 'relative', width: 54, height: 54, margin: '6px auto 0' }}>
       <div style={{ position: 'absolute', left: 12, top: 30, width: 12, height: 26, background: '#b91c1c', transform: 'rotate(18deg)' }} />
       <div style={{ position: 'absolute', right: 12, top: 30, width: 12, height: 26, background: '#b91c1c', transform: 'rotate(-18deg)' }} />
-      <div style={{ width: 54, height: 54, borderRadius: '50%', background: m.ring, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.3)', border: '3px solid rgba(255,255,255,.65)', position: 'relative' }}>
+      <div style={{ width: 54, height: 54, borderRadius: '50%', background: m.ring, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.3)', border: '3px solid rgba(255,255,255,.65)' }}>
         <span style={{ color: '#fff', fontWeight: 800, fontSize: 24, textShadow: '0 1px 2px rgba(0,0,0,.35)' }}>{m.label}</span>
       </div>
     </div>
@@ -40,15 +50,13 @@ function WinnerCard({ w, big, onReplace, busyId }) {
   const fileRef = useRef(null);
   const frameW = big ? 220 : 180;
   const frameH = big ? 270 : 220;
+  const silhouette = (
+    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 64 }}>👤</div>
+  );
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: frameW, marginBottom: big ? 36 : 0 }}>
       <div style={{ width: frameW, height: frameH, borderRadius: '16px', overflow: 'hidden', background: '#e2e8f0', border: '3px solid rgba(255,255,255,.7)', boxShadow: '0 4px 14px rgba(0,0,0,.35)' }}>
-        {w.photo_url
-          ? <img crossOrigin="anonymous" src={asset(w.photo_url)} alt={w.name}
-                 onError={(e) => { e.currentTarget.style.display = 'none'; if (e.currentTarget.nextSibling) e.currentTarget.nextSibling.style.display = 'flex'; }}
-                 style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          : null}
-        <div style={{ width: '100%', height: '100%', display: w.photo_url ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 64 }}>👤</div>
+        <SafeImg src={asset(w.photo_url)} fallback={silhouette} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       </div>
       <div style={{ color: '#fde047', fontWeight: 800, fontSize: big ? 24 : 20, textAlign: 'center', lineHeight: 1.1, marginTop: 10, textShadow: '0 1px 2px rgba(0,0,0,.4)' }}>{w.name || `Chest ${w.chest_number}`}</div>
       <Medal place={w.place} />
@@ -71,7 +79,8 @@ export default function WinnersPoster() {
   const posterRef = useRef(null);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
-  const [downloading, setDownloading] = useState(false);
+  const [note, setNote] = useState('');
+  const [busyAct, setBusyAct] = useState('');
   const [busyId, setBusyId] = useState(null);
 
   const load = useCallback(async () => {
@@ -81,6 +90,13 @@ export default function WinnersPoster() {
   }, [token, eventId, groupId]);
   useEffect(() => { load(); }, [load]);
 
+  function goBack() {
+    // Opened in its own tab from the Results page — just close it so the Results
+    // page (with its selection) is still there underneath. Fallback: navigate.
+    if (window.opener && !window.opener.closed) { window.close(); return; }
+    navigate('/admin/judging/results');
+  }
+
   async function replacePhoto(w, file) {
     if (!w.participant_id) return;
     setBusyId(w.participant_id);
@@ -89,25 +105,55 @@ export default function WinnersPoster() {
     finally { setBusyId(null); }
   }
 
-  async function downloadPng() {
-    if (!posterRef.current) return;
-    setDownloading(true);
-    try {
-      const canvas = await html2canvas(posterRef.current, {
-        useCORS: true, scale: 2, backgroundColor: null,
-        ignoreElements: (el) => el.classList && el.classList.contains('noshot'),
-      });
-      const a = document.createElement('a');
-      a.href = canvas.toDataURL('image/png');
-      a.download = `ITS_${data?.event?.event_code || 'event'}_${data?.event?.age_group_code || ''}_winners.png`.replace(/\s+/g, '');
-      a.click();
-    } catch (e) { setError('Could not render the image: ' + e.message); }
-    finally { setDownloading(false); }
+  const fileName = `ITS_${data?.event?.event_code || 'event'}_${data?.event?.age_group_code || ''}_winners.png`.replace(/\s+/g, '');
+  const shareText = [data?.event?.event_name, data?.event?.age_group_label].filter(Boolean).join(' · ') + ' — Winners';
+
+  async function renderCanvas() {
+    return html2canvas(posterRef.current, {
+      useCORS: true, scale: 2, backgroundColor: null,
+      ignoreElements: (el) => el.classList && el.classList.contains('noshot'),
+    });
   }
 
-  if (error) return (
+  async function downloadPng() {
+    if (!posterRef.current) return;
+    setBusyAct('dl'); setError(''); setNote('');
+    try {
+      const canvas = await renderCanvas();
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = fileName;
+      a.click();
+    } catch (e) { setError('Could not render the image: ' + e.message); }
+    finally { setBusyAct(''); }
+  }
+
+  async function shareImage() {
+    if (!posterRef.current) return;
+    setBusyAct('share'); setError(''); setNote('');
+    try {
+      const canvas = await renderCanvas();
+      const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+      const file = new File([blob], fileName, { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], text: shareText });
+      } else {
+        // Browser can't share a file (e.g. desktop): download it so the user can
+        // attach it manually. On a phone the share sheet lets them pick WhatsApp.
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = fileName;
+        a.click();
+        setNote('Sharing images isn’t supported on this browser, so the image was downloaded instead. On a phone, tap Share to send it straight to WhatsApp as a photo.');
+      }
+    } catch (e) {
+      if (e && e.name !== 'AbortError') setError('Could not share: ' + e.message);
+    } finally { setBusyAct(''); }
+  }
+
+  if (error && !data) return (
     <div className="mx-auto max-w-2xl p-6">
-      <button onClick={() => navigate(-1)} className="mb-3 inline-flex items-center gap-1 text-sm text-navy-600 hover:underline"><ArrowLeft size={16} /> Back</button>
+      <button onClick={goBack} className="mb-3 inline-flex items-center gap-1 text-sm text-navy-600 hover:underline"><ArrowLeft size={16} /> Back to results</button>
       <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
     </div>
   );
@@ -125,26 +171,28 @@ export default function WinnersPoster() {
     <div className="min-h-screen bg-slate-100 py-6">
       <div className="mx-auto max-w-[860px] px-4">
         <div className="noshot mb-4 flex flex-wrap items-center gap-2">
-          <button onClick={() => navigate(-1)} className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-navy-700 hover:bg-slate-50"><ArrowLeft size={16} /> Back</button>
+          <button onClick={goBack} className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-navy-700 hover:bg-slate-50"><ArrowLeft size={16} /> Back to results</button>
           <div className="flex-1" />
           {!data.state?.published && <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700">Not yet published — preview</span>}
           <button onClick={() => window.print()} className="inline-flex items-center gap-1 rounded-md border border-navy-300 bg-white px-3 py-1.5 text-sm font-medium text-navy-700 hover:bg-navy-50"><Printer size={16} /> Print</button>
-          <button onClick={downloadPng} disabled={downloading} className="inline-flex items-center gap-1 rounded-md bg-navy-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-navy-700 disabled:opacity-60">
-            {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Download image
+          <button onClick={shareImage} disabled={!!busyAct} className="inline-flex items-center gap-1 rounded-md bg-green-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60">
+            {busyAct === 'share' ? <Loader2 size={16} className="animate-spin" /> : <Share2 size={16} />} Share
+          </button>
+          <button onClick={downloadPng} disabled={!!busyAct} className="inline-flex items-center gap-1 rounded-md bg-navy-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-navy-700 disabled:opacity-60">
+            {busyAct === 'dl' ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Download image
           </button>
         </div>
+        {note && <div className="noshot mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">{note}</div>}
+        {error && <div className="noshot mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
 
         {/* ── Poster (captured) ── */}
         <div ref={posterRef} style={{ width: 820, margin: '0 auto', background: 'linear-gradient(180deg,#eef7ee 0%,#bfe0bf 16%,#2f7d32 48%,#15481a 100%)', fontFamily: 'Arial, Helvetica, sans-serif', paddingBottom: 40 }}>
-          {/* header band */}
           <div style={{ background: 'linear-gradient(180deg,#ffffff,#eef7ee)', padding: '18px 26px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '3px solid #0f2f5f' }}>
-            {asset(b.kca_logo_url) ? <img crossOrigin="anonymous" src={asset(b.kca_logo_url)} alt="" onError={(e)=>{e.currentTarget.style.visibility='hidden';}} style={{ height: 66, objectFit: 'contain' }} /> : <div style={{ width: 90 }} />}
-            {asset(b.its_logo_url) ? <img crossOrigin="anonymous" src={asset(b.its_logo_url)} alt="" onError={(e)=>{e.currentTarget.style.visibility='hidden';}} style={{ height: 92, objectFit: 'contain' }} /> : <div />}
-            {asset(b.sponsor_logo_url) ? <img crossOrigin="anonymous" src={asset(b.sponsor_logo_url)} alt="" onError={(e)=>{e.currentTarget.style.visibility='hidden';}} style={{ height: 56, objectFit: 'contain' }} />
-              : (b.sponsor_name ? <div style={{ fontWeight: 700, color: '#0f2f5f' }}>{b.sponsor_name}</div> : <div style={{ width: 90 }} />)}
+            <SafeImg src={asset(b.kca_logo_url)} fallback={<div style={{ width: 90 }} />} style={{ height: 66, objectFit: 'contain' }} />
+            <SafeImg src={asset(b.its_logo_url)} fallback={<div />} style={{ height: 92, objectFit: 'contain' }} />
+            <SafeImg src={asset(b.sponsor_logo_url)} fallback={b.sponsor_name ? <div style={{ fontWeight: 700, color: '#0f2f5f' }}>{b.sponsor_name}</div> : <div style={{ width: 90 }} />} style={{ height: 56, objectFit: 'contain' }} />
           </div>
 
-          {/* title block */}
           <div style={{ padding: '22px 34px 0' }}>
             <div style={{ color: '#1e2a78', fontWeight: 800, fontSize: 32, lineHeight: 1.1 }}>{title}</div>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 6 }}>
@@ -154,7 +202,6 @@ export default function WinnersPoster() {
             <div style={{ color: '#fde047', fontWeight: 800, fontSize: 24, textAlign: 'center', marginTop: 10, textShadow: '0 1px 2px rgba(0,0,0,.35)' }}>{eventLine}</div>
           </div>
 
-          {/* winners */}
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 28, padding: '34px 24px 10px' }}>
             {second && <WinnerCard w={second} onReplace={replacePhoto} busyId={busyId} />}
             {first && <WinnerCard w={first} big onReplace={replacePhoto} busyId={busyId} />}
