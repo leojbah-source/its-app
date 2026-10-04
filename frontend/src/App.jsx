@@ -19,6 +19,7 @@ import Judges from './pages/Judges';
 import Assignment from './pages/judging/Assignment';
 import Results from './pages/judging/Results';
 import WinnersPoster from './pages/judging/WinnersPoster';
+import MediaResults from './pages/judging/MediaResults';
 import ResultSheet from './pages/judging/ResultSheet';
 import McPortal from './pages/mc/McPortal';
 import TimerPortal from './pages/timer/TimerPortal';
@@ -58,6 +59,7 @@ function AdminIndex() {
   const { user } = useAuth();
   const home = user?.role === 'Registrar' ? '/admin/registrations'
     : user?.role === 'Accountant' ? '/admin/payments'
+    : user?.role === 'Media' ? '/admin/media'
     : '/admin/config/year';
   return <Navigate to={home} replace />;
 }
@@ -134,11 +136,15 @@ export default function App() {
               />
               <Route
                 path="/admin/judging/results/print/:eventId/:ageGroupId"
-                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><ResultSheet /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman', 'Media']}><ResultSheet /></ProtectedRoute>}
               />
               <Route
                 path="/admin/judging/winners/:eventId/:groupId"
-                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Chairman']}><WinnersPoster /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Chairman', 'Media']}><WinnersPoster /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/media"
+                element={<ProtectedRoute allowedRoles={['Media', 'SuperAdmin', 'Admin', 'Chairman']}><MediaResults /></ProtectedRoute>}
               />
               <Route
                 path="/mc"

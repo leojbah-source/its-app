@@ -500,7 +500,7 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
 });
 
 // ── GET /api/admin/schedule ───────────────────────────────────────────────────
-router.get('/', requireRole(...staffRoles), async (req, res, next) => {
+router.get('/', requireRole(...staffRoles, 'Media'), async (req, res, next) => {
   try {
     const yc = await activeYear();
     if (!yc) return res.json([]);

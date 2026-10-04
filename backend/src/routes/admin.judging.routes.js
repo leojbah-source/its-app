@@ -20,6 +20,7 @@ const router = express.Router();
 router.use(authenticate);
 const viewRoles = ['SuperAdmin', 'Chairman'];
 const publishRoles = ['SuperAdmin', 'Chairman'];
+const mediaRoles = ['SuperAdmin', 'Chairman', 'Media']; // read-only results + poster
 
 async function activeCfg() {
   const { rows } = await pool.query(
@@ -253,7 +254,7 @@ async function finaliseIsStale(eventId, ageGroupId) {
 }
 
 // ── GET /api/admin/results/:event_id/groups — groups + result state ──────────
-router.get('/results/:event_id/groups', requireRole(...viewRoles), async (req, res, next) => {
+router.get('/results/:event_id/groups', requireRole(...mediaRoles), async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT ag.id AS age_group_id, ag.code, ag.label, ag.sort_order,
@@ -517,7 +518,7 @@ router.post('/results/:event_id/:age_group_id/publish', requireRole(...publishRo
 // Full ranked list (name + chest), grades, points, extra prizes, judges &
 // branding for the signed result sheet (rule #13 Stage-1 print). This is the
 // internal official record, so it DOES show names (unlike the judge portal).
-router.get('/results/:event_id/:age_group_id/sheet', requireRole(...viewRoles), async (req, res, next) => {
+router.get('/results/:event_id/:age_group_id/sheet', requireRole(...mediaRoles), async (req, res, next) => {
   try {
     const cfg = await activeCfg();
     if (!cfg) return res.status(400).json({ error: 'No active year' });
@@ -567,7 +568,7 @@ router.get('/results/:event_id/:age_group_id/sheet', requireRole(...viewRoles), 
 });
 
 // Reused by the judge portal's read-only result preview (judge.routes).
-const posterRoles = ['SuperAdmin', 'Admin', 'Chairman'];
+const posterRoles = ['SuperAdmin', 'Admin', 'Chairman', 'Media'];
 const posterUpload = multer({
   storage: multer.diskStorage({
     destination: uploadDir,
