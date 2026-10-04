@@ -162,7 +162,7 @@ router.get('/requests', requireRole(...viewRoles), async (req, res, next) => {
          AND ($2::int IS NULL OR vr.event_id = $2)
          AND ($3::int IS NULL OR vr.age_group_id = $3)
          AND ($4::boolean IS NULL OR vr.recorded = $4)
-       ORDER BY event_date NULLS LAST, e.code, ag.sort_order, ca.chest_number NULLS LAST, name`,
+       ORDER BY event_date NULLS LAST, e.event_code, ag.sort_order, ca.chest_number NULLS LAST, name`,
       [yearId, eventId, ageGroupId, recordedFilter]);
 
     if (req.query.format === 'csv') {

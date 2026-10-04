@@ -183,7 +183,7 @@ export default function EventDay() {
   async function clearChests() {
     const reason = window.prompt(`Clear chest numbers for ${selectedGroupCode}? This is a Chairman action — enter a reason:`, '');
     if (reason == null || !reason.trim()) return;
-    try { const r = await chestApi.clear(token, eventId, groupId, reason.trim()); setFlash(`Cleared ${r.removed} chest number(s).`); loadRoster(); reloadGroups(); }
+    try { const r = await chestApi.clear(token, eventId, groupId, reason.trim()); setFlash(`Cleared ${r.removed} chest number(s)${r.video_cleared ? ` and ${r.video_cleared} video request(s)` : ''}.`); loadRoster(); reloadGroups(); }
     catch (err) { setFlash(err.message); }
   }
   function setManual(reg) { setManualEdit(reg); }

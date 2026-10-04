@@ -309,9 +309,14 @@ router.delete('/:event_id', requireRole('Chairman', 'SuperAdmin'), async (req, r
     const { rowCount } = await pool.query(
       `DELETE FROM chest_assignments WHERE event_id = $1 AND ($2::int IS NULL OR age_group_id = $2)`,
       [req.params.event_id, ag]);
+    // Clearing a group resets it — drop any video-recording opt-ins for it too,
+    // so they are re-captured fresh alongside the new chest assignment.
+    const { rowCount: videoCleared } = await pool.query(
+      `DELETE FROM video_requests WHERE event_id = $1 AND ($2::int IS NULL OR age_group_id = $2)`,
+      [req.params.event_id, ag]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
-      action: 'CLEAR_CHESTS', entity: 'chest_assignments', entityId: req.params.event_id, details: { age_group_id: ag, removed: rowCount, reason } });
-    res.json({ removed: rowCount });
+      action: 'CLEAR_CHESTS', entity: 'chest_assignments', entityId: req.params.event_id, details: { age_group_id: ag, removed: rowCount, video_cleared: videoCleared, reason } });
+    res.json({ removed: rowCount, video_cleared: videoCleared });
   } catch (err) { next(err); }
 });
 
