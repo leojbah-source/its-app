@@ -116,11 +116,11 @@ router.put('/request/:registration_id/recorded', requireRole(...recordRoles), as
     const recorded = req.body.recorded !== false;
     const { rows } = await pool.query(
       `UPDATE video_requests SET
-         recorded = $1,
-         recorded_by = CASE WHEN $1 THEN $2 ELSE NULL END,
-         recorded_at = CASE WHEN $1 THEN now() ELSE NULL END,
+         recorded = $1::boolean,
+         recorded_by = CASE WHEN $1::boolean THEN $2::int ELSE NULL END,
+         recorded_at = CASE WHEN $1::boolean THEN now() ELSE NULL END,
          updated_at = now()
-       WHERE registration_id = $3 RETURNING *`,
+       WHERE registration_id = $3::int RETURNING *`,
       [recorded, req.user.id, req.params.registration_id]);
     if (!rows[0]) return res.status(404).json({ error: 'No video request for this registration' });
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
