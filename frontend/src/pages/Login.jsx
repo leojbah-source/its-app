@@ -15,6 +15,7 @@ export default function Login() {
     : role === 'Timer' ? '/timer'
     : role === 'Registrar' ? '/admin/registrations'
     : role === 'Accountant' ? '/admin/payments'
+    : role === 'Media' ? '/admin/media'
     : '/admin/config/year'
   );
   const { showToast } = useToast();
