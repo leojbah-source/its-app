@@ -48,6 +48,10 @@ export default function Signup() {
       setError('Enter a valid WhatsApp number including the country code (e.g. +973…).');
       return;
     }
+    if (heardSources.length === 0) {
+      setError('Please tell us how you heard about ITS this year.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -151,14 +155,14 @@ export default function Signup() {
             placeholder="e.g. KCA1234"
           />
           <p className="text-xs text-slate-400 mt-1">
-            We verify this with KCA — active members get reduced event fees.
+            Verified with KCA. Eligible members (subscription paid up to Sept 2026) pay the full fee now — the member discount is credited back to their KCA membership account.
           </p>
         </div>
 
         {/* How did you hear about ITS */}
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">
-            How did you hear about ITS this year? <span className="text-slate-400 font-normal">(optional)</span>
+            How did you hear about ITS this year? <span className="text-red-500">*</span>
           </label>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {HEARD_OPTIONS.map((opt) => (
@@ -177,7 +181,7 @@ export default function Signup() {
               placeholder="Please tell us where (optional)"
             />
           )}
-          <p className="text-xs text-slate-400 mt-1">Tick all that apply — it helps us plan next year's outreach.</p>
+          <p className="text-xs text-slate-400 mt-1">Tick at least one — it helps us plan next year's outreach.</p>
         </div>
 
         {/* Password */}
