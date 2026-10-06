@@ -8,6 +8,8 @@ import { useParentAuth } from '../../context/ParentAuthContext';
 import { isBahrainPhone, isIntlPhone } from '../../utils/phone';
 import RegisterLayout from './RegisterLayout';
 
+const HEARD_OPTIONS = ['Facebook', 'Instagram', 'WhatsApp group', "Friend's status/story", 'Newspaper ad', 'Newspaper report', 'Flyer from school', 'School notice', 'Other'];
+
 export default function Signup() {
   const { signup } = useParentAuth();
   const navigate = useNavigate();
@@ -15,12 +17,17 @@ export default function Signup() {
     full_name: '', email: '', phone: '', whatsapp_number: '', kca_member_no: '',
     password: '', confirm: '',
   });
+  const [heardSources, setHeardSources] = useState([]);
+  const [heardOther, setHeardOther] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   function set(k) {
     return (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  }
+  function toggleHeard(opt) {
+    setHeardSources((prev) => (prev.includes(opt) ? prev.filter((x) => x !== opt) : [...prev, opt]));
   }
 
   async function handleSubmit(e) {
@@ -51,6 +58,8 @@ export default function Signup() {
         whatsapp_number: form.whatsapp_number.trim() || undefined,
         kca_member_no: form.kca_member_no.trim() || undefined,
         password: form.password,
+        heard_about_sources: heardSources,
+        heard_about_other: heardSources.includes('Other') ? heardOther.trim() || undefined : undefined,
       });
       navigate('/register/dashboard', { replace: true });
     } catch (err) {
@@ -144,6 +153,31 @@ export default function Signup() {
           <p className="text-xs text-slate-400 mt-1">
             We verify this with KCA — active members get reduced event fees.
           </p>
+        </div>
+
+        {/* How did you hear about ITS */}
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">
+            How did you hear about ITS this year? <span className="text-slate-400 font-normal">(optional)</span>
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {HEARD_OPTIONS.map((opt) => (
+              <label key={opt} className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm cursor-pointer transition-colors ${heardSources.includes(opt) ? 'border-navy-500 bg-navy-50 text-navy-800' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
+                <input type="checkbox" checked={heardSources.includes(opt)} onChange={() => toggleHeard(opt)} className="h-4 w-4 rounded border-slate-300 text-navy-600 focus:ring-navy-500" />
+                {opt}
+              </label>
+            ))}
+          </div>
+          {heardSources.includes('Other') && (
+            <input
+              value={heardOther}
+              onChange={(e) => setHeardOther(e.target.value)}
+              maxLength={200}
+              className={`${inputClass} mt-2`}
+              placeholder="Please tell us where (optional)"
+            />
+          )}
+          <p className="text-xs text-slate-400 mt-1">Tick all that apply — it helps us plan next year's outreach.</p>
         </div>
 
         {/* Password */}

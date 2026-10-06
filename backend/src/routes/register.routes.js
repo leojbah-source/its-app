@@ -276,6 +276,12 @@ router.get('/events', async (req, res, next) => {
 router.post('/account', async (req, res, next) => {
   try {
     const { email, password, full_name, phone, whatsapp_number, kca_member_no } = req.body;
+    // How did they hear about ITS this year (optional, multi-select + free-text 'Other').
+    const HEARD_OPTIONS = ['Facebook', 'Instagram', 'WhatsApp group', "Friend's status/story", 'Newspaper ad', 'Newspaper report', 'Flyer from school', 'School notice', 'Other'];
+    const heardRaw = Array.isArray(req.body.heard_about_sources) ? req.body.heard_about_sources : [];
+    const heardSources = HEARD_OPTIONS.filter((o) => heardRaw.includes(o));
+    const heardOther = heardSources.includes('Other') && typeof req.body.heard_about_other === 'string'
+      ? req.body.heard_about_other.trim().slice(0, 200) || null : null;
     if (!email || !password || !full_name)
       return res.status(400).json({ error: 'email, password and full_name are required' });
     if (phone && !isBahrainPhone(phone))
@@ -291,10 +297,12 @@ router.post('/account', async (req, res, next) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const { rows } = await pool.query(
-      `INSERT INTO users (full_name, email, phone, whatsapp_number, password_hash, role, is_active, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, 'Viewer', TRUE, NOW(), NOW())
+      `INSERT INTO users (full_name, email, phone, whatsapp_number, password_hash, role, is_active,
+                          heard_about_sources, heard_about_other, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, 'Viewer', TRUE, $6::text[], $7, NOW(), NOW())
        RETURNING id, email, full_name, role`,
-      [full_name, email.toLowerCase(), phone || null, whatsapp_number || null, passwordHash],
+      [full_name, email.toLowerCase(), phone || null, whatsapp_number || null, passwordHash,
+       heardSources.length ? heardSources : null, heardOther],
     );
 
     // Verify KCA membership live against mem.kcabah.com (§4.3), incl. the

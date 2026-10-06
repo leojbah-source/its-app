@@ -335,18 +335,21 @@ export default function Registrations() {
 
       {/* ── Tab: Event Summary ─────────────────────────────────────────── */}
       {activeTab === 'summary' && (
-        sumLoading ? (
-          <PageLoader message="Loading summary…" />
-        ) : sumError ? (
-          <ErrorBanner message={sumError} onRetry={() => { setSumFetched(false); }} />
-        ) : summary.length === 0 ? (
-          <EmptyState
-            title="No data yet"
-            description="Event registration counts will appear here once participants register."
-          />
-        ) : (
-          <SummaryTable summary={summary} />
-        )
+        <div className="flex flex-col gap-4">
+          <SourceSummaryCard token={token} />
+          {sumLoading ? (
+            <PageLoader message="Loading summary…" />
+          ) : sumError ? (
+            <ErrorBanner message={sumError} onRetry={() => { setSumFetched(false); }} />
+          ) : summary.length === 0 ? (
+            <EmptyState
+              title="No data yet"
+              description="Event registration counts will appear here once participants register."
+            />
+          ) : (
+            <SummaryTable summary={summary} />
+          )}
+        </div>
       )}
 
       {/* Drawer */}
@@ -485,6 +488,49 @@ function SummaryTable({ summary }) {
           )}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+
+// ── How parents heard about ITS (sign-up attribution) ──────────────────────
+function SourceSummaryCard({ token }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    registrationsApi.sourceSummary(token).then(setData).catch((e) => setErr(e.message || 'Could not load'));
+  }, [token]);
+  if (err) return null;
+  if (!data) return null;
+  const max = Math.max(1, ...data.counts.map((c) => c.count));
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-navy-800">How parents heard about ITS this year</h3>
+        <span className="text-xs text-slate-400">{data.answered} parent{data.answered === 1 ? '' : 's'} answered</span>
+      </div>
+      {data.counts.length === 0 ? (
+        <p className="py-4 text-center text-sm text-slate-400">No responses yet — captured from new sign-ups.</p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {data.counts.map((c) => (
+            <div key={c.source} className="flex items-center gap-3">
+              <div className="w-40 shrink-0 text-sm text-slate-600">{c.source}</div>
+              <div className="h-4 flex-1 rounded bg-slate-100">
+                <div className="h-4 rounded bg-navy-500" style={{ width: `${(c.count / max) * 100}%` }} />
+              </div>
+              <div className="w-8 shrink-0 text-right text-sm font-semibold text-navy-800">{c.count}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {data.others?.length > 0 && (
+        <div className="mt-3 border-t border-slate-100 pt-2">
+          <p className="mb-1 text-xs font-medium text-slate-500">“Other” notes</p>
+          <p className="text-xs text-slate-500">{data.others.join(' · ')}</p>
+        </div>
+      )}
+      <p className="mt-2 text-xs text-slate-400">Parents may select more than one source, so totals can exceed the number who answered.</p>
     </div>
   );
 }

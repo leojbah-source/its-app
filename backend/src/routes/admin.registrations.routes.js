@@ -64,6 +64,28 @@ router.get('/registrations/summary', requireRole(...staffRoles), async (req, res
   } catch (err) { next(err); }
 });
 
+// ── GET /api/admin/registrations/source-summary ──────────────────────────────
+// How parents heard about ITS this year (captured at sign-up, multi-select).
+// Counts each selected source across all parent accounts that answered, plus
+// the free-text "Other" notes.
+router.get('/registrations/source-summary', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const { rows: counts } = await pool.query(
+      `SELECT src AS source, COUNT(*)::int AS count
+       FROM users u, LATERAL unnest(u.heard_about_sources) AS src
+       WHERE u.heard_about_sources IS NOT NULL
+       GROUP BY src
+       ORDER BY count DESC, source`);
+    const { rows: tot } = await pool.query(
+      `SELECT COUNT(*)::int AS answered FROM users WHERE heard_about_sources IS NOT NULL`);
+    const { rows: others } = await pool.query(
+      `SELECT heard_about_other AS note FROM users
+       WHERE heard_about_other IS NOT NULL AND heard_about_other <> ''
+       ORDER BY id DESC LIMIT 200`);
+    res.json({ answered: tot[0].answered, counts, others: others.map((o) => o.note) });
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/admin/registrations/export ──────────────────────────────────────
 // Full CSV export of registrations for the active year.
 router.get('/registrations/export', requireRole(...staffRoles), async (req, res, next) => {

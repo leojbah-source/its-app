@@ -238,6 +238,10 @@ export const registrationsApi = {
   summary: (token) =>
     request('/api/admin/registrations/summary', { token }),
 
+  /** How parents heard about ITS this year (counts by source). */
+  sourceSummary: (token) =>
+    request('/api/admin/registrations/source-summary', { token }),
+
   /** Get single registration by id */
   get: (token, id) =>
     request(`/api/admin/registrations/${id}`, { token }),
