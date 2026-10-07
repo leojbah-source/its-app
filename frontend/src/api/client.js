@@ -103,6 +103,7 @@ export const awardsApi = {
 export const printoutsApi = {
   certificates: (token, yearId = 'active') => request(`/api/admin/printouts/certificates/${yearId}`, { token }),
   judgeReview: (token, yearId = 'active') => request(`/api/admin/printouts/judge-review/${yearId}`, { token }),
+  judgeCertificates: (token, eventId) => request(`/api/admin/printouts/judge-certificates/${eventId}`, { token }),
 };
 
 // Notices — admin CRUD (public read is publicApi.notices).

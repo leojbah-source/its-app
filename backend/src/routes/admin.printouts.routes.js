@@ -61,4 +61,22 @@ router.get('/judge-review/:year_id', requireRole('Chairman', 'SuperAdmin'), asyn
   } catch (err) { next(err); }
 });
 
+// GET /api/admin/printouts/judge-certificates/:event_id — certificates of
+// appreciation for the judges of one event (Date, Event, Judge name).
+router.get('/judge-certificates/:event_id', requireRole('SuperAdmin', 'Admin', 'Chairman'), async (req, res, next) => {
+  try {
+    const { rows: ev } = await pool.query(
+      `SELECT e.event_code, e.event_name,
+              to_char((SELECT MIN(event_date) FROM schedule WHERE event_id = e.id), 'YYYY-MM-DD') AS event_date
+         FROM events e WHERE e.id = $1`, [req.params.event_id]);
+    if (!ev[0]) return res.status(404).json({ error: 'Event not found' });
+    const { rows: judges } = await pool.query(
+      `SELECT DISTINCT j.full_name
+         FROM judge_assignments ja JOIN judges j ON j.id = ja.judge_id
+        WHERE ja.event_id = $1
+        ORDER BY j.full_name`, [req.params.event_id]);
+    res.json({ branding: await branding(), event: ev[0], judges });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

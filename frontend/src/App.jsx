@@ -22,6 +22,7 @@ import WinnersPoster from './pages/judging/WinnersPoster';
 import MediaResults from './pages/judging/MediaResults';
 import Videography from './pages/judging/Videography';
 import ResultSheet from './pages/judging/ResultSheet';
+import JudgeCertificatesPrint from './pages/judging/JudgeCertificatesPrint';
 import McPortal from './pages/mc/McPortal';
 import TimerPortal from './pages/timer/TimerPortal';
 import StageDisplay from './pages/timer/StageDisplay';
@@ -142,6 +143,10 @@ export default function App() {
               <Route
                 path="/admin/judging/winners/:eventId/:groupId"
                 element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Chairman', 'Media']}><WinnersPoster /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/judging/judge-certificates/:eventId"
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Chairman']}><JudgeCertificatesPrint /></ProtectedRoute>}
               />
               <Route
                 path="/admin/media"

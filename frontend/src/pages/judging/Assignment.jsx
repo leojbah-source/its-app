@@ -5,7 +5,7 @@
 // match the category); briefing OTPs are sent per (event, age group). MC/Timer
 // are assigned per event. Chairman/SuperAdmin only.
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, UserPlus, KeyRound, Mic, Timer } from 'lucide-react';
+import { RefreshCw, UserPlus, KeyRound, Mic, Timer, Award } from 'lucide-react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { Card, Badge } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -207,6 +207,9 @@ export default function Assignment() {
                           <Button size="sm" variant="outline" icon={UserPlus} onClick={() => openAssign(ev)}>Assign</Button>
                           <Button size="sm" variant="ghost" icon={KeyRound} loading={sendingId === rowKey(ev)}
                             disabled={ev.judges.length === 0} onClick={() => sendOtps(ev)} title="Send briefing OTPs to this group's judges">OTP</Button>
+                          <Button size="sm" variant="ghost" icon={Award} disabled={ev.judges.length === 0}
+                            onClick={() => window.open(`/admin/judging/judge-certificates/${ev.event_id}`, '_blank')}
+                            title="Print appreciation certificates for this event's judges">Cert</Button>
                           <Button size="sm" variant={ev.mc_name ? 'gold' : 'ghost'} icon={Mic} onClick={() => openStaff(ev, 'MC')}
                             title={ev.mc_name ? `MC: ${ev.mc_name}` : 'Assign an MC to this event'}>{ev.mc_name ? 'MC ✓' : 'MC'}</Button>
                           <Button size="sm" variant={ev.timer_name ? 'gold' : 'ghost'} icon={Timer} onClick={() => openStaff(ev, 'Timer')}
