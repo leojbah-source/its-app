@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Card';
-import { participantsApi, paymentsApi } from '../../api/client';
+import { participantsApi, paymentsApi, teamsApi } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 
 const VERIFY_TONE = { pending: 'slate', verified: 'success', issue: 'danger' };
@@ -87,6 +87,11 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [eligibleEvents, setEligibleEvents] = useState([]);
 
   const participantId = registration?.participant_id;
+  const teamId = registration?.team_id;
+  const isTeam = !participantId && !!teamId;
+  const [team, setTeam] = useState(null);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [teamErr, setTeamErr] = useState('');
 
   const load = useCallback(async () => {
     if (!participantId) { setLoading(false); return; }
@@ -100,6 +105,17 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
       setLoading(false);
     }
   }, [token, participantId]);
+
+  useEffect(() => {
+    if (!isTeam || !teamId) return;
+    let alive = true;
+    setTeamLoading(true); setTeamErr('');
+    teamsApi.members(token, teamId)
+      .then((d) => { if (alive) setTeam(d); })
+      .catch((e) => { if (alive) setTeamErr(e.message || 'Failed to load team'); })
+      .finally(() => { if (alive) setTeamLoading(false); });
+    return () => { alive = false; };
+  }, [token, isTeam, teamId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -246,10 +262,55 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
             <p className="rounded-lg bg-navy-50 border border-navy-200 px-3 py-2 text-xs text-navy-700">{flash}</p>
           )}
 
-          {!participantId ? (
-            <p className="text-sm text-slate-500">
-              Team registration — member details and CPR documents are under the Teams view.
-            </p>
+          {isTeam ? (
+            teamLoading ? (
+              <div className="flex justify-center py-10"><div className="h-8 w-8 animate-spin rounded-full border-4 border-navy-200 border-t-navy-600" /></div>
+            ) : teamErr ? (
+              <p className="text-sm text-red-600">{teamErr}</p>
+            ) : team ? (
+              <section>
+                <h3 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">Team members</h3>
+                <p className="mb-3 text-xs text-slate-500">{(team.members || []).length} member(s) — verify each CPR, name and date of birth, then confirm the team's payment.</p>
+                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                  <table className="w-full min-w-[420px] text-sm">
+                    <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2">Name</th>
+                        <th className="px-3 py-2">CPR</th>
+                        <th className="px-3 py-2">DOB</th>
+                        <th className="px-3 py-2">Group</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {(team.members || []).map((m) => (
+                        <tr key={m.id}>
+                          <td className="px-3 py-2 font-medium text-slate-800">{m.full_name}{m.is_substitute ? <span className="ml-1 text-[10px] text-amber-600">(sub)</span> : ''}</td>
+                          <td className="px-3 py-2 font-mono text-slate-600">{m.cpr_number}</td>
+                          <td className="px-3 py-2 text-slate-600">{m.dob ? new Date(m.dob).toLocaleDateString('en-GB') : '—'}</td>
+                          <td className="px-3 py-2 text-slate-500">{m.age_group_code || '—'}</td>
+                        </tr>
+                      ))}
+                      {(team.members || []).length === 0 && (
+                        <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-400">No members recorded.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {(team.documents || []).length > 0 && (
+                  <div className="mt-3">
+                    <h4 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">CPR documents</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {team.documents.map((d) => (
+                        <a key={d.id} href={d.url} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1 text-xs text-navy-700 hover:bg-slate-50">
+                          {d.original_name || 'Document'}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+            ) : null
           ) : loading ? (
             <div className="flex justify-center py-10">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-navy-200 border-t-navy-600" />
