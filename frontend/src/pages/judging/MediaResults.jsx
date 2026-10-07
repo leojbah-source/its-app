@@ -3,12 +3,12 @@
 // official result sheet or the winners poster. No judge-by-judge scoring is
 // shown here. Read-only; published groups only.
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { FileText, Trophy, RefreshCw } from 'lucide-react';
+import { FileText, Trophy, RefreshCw, Download, Package } from 'lucide-react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { Card, Badge } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { useAuth } from '../../context/AuthContext';
-import { scheduleApi, resultsApi } from '../../api/client';
+import { scheduleApi, resultsApi, API_BASE } from '../../api/client';
 
 const sel = 'rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
 
@@ -18,6 +18,9 @@ export default function MediaResults() {
   const [date, setDate] = useState('');
   const [eventId, setEventId] = useState('');
   const [groups, setGroups] = useState([]);
+  const [packFrom, setPackFrom] = useState('');
+  const [packTo, setPackTo] = useState('');
+  const [packBusy, setPackBusy] = useState(false);
   const [flash, setFlash] = useState('');
 
   const loadSchedule = useCallback(() => {
@@ -27,6 +30,7 @@ export default function MediaResults() {
 
   const dates = useMemo(() => [...new Set(schedule.map((r) => String(r.event_date).slice(0, 10)))].sort(), [schedule]);
   useEffect(() => { if (!date && dates.length) setDate(dates[0]); }, [dates, date]);
+  useEffect(() => { if (date) { setPackFrom(date); setPackTo(date); } }, [date]);
 
   const events = useMemo(() => {
     const map = new Map();
@@ -40,6 +44,31 @@ export default function MediaResults() {
   useEffect(() => { setGroups([]); if (!eventId) return; resultsApi.groups(token, eventId).then(setGroups).catch((e) => setFlash(e.message)); }, [token, eventId]);
   useEffect(() => { setEventId(''); setGroups([]); }, [date]);
 
+  async function downloadPack() {
+    setPackBusy(true); setFlash('');
+    try {
+      const qs = new URLSearchParams();
+      if (packFrom) qs.set('from', packFrom);
+      if (packTo) qs.set('to', packTo);
+      const res = await fetch(`${API_BASE}/api/admin/judging/results/winners-pack?${qs.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const t = await res.json().catch(() => ({}));
+        setFlash(t.error || 'Could not build the pack.');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `winners-pack${packFrom ? '_' + packFrom : ''}${packTo && packTo !== packFrom ? '_to_' + packTo : ''}.zip`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { setFlash(e.message || 'Download failed.'); }
+    finally { setPackBusy(false); }
+  }
+
   const evName = events.find((e) => String(e.event_id) === String(eventId));
 
   return (
@@ -50,6 +79,25 @@ export default function MediaResults() {
       </div>
 
       {flash && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{flash}</div>}
+
+      <Card className="mb-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-navy-800">Press / media winners pack</h2>
+            <p className="mt-0.5 text-xs text-slate-500">A ZIP of all published winners for the dates below — each photo individually named, plus a details sheet. Add your posters to the folder before sharing.</p>
+          </div>
+          <div className="flex-1" />
+          <div>
+            <label className="block text-[11px] font-medium uppercase tracking-wide text-slate-400">From</label>
+            <input type="date" className={`${sel} mt-1`} value={packFrom} onChange={(e) => setPackFrom(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium uppercase tracking-wide text-slate-400">To</label>
+            <input type="date" className={`${sel} mt-1`} value={packTo} onChange={(e) => setPackTo(e.target.value)} />
+          </div>
+          <Button variant="primary" icon={Package} loading={packBusy} onClick={downloadPack}>Download pack (ZIP)</Button>
+        </div>
+      </Card>
 
       <Card>
         <div className="flex flex-wrap items-end gap-3">

@@ -14,6 +14,8 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
+const archiver = require('archiver');
 const { uploadDir } = require('../utils/uploads');
 
 const router = express.Router();
@@ -629,6 +631,104 @@ router.post('/results/winner-photo/:participant_id', requireRole(...posterRoles)
     if (!rows[0]) return res.status(404).json({ error: 'Participant not found' });
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'UPDATE_WINNER_PHOTO', entity: 'participants', entityId: req.params.participant_id });
     res.json({ photo_url: url });
+  } catch (err) { next(err); }
+});
+
+// GET /results/winners-pack?from=YYYY-MM-DD&to=YYYY-MM-DD — a ZIP of the winners'
+// photos (individually named) + a details sheet, for press/media, across all
+// PUBLISHED groups whose event is scheduled in the date range (both optional).
+// Poster images are produced separately and added to the folder by the team.
+const ORD = ['', '1st', '2nd', '3rd'];
+const safe = (v) => String(v || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48) || 'x';
+const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+router.get('/results/winners-pack', requireRole(...posterRoles), async (req, res, next) => {
+  try {
+    const cfg = await activeCfg();
+    if (!cfg) return res.status(400).json({ error: 'No active year' });
+    const from = req.query.from || null;
+    const to = req.query.to || req.query.from || null;
+
+    const { rows: groups } = await pool.query(
+      `SELECT DISTINCT r.event_id, r.age_group_id
+         FROM event_results er JOIN registrations r ON r.id = er.registration_id
+        WHERE er.is_published = TRUE
+          AND ( ($1::date IS NULL AND $2::date IS NULL)
+             OR EXISTS (SELECT 1 FROM schedule s WHERE s.event_id = r.event_id
+                        AND ($1::date IS NULL OR s.event_date >= $1)
+                        AND ($2::date IS NULL OR s.event_date <= $2)) )`,
+      [from, to]);
+
+    if (!groups.length)
+      return res.status(404).json({ error: 'No published results found for that date range.' });
+
+    // Build details rows + the list of photos to include.
+    const details = [];
+    const photos = []; // { abs, zipName }
+    const usedNames = new Set();
+    for (const g of groups) {
+      const eventId = Number(g.event_id), ag = Number(g.age_group_id);
+      let data;
+      try { data = await computeGroup(eventId, ag, cfg); } catch { continue; }
+      const top = (data.results || []).filter((r) => r.place >= 1 && r.place <= 3).sort((a, b) => a.place - b.place);
+      if (!top.length) continue;
+
+      const { rows: meta } = await pool.query(
+        `SELECT e.event_code, e.event_name, c.name AS category_name,
+                ag.code AS age_group_code, ag.label AS age_group_label,
+                to_char((SELECT MIN(event_date) FROM schedule WHERE event_id = $1), 'YYYY-MM-DD') AS event_date
+           FROM events e LEFT JOIN categories c ON c.id = e.category_id
+           LEFT JOIN age_groups ag ON ag.id = $2 WHERE e.id = $1`, [eventId, ag]);
+      const m = meta[0] || {};
+
+      const regIds = top.map((r) => r.registration_id);
+      const people = {};
+      if (regIds.length) {
+        const { rows } = await pool.query(
+          `SELECT r.id AS registration_id, p.full_name, p.photo_url, s.name AS school
+             FROM registrations r JOIN participants p ON p.id = r.participant_id
+             LEFT JOIN schools s ON s.id = p.school_id WHERE r.id = ANY($1)`, [regIds]);
+        for (const x of rows) people[x.registration_id] = x;
+      }
+
+      for (const r of top) {
+        const person = people[r.registration_id] || {};
+        let photoFile = '';
+        if (person.photo_url) {
+          const base = path.basename(String(person.photo_url).split('?')[0]);
+          const abs = path.join(uploadDir, base);
+          if (base && fs.existsSync(abs)) {
+            const ext = path.extname(base) || '.jpg';
+            let name = `${safe(m.event_code)}_${safe(m.event_name)}_${safe(m.age_group_code)}_${ORD[r.place]}_${safe(person.full_name)}${ext}`;
+            let n = 1;
+            while (usedNames.has(name)) { name = name.replace(ext, `_${++n}${ext}`); }
+            usedNames.add(name);
+            photos.push({ abs, zipName: `photos/${name}` });
+            photoFile = name;
+          }
+        }
+        details.push([
+          m.event_date || '', m.event_code || '', m.event_name || '', m.category_name || '',
+          m.age_group_label || m.age_group_code || '', ORD[r.place], r.chest_number ?? '',
+          person.full_name || '', person.school || '', r.grade || '', photoFile || (person.photo_url ? 'missing' : ''),
+        ]);
+      }
+    }
+
+    details.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[1]).localeCompare(String(b[1])) || Number(a[5][0]) - Number(b[5][0]));
+    const header = ['Date', 'Event Code', 'Event', 'Category', 'Age Group', 'Place', 'Chest', 'Name', 'School', 'Grade', 'Photo File'];
+    const csv = [header, ...details].map((row) => row.map(csvCell).join(',')).join('\n');
+
+    const suffix = from ? `_${from}${to && to !== from ? '_to_' + to : ''}` : '';
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="winners-pack${suffix}.zip"`);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => { try { res.status(500).end(); } catch { /* noop */ } console.error('winners-pack zip error:', err.message); });
+    archive.pipe(res);
+    archive.append(csv, { name: 'winners-details.csv' });
+    for (const ph of photos) archive.file(ph.abs, { name: ph.zipName });
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_WINNERS_PACK',
+      entity: 'event_results', details: { from, to, groups: groups.length, photos: photos.length } });
+    await archive.finalize();
   } catch (err) { next(err); }
 });
 
