@@ -236,6 +236,10 @@ export const registrationsApi = {
   list: (token, params = {}) =>
     request(`/api/admin/registrations${qs(params)}`, { token }),
 
+  /** Children added but with no events saved yet (partial In-Progress entries). */
+  partial: (token) =>
+    request('/api/admin/registrations/partial', { token }),
+
   /** Per-event registration count summary */
   summary: (token) =>
     request('/api/admin/registrations/summary', { token }),

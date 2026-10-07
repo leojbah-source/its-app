@@ -310,7 +310,11 @@ export default function RegistrationsTable({ registrations, onView }) {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1.5 max-w-md">
-                      {g.events.map((ev) => (
+                      {g.events.every((ev) => ev.no_events) ? (
+                        <span className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">
+                          No events yet
+                        </span>
+                      ) : g.events.map((ev) => (
                         <span
                           key={ev.id}
                           title={`${ev.event_name} — ${ev.status}`}
@@ -372,7 +376,9 @@ export default function RegistrationsTable({ registrations, onView }) {
                     {r.event_code || '—'}
                   </td>
                   <td className="px-4 py-3 text-slate-800">
-                    {r.event_name || '—'}
+                    {r.no_events
+                      ? <span className="text-xs font-medium text-amber-600">No events yet</span>
+                      : (r.event_name || '—')}
                   </td>
                   <td className="px-4 py-3 text-slate-600 text-xs">
                     {r.category_name || '—'}

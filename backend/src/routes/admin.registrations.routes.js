@@ -268,6 +268,76 @@ router.get('/registrations', requireRole(...staffRoles), async (req, res, next) 
   } catch (err) { next(err); }
 });
 
+// ── GET /api/admin/registrations/partial ─────────────────────────────────────
+// Children who were added in the portal but have NO events saved at all (no
+// registration rows of any status). These never appear in the main grid, which
+// is built from registration rows, so they are surfaced here to show in the
+// In Progress view — letting staff spot parents who started but didn't finish
+// and follow up. Read-only; rows are shaped like registration rows for the UI.
+router.get('/registrations/partial', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const { rows: cfg } = await pool.query(
+      `SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`,
+    );
+    const year_id = cfg[0]?.id || null;
+
+    const { rows } = await pool.query(
+      `SELECT
+         p.id AS participant_id,
+         p.full_name AS participant_name,
+         p.cpr_number, p.gender, p.dob,
+         p.cpr_verified_method, p.admin_verified_status,
+         p.last_reminder_at, p.created_at,
+         s.name AS school_name,
+         ag.code AS age_group_code, ag.label AS age_group_label,
+         pu.membership_status AS parent_membership_status
+       FROM participants p
+       LEFT JOIN schools s ON s.id = p.school_id
+       LEFT JOIN age_groups ag ON ag.id = p.age_group_id
+       LEFT JOIN users pu ON pu.id = p.created_by
+       WHERE ($1::int IS NULL OR p.year_id = $1)
+         AND p.confirmed_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM registrations r WHERE r.participant_id = p.id
+         )
+       ORDER BY p.created_at DESC`,
+      [year_id],
+    );
+
+    // Shape each as a synthetic registration row so the admin grid can merge
+    // them in directly. no_events flags them for the "No events yet" label.
+    const shaped = rows.map((p) => ({
+      id: `partial-p${p.participant_id}`,
+      participant_id: p.participant_id,
+      team_id: null,
+      participant_name: p.participant_name,
+      cpr_number: p.cpr_number,
+      gender: p.gender,
+      dob: p.dob,
+      cpr_verified_method: p.cpr_verified_method,
+      admin_verified_status: p.admin_verified_status,
+      parent_membership_status: p.parent_membership_status,
+      age_group_code: p.age_group_code,
+      age_group_label: p.age_group_label,
+      school_name: p.school_name,
+      last_reminder_at: p.last_reminder_at,
+      registered_at: p.created_at,
+      confirmed_at: null,
+      status: null,
+      payment_status: 'none',
+      payment_methods: '',
+      event_id: null,
+      event_name: null,
+      event_code: null,
+      event_kind: 'individual',
+      category_name: null,
+      no_events: true,
+    }));
+
+    res.json(shaped);
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/admin/registrations/:id ─────────────────────────────────────────
 router.get('/registrations/:id', requireRole(...staffRoles), async (req, res, next) => {
   try {

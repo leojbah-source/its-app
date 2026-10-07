@@ -54,8 +54,11 @@ export default function Registrations() {
     setRegsLoading(true);
     setRegsError('');
     try {
-      const data = await registrationsApi.list(token);
-      setRegistrations(data);
+      const [data, partial] = await Promise.all([
+        registrationsApi.list(token),
+        registrationsApi.partial(token).catch(() => []),
+      ]);
+      setRegistrations([...data, ...partial]);
     } catch (err) {
       setRegsError(err.message || 'Failed to load registrations');
     } finally {
@@ -143,7 +146,7 @@ export default function Registrations() {
   const participantCount = new Set(
     activeRegs.map((r) => (r.participant_id ? `p${r.participant_id}` : `t${r.team_id}`)),
   ).size;
-  const eventRegCount = activeRegs.length;
+  const eventRegCount = activeRegs.filter((r) => !r.no_events).length;
   const attendedCount = visibleRegs.filter((r) => r.status === 'attended').length;
   const absentCount = visibleRegs.filter((r) => r.status === 'absent').length;
   const statCards = [
