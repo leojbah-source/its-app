@@ -390,7 +390,7 @@ router.get('/participants/:id/detail', requireRole(...staffRoles), async (req, r
     const { rows: pRows } = await pool.query(
       `SELECT p.*, s.name AS school_name, ag.code AS age_group_code, ag.label AS age_group_label,
               u.full_name AS parent_name, u.email AS parent_email, u.phone AS parent_phone,
-              u.whatsapp_number AS parent_whatsapp, u.membership_status AS parent_membership_status,
+              u.whatsapp_number AS parent_whatsapp, u.whatsapp_number_2 AS parent_whatsapp_2, u.membership_status AS parent_membership_status,
               vu.full_name AS admin_verified_by_name
        FROM participants p
        LEFT JOIN schools s ON s.id = p.school_id
@@ -706,9 +706,13 @@ router.post('/registrations/reminders/send-bulk', requireRole(...REMINDER_ROLES)
 // PUT /participants/:id/contact — staff correct the guardian name / number
 router.put('/participants/:id/contact', requireRole(...editRoles), async (req, res, next) => {
   try {
-    const { guardian_name, guardian_phone } = req.body;
+    const { guardian_name, guardian_phone, whatsapp_number_2 } = req.body;
     if (guardian_phone && String(guardian_phone).replace(/\D/g, '').length < 8)
       return res.status(400).json({ error: 'Contact number looks too short — enter a valid number.' });
+    const wa2Provided = whatsapp_number_2 !== undefined;
+    const wa2 = wa2Provided && whatsapp_number_2 && String(whatsapp_number_2).trim() ? String(whatsapp_number_2).trim() : null;
+    if (wa2 && wa2.replace(/\D/g, '').length < 8)
+      return res.status(400).json({ error: 'Second WhatsApp number looks too short — include the country code.' });
     const { rows } = await pool.query(
       `UPDATE participants SET
          guardian_name  = COALESCE(NULLIF($1, ''), guardian_name),
@@ -717,10 +721,17 @@ router.put('/participants/:id/contact', requireRole(...editRoles), async (req, r
        WHERE id = $3 RETURNING id, guardian_name, guardian_phone`,
       [guardian_name ? guardian_name.trim() : null, guardian_phone ? guardian_phone.trim() : null, req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Participant not found' });
+    // The second WhatsApp number lives on the parent account — update it there.
+    if (wa2Provided) {
+      await pool.query(
+        `UPDATE users u SET whatsapp_number_2 = $1, updated_at = NOW()
+           FROM participants p WHERE p.id = $2 AND u.id = p.created_by`,
+        [wa2, req.params.id]);
+    }
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'UPDATE_GUARDIAN_CONTACT', entity: 'participants', entityId: req.params.id,
-      details: { guardian_phone: rows[0].guardian_phone } });
-    res.json(rows[0]);
+      details: { guardian_phone: rows[0].guardian_phone, whatsapp_number_2: wa2Provided ? wa2 : undefined } });
+    res.json({ ...rows[0], ...(wa2Provided ? { whatsapp_number_2: wa2 } : {}) });
   } catch (err) { next(err); }
 });
 

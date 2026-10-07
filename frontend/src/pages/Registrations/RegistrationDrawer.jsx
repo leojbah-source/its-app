@@ -77,6 +77,7 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [idGender, setIdGender] = useState('');
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
+  const [contactWa2, setContactWa2] = useState('');
 
   // Chairman event corrections
   const [editEvents, setEditEvents] = useState(false);
@@ -124,7 +125,7 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   async function saveContact() {
     setBusy('contact'); setFlash('');
     try {
-      await participantsApi.updateContact(token, participantId, { guardian_name: contactName, guardian_phone: contactPhone });
+      await participantsApi.updateContact(token, participantId, { guardian_name: contactName, guardian_phone: contactPhone, whatsapp_number_2: contactWa2 });
       setFlash('Contact updated.'); setEditContact(false); load();
     } catch (e) { setFlash(e.message); }
     finally { setBusy(''); }
@@ -326,19 +327,26 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                   <div>
                     <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Parent contact</p>
                     {!editContact ? (
-                      <p className="text-sm font-medium text-slate-800">
-                        {p.guardian_phone || p.parent_whatsapp || p.parent_phone || '—'}
-                        {isChairman && (
-                          <button
-                            onClick={() => { setContactName(p.guardian_name || ''); setContactPhone(p.guardian_phone || ''); setEditContact(true); }}
-                            className="ml-2 text-[11px] font-normal text-navy-600 hover:underline">Edit</button>
+                      <div>
+                        <p className="text-sm font-medium text-slate-800">
+                          {p.guardian_phone || p.parent_whatsapp || p.parent_phone || '—'}
+                          {isChairman && (
+                            <button
+                              onClick={() => { setContactName(p.guardian_name || ''); setContactPhone(p.guardian_phone || ''); setContactWa2(p.parent_whatsapp_2 || ''); setEditContact(true); }}
+                              className="ml-2 text-[11px] font-normal text-navy-600 hover:underline">Edit</button>
+                          )}
+                        </p>
+                        {p.parent_whatsapp_2 && (
+                          <p className="text-xs text-slate-500">2nd WhatsApp: {p.parent_whatsapp_2}</p>
                         )}
-                      </p>
+                      </div>
                     ) : (
                       <div className="mt-1 space-y-1.5">
                         <input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Guardian name"
                           className="w-full rounded border border-slate-300 px-2 py-1 text-sm" />
-                        <input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="Contact number"
+                        <input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="Contact number (WhatsApp)"
+                          className="w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+                        <input value={contactWa2} onChange={(e) => setContactWa2(e.target.value)} placeholder="2nd WhatsApp (optional, with country code)"
                           className="w-full rounded border border-slate-300 px-2 py-1 text-sm" />
                         <div className="flex gap-2">
                           <Button variant="primary" size="sm" loading={busy === 'contact'} onClick={saveContact}>Save</Button>
