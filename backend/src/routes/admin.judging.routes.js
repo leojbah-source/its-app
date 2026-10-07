@@ -15,7 +15,6 @@ const { logAudit } = require('../utils/audit');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const archiver = require('archiver');
 const { uploadDir } = require('../utils/uploads');
 
 const router = express.Router();
@@ -717,6 +716,10 @@ router.get('/results/winners-pack', requireRole(...posterRoles), async (req, res
     details.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[1]).localeCompare(String(b[1])) || Number(a[5][0]) - Number(b[5][0]));
     const header = ['Date', 'Event Code', 'Event', 'Category', 'Age Group', 'Place', 'Chest', 'Name', 'School', 'Grade', 'Photo File'];
     const csv = [header, ...details].map((row) => row.map(csvCell).join(',')).join('\n');
+
+    let archiver;
+    try { archiver = require('archiver'); }
+    catch { return res.status(500).json({ error: 'The ZIP library is not available on the server yet — please redeploy.' }); }
 
     const suffix = from ? `_${from}${to && to !== from ? '_to_' + to : ''}` : '';
     res.setHeader('Content-Type', 'application/zip');

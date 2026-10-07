@@ -408,7 +408,7 @@ router.put('/teams/:team_id/members/:member_id/verify', requireRole(...editRoles
 });
 
 // ── POST /api/admin/teams/:id/notify — WhatsApp the team leader (editable) ────
-router.post('/teams/:id/notify', requireRole(...REMINDER_ROLES), async (req, res, next) => {
+router.post('/teams/:id/notify', requireRole('SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Registrar'), async (req, res, next) => {
   try {
     const message = (req.body.message || '').trim();
     if (!message) return res.status(400).json({ error: 'message is required' });
