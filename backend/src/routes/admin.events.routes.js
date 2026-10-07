@@ -454,6 +454,7 @@ router.post('/events', requireRole(...editRoles), async (req, res, next) => {
       preferred_venue_id = null,
       keep_groups_together = false,
       requires_tables = false,
+      deferred_judging = false,
       slots,
     } = req.body;
 
@@ -474,12 +475,12 @@ router.post('/events', requireRole(...editRoles), async (req, res, next) => {
           is_stage_event, time_slot_mode, fee_amount, member_fee_amount,
           gender_split, allotted_time_seconds, grace_period_seconds,
           yellow_alert_seconds, preferred_venue_id, keep_groups_together,
-          requires_tables, sort_order, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,0,NOW(),NOW()) RETURNING *`,
+          requires_tables, deferred_judging, sort_order, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,0,NOW(),NOW()) RETURNING *`,
       [year_id, category_id, event_code, event_name, event_kind, is_stage_event,
        time_slot_mode, fee_amount, member_fee_amount, gender_split,
        allotted_time_seconds || null, grace_period_seconds || null, yellow_alert_seconds || null,
-       preferred_venue_id ? Number(preferred_venue_id) : null, !!keep_groups_together, !!requires_tables],
+       preferred_venue_id ? Number(preferred_venue_id) : null, !!keep_groups_together, !!requires_tables, !!deferred_judging],
     );
     const eventId = rows[0].id;
 
@@ -509,7 +510,7 @@ router.put('/events/:id', requireRole(...editRoles), async (req, res, next) => {
 
     const {
       event_code, event_name, category_id, event_kind,
-      is_stage_event, time_slot_mode,
+      is_stage_event, time_slot_mode, deferred_judging,
       criteria, age_groups, age_group_durations,
       fee_amount, member_fee_amount, gender_split,
       allotted_time_seconds, grace_period_seconds, yellow_alert_seconds,
@@ -538,6 +539,7 @@ router.put('/events/:id', requireRole(...editRoles), async (req, res, next) => {
          preferred_venue_id    = CASE WHEN $14::text IS NULL THEN preferred_venue_id ELSE $15 END,
          keep_groups_together  = COALESCE($16, keep_groups_together),
          requires_tables       = COALESCE($17, requires_tables),
+         deferred_judging      = COALESCE($18, deferred_judging),
          updated_at     = NOW()
        WHERE id = $13 RETURNING *`,
       [event_code, event_name, category_id, event_kind, is_stage_event, time_slot_mode,
@@ -546,7 +548,7 @@ router.put('/events/:id', requireRole(...editRoles), async (req, res, next) => {
        req.params.id,
        preferred_venue_id === undefined ? null : String(preferred_venue_id ?? ''),
        preferred_venue_id === undefined || preferred_venue_id === '' || preferred_venue_id === null ? null : Number(preferred_venue_id),
-       boolOrNull(keep_groups_together), boolOrNull(requires_tables)],
+       boolOrNull(keep_groups_together), boolOrNull(requires_tables), boolOrNull(deferred_judging)],
     );
     if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Event not found' }); }
 

@@ -41,6 +41,7 @@ export function blankEvent() {
     age_groups: [],
     age_group_durations: {},
     time_slot_mode: false,
+    deferred_judging: false,
     sort_order: null,
     criteria: [emptyCriterion(1)],
     slots: [],

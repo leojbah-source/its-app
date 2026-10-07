@@ -145,8 +145,14 @@ function Briefing({ token, current, onBack, onContinue, setFlash }) {
       </div>
 
       <div className="mb-3 rounded-xl bg-white p-4 shadow-sm">
-        <p className="text-sm text-slate-600">These weightages are <b>shared by the judges of this age group</b> — the panel agrees on <b>one figure per criterion</b> (not one per judge), totalling <b>100</b>. Each age group sets its own weightages, so this applies to <b>Group {ev.age_group_code || 'this group'}</b> only. The highest becomes <b>C1</b> (used to break ties, then C2, C3…).</p>
-        <p className="mt-1 text-xs text-slate-500">One judge enters the agreed figures; each judge then taps “I agree”. If anyone changes them, everyone must agree again. Your individual <i>scores</i> come later.</p>
+        {brief.deferred ? (
+          <p className="text-sm text-slate-600">The criteria for this event are <b>fixed by the Chairman</b> and apply to <b>all judges</b> — there is no on-the-day agreement step. Score directly; the highest weighting is <b>C1</b> (used to break ties, then C2, C3…).</p>
+        ) : (
+          <>
+            <p className="text-sm text-slate-600">These weightages are <b>shared by the judges of this age group</b> — the panel agrees on <b>one figure per criterion</b> (not one per judge), totalling <b>100</b>. Each age group sets its own weightages, so this applies to <b>Group {ev.age_group_code || 'this group'}</b> only. The highest becomes <b>C1</b> (used to break ties, then C2, C3…).</p>
+            <p className="mt-1 text-xs text-slate-500">One judge enters the agreed figures; each judge then taps “I agree”. If anyone changes them, everyone must agree again. Your individual <i>scores</i> come later.</p>
+          </>
+        )}
         <div className="mt-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-navy-900">Criteria &amp; weightages</h2>
           {!brief.weightages_locked && !editW && <button onClick={() => { setWDraft(brief.criteria.map((c) => ({ id: c.id, label: c.label, max_score: Number(c.max_score) }))); setEditW(true); }} className="inline-flex items-center gap-1 text-xs font-medium text-navy-600 hover:underline"><Sliders size={13} /> Adjust</button>}
@@ -236,7 +242,7 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
 
   const criteria = useMemo(() => (sheet ? [...sheet.criteria].sort((a, b) => a.sequence_order - b.sequence_order) : []), [sheet]);
   const maxByCrit = useMemo(() => Object.fromEntries(criteria.map((c) => [c.id, Number(c.max_score)])), [criteria]);
-  const canScore = sheet?.agreement?.all_agreed;
+  const canScore = sheet?.deferred || sheet?.agreement?.all_agreed;
   // Poll every 5s for shared state — so this sheet unlocks when the last judge
   // agrees, the "N/total judges done" count keeps up as others submit, and the
   // preview/lock appears when the Chairman finalises/publishes. This refreshes

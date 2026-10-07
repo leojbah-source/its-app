@@ -190,6 +190,22 @@ export default function EventDetailsForm({ event, onChange, errors, categories =
         </label>
       </div>
 
+      <div className="flex items-center gap-3">
+        <input
+          id="deferred_judging"
+          type="checkbox"
+          checked={!!event.deferred_judging}
+          onChange={(e) => onChange({ ...event, deferred_judging: e.target.checked })}
+          className="h-4 w-4 rounded border-slate-300"
+        />
+        <label htmlFor="deferred_judging" className="text-sm font-medium text-navy-800">
+          Judged later — criteria fixed, no agreement step
+          <span className="block text-xs font-normal text-slate-500">
+            For writing/drawing events scored one judge at a time (essay, handwriting, drawing…). The Chairman’s criteria marks apply to all judges, and there is no on-the-day criteria agreement.
+          </span>
+        </label>
+      </div>
+
       {/* ── Scheduling controls (auto-schedule draft) ───────────────────── */}
       <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 space-y-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">

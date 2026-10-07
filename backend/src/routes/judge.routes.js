@@ -86,6 +86,13 @@ async function groupResultState(eventId, ageGroupId) {
 }
 
 // Weightage agreement across this (event + age group)'s judges only.
+// Deferred-judging events (writing/drawing judged later): criteria are fixed by
+// the Chairman for ALL judges and scored without the agreement step.
+async function isDeferred(eventId) {
+  const { rows } = await pool.query(`SELECT deferred_judging FROM events WHERE id = $1`, [eventId]);
+  return !!rows[0]?.deferred_judging;
+}
+
 async function agreementStatus(eventId, ageGroupId, myAssignmentId) {
   const { rows } = await pool.query(
     `SELECT COUNT(*)::int AS total,
@@ -163,8 +170,9 @@ router.get('/briefing/:assignment_id', async (req, res, next) => {
       assignment_id: asg.id, event: ev[0] || null,
       age_group_id: asg.age_group_id,
       criteria: await effectiveCriteria(asg.event_id, asg.age_group_id),
-      weightages_locked: await groupScored(asg.event_id, asg.age_group_id),
+      weightages_locked: (await groupScored(asg.event_id, asg.age_group_id)) || (await isDeferred(asg.event_id)),
       agreement: await agreementStatus(asg.event_id, asg.age_group_id, asg.id),
+      deferred: await isDeferred(asg.event_id),
       result_state: await groupResultState(asg.event_id, asg.age_group_id),
     });
   } catch (err) { next(err); }
@@ -225,6 +233,7 @@ router.get('/sheet/:assignment_id', async (req, res, next) => {
       weightages_locked: await groupScored(asg.event_id, ag),
       weightage_total: criteria.reduce((t, c) => t + Number(c.max_score), 0),
       agreement: await agreementStatus(asg.event_id, asg.age_group_id, asg.id),
+      deferred: await isDeferred(asg.event_id),
       done: await doneStatus(asg.event_id, asg.age_group_id, asg.id),
       result_state: await groupResultState(asg.event_id, ag),
       participants,
@@ -244,6 +253,8 @@ router.post('/criteria/:assignment_id', async (req, res, next) => {
     if (!asg.age_group_id) return res.status(400).json({ error: 'assignment has no age group' });
     if (await groupScored(asg.event_id, asg.age_group_id))
       return res.status(409).json({ error: 'Scoring has started for this age group — criteria weightages can no longer be changed.' });
+    if (await isDeferred(asg.event_id))
+      return res.status(409).json({ error: 'Criteria for this event are fixed by the Chairman and cannot be changed.' });
 
     const list = req.body?.criteria;
     if (!Array.isArray(list) || !list.length) return res.status(400).json({ error: 'criteria array is required' });
@@ -306,7 +317,7 @@ router.post('/scores/:assignment_id', async (req, res, next) => {
     if (state.published)
       return res.status(409).json({ error: 'Results are published — scores are locked and can no longer be changed.' });
     const agree = await agreementStatus(asg.event_id, asg.age_group_id, asg.id);
-    if (!agree.all_agreed)
+    if (!(await isDeferred(asg.event_id)) && !agree.all_agreed)
       return res.status(409).json({ error: `All ${agree.total} judges of this age group must agree the criteria weightages before scoring (${agree.agreed}/${agree.total} agreed).` });
     const list = req.body?.scores;
     if (!Array.isArray(list) || !list.length) return res.status(400).json({ error: 'scores array is required' });
