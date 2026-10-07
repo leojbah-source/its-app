@@ -103,6 +103,8 @@ router.get('/registrations/export', requireRole(...staffRoles), async (req, res,
          COALESCE(p.full_name, t.team_name) AS participant_name,
          CASE WHEN r.team_id IS NOT NULL THEN 'team' ELSE 'individual' END AS entry_type,
          p.cpr_number, p.gender, to_char(p.dob, 'YYYY-MM-DD') AS dob,
+         to_char(COALESCE(p.confirmed_at, MIN(r.registered_at)) AT TIME ZONE 'Asia/Bahrain', 'YYYY-MM-DD') AS reg_date,
+         to_char(COALESCE(p.confirmed_at, MIN(r.registered_at)) AT TIME ZONE 'Asia/Bahrain', 'HH24:MI') AS reg_time,
          pag.code AS age_group_code, s.name AS school_name,
          string_agg(e.event_code || ' ' || e.event_name, ', '
                     ORDER BY e.event_code) FILTER (WHERE r.status <> 'withdrawn') AS events,
@@ -138,22 +140,22 @@ router.get('/registrations/export', requireRole(...staffRoles), async (req, res,
          -- Completed registrations only (parent finished the flow), plus team entries.
          AND (p.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
        GROUP BY p.id, t.id, p.full_name, t.team_name, entry_type,
-                p.cpr_number, p.gender, p.dob, pag.code, s.name,
+                p.cpr_number, p.gender, p.dob, p.confirmed_at, pag.code, s.name,
                 pu.full_name, pu.email, pu.phone, pu.whatsapp_number,
                 pu.kca_member_no, pu.membership_status
-       ORDER BY participant_name`,
+       ORDER BY COALESCE(p.confirmed_at, MIN(r.registered_at)), participant_name`,
       [year_id],
     );
 
     const bd = (v) => Number(v || 0).toFixed(3);
-    const header = 'Participant,Type,CPR,Gender,DOB,Age Group,School,' +
+    const header = 'Participant,Type,CPR,Gender,DOB,Age Group,School,Registration Date,Registration Time,' +
       'Parent,Parent Email,Parent Phone,WhatsApp,KCA Member No,KCA Membership,' +
       'Events,No. of Events,Total Fee (BD),Payment Status,Payment Methods,Paid Confirmed (BD)';
     const csv = [
       header,
       ...rows.map((r) =>
         [r.participant_name, r.entry_type, r.cpr_number, r.gender, r.dob,
-         r.age_group_code, r.school_name,
+         r.age_group_code, r.school_name, r.reg_date, r.reg_time,
          r.parent_name, r.parent_email, r.parent_phone, r.parent_whatsapp,
          r.kca_member_no, r.kca_membership,
          r.events, r.event_count, bd(r.total_fee),

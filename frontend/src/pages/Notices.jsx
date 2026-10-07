@@ -256,6 +256,7 @@ export default function Notices() {
                     <option value="paid">Paid (confirmed)</option>
                     <option value="unpaid">Not paid</option>
                     <option value="pending">Pending</option>
+                    <option value="cash_pending">Cash chosen, not paid</option>
                   </select>
                 </div>
                 <div>

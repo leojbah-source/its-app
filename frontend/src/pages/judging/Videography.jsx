@@ -94,14 +94,16 @@ export default function Videography() {
     finally { setBusyId(null); }
   }
 
+  // Export the FULL list of video requests (every date, event and age group,
+  // with the recording status) for file preparation — not just the selected event.
   async function downloadCsv() {
     try {
-      const csv = await videoApi.requestsCsv(token, eventId ? { event_id: eventId } : {});
+      const csv = await videoApi.requestsCsv(token, {});
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = eventId ? `video-list-${evName?.code || eventId}.csv` : 'video-list-all.csv';
+      a.download = 'video-requests-all.csv';
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     } catch (err) { setFlash(err.message); }
@@ -145,7 +147,7 @@ export default function Videography() {
             </div>
           )}
           <Button variant="outline" size="sm" icon={RefreshCw} onClick={() => load()}>Refresh</Button>
-          <Button variant="gold" size="sm" icon={Download} onClick={downloadCsv}>Download list</Button>
+          <Button variant="gold" size="sm" icon={Download} onClick={downloadCsv}>Download all (CSV)</Button>
         </div>
       </Card>
 

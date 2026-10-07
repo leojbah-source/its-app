@@ -131,6 +131,10 @@ async function resolveAudience(yearId, criteria = {}) {
     where.push(`NOT EXISTS (SELECT 1 FROM payments pay WHERE pay.participant_id = p.id AND pay.status = 'confirmed')`);
   else if (criteria.payment === 'pending')
     where.push(`EXISTS (SELECT 1 FROM payments pay WHERE pay.participant_id = p.id AND pay.status = 'pending')`);
+  else if (criteria.payment === 'cash_pending')
+    where.push(`EXISTS (SELECT 1 FROM payments pay WHERE pay.participant_id = p.id
+                        AND pay.method = 'cash' AND pay.status = 'pending')
+                AND NOT EXISTS (SELECT 1 FROM payments pay WHERE pay.participant_id = p.id AND pay.status = 'confirmed')`);
 
   const sql = `SELECT DISTINCT ON (p.guardian_phone) p.id, p.full_name AS name,
                       p.guardian_phone AS phone, u.whatsapp_number_2 AS phone2
