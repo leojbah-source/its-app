@@ -395,10 +395,10 @@ router.put('/teams/:team_id/members/:member_id/verify', requireRole(...editRoles
     const verified = req.body.verified !== false;
     const { rows } = await pool.query(
       `UPDATE team_members SET
-         cpr_verified = $1,
-         cpr_verified_at = CASE WHEN $1 THEN NOW() ELSE NULL END,
-         cpr_verified_by = CASE WHEN $1 THEN $2 ELSE NULL END
-       WHERE id = $3 AND team_id = $4 RETURNING id, cpr_verified`,
+         cpr_verified = $1::boolean,
+         cpr_verified_at = CASE WHEN $1::boolean THEN NOW() ELSE NULL END,
+         cpr_verified_by = CASE WHEN $1::boolean THEN $2::int ELSE NULL END
+       WHERE id = $3::int AND team_id = $4::int RETURNING id, cpr_verified`,
       [verified, req.user.id, req.params.member_id, req.params.team_id]);
     if (!rows[0]) return res.status(404).json({ error: 'Team member not found' });
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
