@@ -358,7 +358,7 @@ router.put('/account', authenticate, async (req, res, next) => {
         try { membership = await verifyAndStoreUserMembership(req.user.id, kca_member_no.trim()); }
         catch (e) { console.error('membership verify on account update failed:', e.message); }
       } else {
-        await pool.query(`UPDATE users SET kca_member_no = NULL, membership_status = NULL WHERE id = $1`, [req.user.id]);
+        await pool.query(`UPDATE users SET kca_member_no = NULL, membership_status = 'none' WHERE id = $1`, [req.user.id]);
       }
     }
 
