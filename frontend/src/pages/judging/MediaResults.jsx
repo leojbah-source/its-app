@@ -50,7 +50,7 @@ export default function MediaResults() {
       const qs = new URLSearchParams();
       if (packFrom) qs.set('from', packFrom);
       if (packTo) qs.set('to', packTo);
-      const res = await fetch(`${API_BASE}/api/admin/judging/results/winners-pack?${qs.toString()}`, {
+      const res = await fetch(`${API_BASE}/api/admin/results/winners-pack?${qs.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
