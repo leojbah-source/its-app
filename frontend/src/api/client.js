@@ -119,6 +119,7 @@ export const noticesApi = {
   lookups: (token, yearId = 'active') => request(`/api/admin/notices/lookups${qs({ year_id: yearId })}`, { token }),
   audiencePreview: (token, criteria, yearId = 'active') => request('/api/admin/notices/audience/preview', { method: 'POST', token, body: { criteria, year_id: yearId } }),
   send: (token, body) => request('/api/admin/notices/send', { method: 'POST', token, body: { year_id: 'active', ...body } }),
+  sendPhoneList: (token, body) => request('/api/admin/notices/send-phone-list', { method: 'POST', token, body: { year_id: 'active', ...body } }),
   sends: (token, yearId = 'active') => request(`/api/admin/notices/sends${qs({ year_id: yearId })}`, { token }),
   groups: (token, yearId = 'active') => request(`/api/admin/notices/groups${qs({ year_id: yearId })}`, { token }),
   addGroup: (token, name, chat_id) => request('/api/admin/notices/groups', { method: 'POST', token, body: { name, chat_id, year_id: 'active' } }),

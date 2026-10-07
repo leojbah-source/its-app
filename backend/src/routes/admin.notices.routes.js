@@ -265,4 +265,63 @@ router.post('/send', requireRole(...editRoles), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// POST /api/admin/notices/send-phone-list  { message, numbers:[...], audience_label? }
+// Blast to an uploaded list of phone numbers (e.g. "please register" reminders
+// to past-year parents). Sent in the background, throttled in packets to stay
+// within WhatsApp/Green-API rate limits. De-dupes and normalises numbers.
+function normaliseNumber(x) {
+  let d = String(x || '').replace(/[^\d]/g, '');
+  if (!d) return '';
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.length === 8) d = '973' + d;      // bare Bahrain local -> +973
+  return d;
+}
+router.post('/send-phone-list', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const yearId = await resolveYearId(req.body.year_id);
+    if (!yearId) return res.status(400).json({ error: 'No active year' });
+    const message = (req.body.message || '').trim();
+    if (!message) return res.status(400).json({ error: 'message is required' });
+
+    const raw = Array.isArray(req.body.numbers) ? req.body.numbers : [];
+    const seen = new Set();
+    const numbers = [];
+    for (const x of raw) {
+      const d = normaliseNumber(x);
+      if (d && d.length >= 10 && !seen.has(d)) { seen.add(d); numbers.push(d); }
+    }
+    if (numbers.length === 0) return res.status(400).json({ error: 'No valid phone numbers found in the list.' });
+    if (numbers.length > 2000) return res.status(400).json({ error: 'Too many numbers (over 2000). Please split the list.' });
+
+    const { rows: logRows } = await pool.query(
+      `INSERT INTO notice_sends (year_id, notice_id, channel, audience, message, total_recipients, status, created_by)
+       VALUES ($1,$2,'whatsapp',$3,$4,$5,'sending',$6) RETURNING id`,
+      [yearId, req.body.notice_id || null, req.body.audience_label || 'Phone list (CSV)', message, numbers.length, req.user.id]);
+    const sendId = logRows[0].id;
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'SEND_WA_PHONE_LIST',
+      entity: 'notices', entityId: req.body.notice_id || null, details: { total: numbers.length } });
+
+    res.json({ send_id: sendId, channel: 'whatsapp', total: numbers.length });
+
+    // Background delivery: packets of 20, ~900ms between messages, a longer
+    // pause between packets — conservative for Green-API limits.
+    (async () => {
+      const PACKET = 20;
+      let sent = 0, failed = 0; const failedNums = [];
+      for (let i = 0; i < numbers.length; i++) {
+        try {
+          const out = await sendWhatsApp(numbers[i], message);
+          if (out.delivered) sent++; else { failed++; failedNums.push(numbers[i]); }
+        } catch { failed++; failedNums.push(numbers[i]); }
+        await new Promise((done) => setTimeout(done, 900));
+        if ((i + 1) % PACKET === 0) {
+          await pool.query(`UPDATE notice_sends SET sent = $1, failed = $2 WHERE id = $3`, [sent, failed, sendId]).catch(() => {});
+          await new Promise((done) => setTimeout(done, 4000)); // inter-packet pause
+        }
+      }
+      await pool.query(`UPDATE notice_sends SET sent = $1, failed = $2, failed_numbers = $3, status = 'done' WHERE id = $4`,
+        [sent, failed, JSON.stringify(failedNums), sendId]).catch(() => {});
+    })();
+  } catch (err) { next(err); }
+});
 module.exports = router;

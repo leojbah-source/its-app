@@ -30,7 +30,9 @@ export default function Notices() {
   const [groups, setGroups] = useState([]);
   const [sends, setSends] = useState([]);
   const [msg, setMsg] = useState('');
-  const [mode, setMode] = useState('criteria'); // 'criteria' | 'group'
+  const [mode, setMode] = useState('criteria'); // 'criteria' | 'group' | 'phones'
+  const [phoneRaw, setPhoneRaw] = useState('');
+  const [phoneNums, setPhoneNums] = useState([]);
   const [groupId, setGroupId] = useState('');
   const [crit, setCrit] = useState({ age_group_ids: [], event_ids: [], school_ids: [], payment: '', cpr: '' });
   const [preview, setPreview] = useState(null);
@@ -114,6 +116,28 @@ export default function Notices() {
     finally { setPreviewing(false); }
   }
 
+  function parseNumbers(text) {
+    const toks = String(text || '').split(/[\s,;]+/).map((t) => t.trim()).filter(Boolean);
+    const seen = new Set();
+    const out = [];
+    for (const t of toks) {
+      const d = t.replace(/[^\d]/g, '');
+      if (d.length >= 8 && !seen.has(d)) { seen.add(d); out.push(t); }
+    }
+    return out;
+  }
+  async function onPhoneFile(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    try {
+      const text = await f.text();
+      const nums = parseNumbers(text);
+      setPhoneNums(nums);
+      setPhoneRaw(nums.join('\n'));
+    } catch { setFlash('Could not read that file.'); }
+    e.target.value = '';
+  }
+
   async function doSend() {
     if (!msg.trim()) { setFlash('Enter a message first.'); return; }
     if (mode === 'group') {
@@ -124,6 +148,19 @@ export default function Notices() {
       try {
         await noticesApi.send(token, { message: msg, group_id: Number(groupId) });
         setFlash('Sent to the group.'); loadAux();
+      } catch (e) { setFlash(e.message); }
+      finally { setSending(false); }
+      return;
+    }
+    if (mode === 'phones') {
+      const n = phoneNums.length;
+      if (n === 0) { setFlash('Add or upload at least one phone number.'); return; }
+      if (!window.confirm(`Send this WhatsApp message to ${n} number(s)?\n\nSending is throttled in packets and runs in the background.`)) return;
+      setSending(true); setFlash('');
+      try {
+        await noticesApi.sendPhoneList(token, { message: msg, numbers: phoneNums, audience_label: `Phone list (${n})` });
+        setFlash(`Queued for ${n} number(s). Watch progress in the send log below.`);
+        setPhoneNums([]); setPhoneRaw(''); loadAux();
       } catch (e) { setFlash(e.message); }
       finally { setSending(false); }
       return;
@@ -190,7 +227,7 @@ export default function Notices() {
         <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={4} placeholder="Type the WhatsApp message… (tip: use the “Use in WhatsApp” button on a notice below to prefill)" className={`${input} mb-3`} />
 
         <div className="mb-3 flex rounded-md border border-slate-300 overflow-hidden w-fit text-sm font-medium">
-          {[['criteria', 'By selection'], ['group', 'To a WhatsApp group']].map(([k, lb]) => (
+          {[['criteria', 'By selection'], ['group', 'To a WhatsApp group'], ['phones', 'To a phone list']].map(([k, lb]) => (
             <button key={k} onClick={() => setMode(k)}
               className={`px-3 py-1.5 transition-colors ${mode === k ? 'bg-navy-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>{lb}</button>
           ))}
@@ -267,7 +304,7 @@ export default function Notices() {
               <Button variant="primary" icon={Send} loading={sending} disabled={!msg.trim() || !(preview?.count > 0)} onClick={doSend}>Send WhatsApp</Button>
             </div>
           </div>
-        ) : (
+        ) : mode === 'group' ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-end gap-2">
               <div className="min-w-[14rem] flex-1">
@@ -300,6 +337,26 @@ export default function Notices() {
               </form>
               <p className="mt-1.5 text-[11px] text-slate-400">The group ID looks like <span className="font-mono">120363012345678901@g.us</span>. In Green API you get it from the group’s chat (getGroups / the chatId of a message from the group).</p>
             </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Upload a CSV / text file of phone numbers</label>
+              <input type="file" accept=".csv,.txt,text/csv,text/plain" onChange={onPhoneFile}
+                className="block text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-navy-50 file:px-3 file:py-1.5 file:text-navy-700" />
+              <p className="mt-1 text-[11px] text-slate-400">One number per line, or a CSV with a phone column. Include the country code (e.g. +973…); bare 8-digit Bahrain numbers are assumed +973. Names and extra columns are ignored.</p>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">…or paste numbers here</label>
+              <textarea value={phoneRaw} onChange={(e) => { setPhoneRaw(e.target.value); setPhoneNums(parseNumbers(e.target.value)); }}
+                rows={5} placeholder={'+97312345678\n+91987654321\n…'} className={`${input} font-mono`} />
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs text-slate-500"><span className="font-semibold text-slate-700">{phoneNums.length}</span> valid number(s) ready</span>
+              <div className="flex-1" />
+              <Button variant="primary" icon={Send} loading={sending} disabled={!msg.trim() || phoneNums.length === 0} onClick={doSend}>Send to list</Button>
+            </div>
+            <p className="text-[11px] text-slate-400">Sent in packets of 20 with short pauses to respect WhatsApp limits — progress shows in the send log below.</p>
           </div>
         )}
       </Card>
