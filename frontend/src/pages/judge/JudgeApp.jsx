@@ -29,7 +29,7 @@ export default function JudgeApp() {
     try { setGroups(await judgeApi.groups(token, ev.assignment_id)); } catch (e) { setFlash(e.message); }
   }
   const loadEvents = useCallback(async () => {
-    try { const evs = await judgeApi.events(token); setEvents(evs); if (evs.length === 1) openEvent(evs[0]); }
+    try { const evs = await judgeApi.events(token); setEvents(evs); const open = evs.filter((e) => !e.published); if (open.length === 1) openEvent(open[0]); }
     catch (e) { setFlash(e.message); }
   }, [token]);
   useEffect(() => { loadEvents(); /* eslint-disable-next-line */ }, []);
@@ -54,19 +54,38 @@ export default function JudgeApp() {
   );
 }
 
+// Date · time · venue line for an assignment row (from the schedule).
+function whenLine(e) {
+  if (!e) return '';
+  const parts = [];
+  if (e.event_date) parts.push(new Date(e.event_date + 'T00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }));
+  if (e.start_time) parts.push(e.end_time ? `${e.start_time}\u2013${e.end_time}` : e.start_time);
+  if (e.venue) parts.push(e.venue);
+  return parts.join(' \u00b7 ');
+}
+
 function EventsList({ events, onOpen }) {
-  if (!events.length) return <p className="py-10 text-center text-sm text-slate-500">No event is open for you right now. The organiser sends an OTP when your event is ready.</p>;
+  // Published events are hidden — the judge's work there is complete.
+  const visible = events.filter((e) => !e.published);
+  const fmtWhen = (e) => {
+    const parts = [];
+    if (e.event_date) parts.push(new Date(e.event_date + 'T00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }));
+    if (e.start_time) parts.push(e.end_time ? `${e.start_time}–${e.end_time}` : e.start_time);
+    if (e.venue) parts.push(e.venue);
+    return parts.join(' · ');
+  };
+  if (!visible.length) return <p className="py-10 text-center text-sm text-slate-500">No event is open for you right now. The organiser sends an OTP when your event is ready.</p>;
   return (
     <div className="space-y-2"><h1 className="mb-2 text-lg font-semibold text-navy-900">Your events</h1>
-      {events.map((e) => (
+      {visible.map((e) => (
         <button key={e.assignment_id} onClick={() => onOpen(e)} className="flex w-full items-center justify-between rounded-xl bg-white p-4 text-left shadow-sm hover:bg-slate-50">
           <div><div className="font-medium text-navy-800"><span className="font-mono text-xs text-navy-500 mr-1.5">{e.event_code}</span>{e.event_name}
             {e.age_group_code && <span className="ml-2 rounded bg-navy-50 px-1.5 py-0.5 text-[10px] font-semibold text-navy-700">{e.age_group_code}</span>}
             {e.is_active && <span className="ml-2 rounded-full bg-gold-100 px-2 py-0.5 text-[10px] font-semibold text-gold-700">current</span>}
-            {e.published && <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">published</span>}
-            {!e.published && e.finalised && <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">finalised</span>}
-            {!e.published && !e.finalised && e.scoring_done && <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">scored</span>}</div>
-          <div className="text-xs text-slate-500">{e.category_name}</div></div><ChevronLeft className="rotate-180 text-slate-400" size={18} /></button>))}
+            {e.finalised && <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">finalised</span>}
+            {!e.finalised && e.scoring_done && <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">scored</span>}</div>
+          <div className="text-xs text-slate-500">{e.category_name}</div>
+          {whenLine(e) && <div className="mt-0.5 text-[11px] text-slate-500">{whenLine(e)}</div>}</div><ChevronLeft className="rotate-180 text-slate-400" size={18} /></button>))}
     </div>
   );
 }
@@ -122,6 +141,7 @@ function Briefing({ token, current, onBack, onContinue, setFlash }) {
         <div className="text-xs uppercase tracking-wide text-navy-200">Judges' briefing</div>
         <div className="text-lg font-semibold">{ev.event_code} · {ev.event_name}</div>
         <div className="text-sm text-navy-200">{ev.category_name}{ev.age_group_code ? ` · Group ${ev.age_group_code}` : ''}</div>
+        {whenLine(current) && <div className="mt-0.5 text-xs text-navy-300">{whenLine(current)}</div>}
       </div>
 
       <div className="mb-3 rounded-xl bg-white p-4 shadow-sm">
@@ -269,6 +289,7 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
       <div className="mb-3 rounded-xl bg-navy-700 p-4 text-white">
         <div className="text-xs uppercase tracking-wide text-navy-200">Now scoring</div>
         <div className="text-lg font-semibold">{current.event_code} · {current.event_name}</div>
+        {whenLine(current) && <div className="mt-0.5 text-xs text-navy-200">{whenLine(current)}</div>}
         <div className="mt-0.5 inline-block rounded-full bg-gold-500 px-3 py-0.5 text-sm font-semibold">Group {gcode}</div>
       </div>
       {!canScore && <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Scoring opens once all judges agree the weightages on the briefing screen ({ag.agreed}/{ag.total} agreed).</div>}

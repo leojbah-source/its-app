@@ -124,12 +124,23 @@ router.get('/events', async (req, res, next) => {
                FROM registrations r LEFT JOIN event_results er ON er.registration_id = r.id
                WHERE r.event_id = e.id AND r.age_group_id = ja.age_group_id AND r.status = 'attended') AS published,
               (SELECT COUNT(*)::int FROM event_criteria ec WHERE ec.event_id = e.id) AS criteria_count,
-              (SELECT COALESCE(SUM(ec.max_score),0)::int FROM event_criteria ec WHERE ec.event_id = e.id) AS criteria_total
+              (SELECT COALESCE(SUM(ec.max_score),0)::int FROM event_criteria ec WHERE ec.event_id = e.id) AS criteria_total,
+              sch.event_date, sch.start_time, sch.end_time, sch.venue
        FROM judge_assignments ja
        JOIN events e ON e.id = ja.event_id
        JOIN judges j ON j.id = ja.judge_id
        LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN age_groups ag ON ag.id = ja.age_group_id
+       LEFT JOIN LATERAL (
+         SELECT to_char(s.event_date, 'YYYY-MM-DD') AS event_date,
+                to_char(s.start_time, 'HH24:MI') AS start_time,
+                to_char(s.end_time, 'HH24:MI') AS end_time, s.venue
+         FROM schedule s
+         WHERE s.event_id = e.id
+           AND (s.age_groups IS NULL OR ag.code = ANY(string_to_array(s.age_groups, ', ')))
+         ORDER BY s.event_date, s.start_time
+         LIMIT 1
+       ) sch ON TRUE
        WHERE ja.judge_id = $1
        ORDER BY (e.id = j.active_event_id) DESC NULLS LAST, e.event_code, ag.sort_order`, [req.user.judgeId]);
     res.json(rows);
