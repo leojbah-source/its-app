@@ -295,6 +295,10 @@ export const participantsApi = {
 export const teamsApi = {
   list: (token) => request('/api/admin/teams', { token }),
   members: (token, teamId) => request(`/api/admin/teams/${teamId}/members`, { token }),
+  verifyMember: (token, teamId, memberId, verified) =>
+    request(`/api/admin/teams/${teamId}/members/${memberId}/verify`, { method: 'PUT', token, body: { verified } }),
+  notify: (token, teamId, message) =>
+    request(`/api/admin/teams/${teamId}/notify`, { method: 'POST', token, body: { message } }),
 };
 
 export const listsApi = {

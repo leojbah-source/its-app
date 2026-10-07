@@ -19,7 +19,7 @@ const express = require('express');
 const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
-const { sendWhatsApp, sendWhatsAppImage, sendWhatsAppImageMany } = require('../utils/notify');
+const { sendWhatsApp, sendWhatsAppImage, sendWhatsAppImageMany, sendWhatsAppMany } = require('../utils/notify');
 const { sendEmail } = require('../utils/email');
 
 const router = express.Router();
@@ -364,9 +364,9 @@ router.get('/teams', requireRole(...staffRoles), async (req, res, next) => {
 router.get('/teams/:id/members', requireRole(...staffRoles), async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT tm.*, p.full_name, p.cpr_number, p.dob, p.gender,
-              s.name AS school_name,
-              ag.code AS age_group_code
+      `SELECT tm.id, tm.participant_id, tm.is_substitute, tm.cpr_verified,
+              p.full_name, p.cpr_number, p.dob, p.gender,
+              s.name AS school_name, ag.code AS age_group_code
        FROM team_members tm
        JOIN participants p ON p.id = tm.participant_id
        LEFT JOIN schools s ON s.id = p.school_id
@@ -379,7 +379,50 @@ router.get('/teams/:id/members', requireRole(...staffRoles), async (req, res, ne
       `SELECT td.id, td.url, td.original_name, td.uploaded_at, u.full_name AS uploaded_by_name
        FROM team_documents td LEFT JOIN users u ON u.id = td.uploaded_by
        WHERE td.team_id = $1 ORDER BY td.uploaded_at`, [req.params.id]);
-    res.json({ members: rows, documents });
+    const { rows: meta } = await pool.query(
+      `SELECT t.team_name, e.event_code, e.event_name, ag.code AS age_group_code, s.name AS school_name
+         FROM teams t JOIN events e ON e.id = t.event_id
+         LEFT JOIN age_groups ag ON ag.id = t.age_group_id
+         LEFT JOIN schools s ON s.id = t.school_id
+        WHERE t.id = $1`, [req.params.id]);
+    res.json({ team: meta[0] || null, members: rows, documents });
+  } catch (err) { next(err); }
+});
+
+// ── PUT /api/admin/teams/:team_id/members/:member_id/verify — CPR tick ────────
+router.put('/teams/:team_id/members/:member_id/verify', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const verified = req.body.verified !== false;
+    const { rows } = await pool.query(
+      `UPDATE team_members SET
+         cpr_verified = $1,
+         cpr_verified_at = CASE WHEN $1 THEN NOW() ELSE NULL END,
+         cpr_verified_by = CASE WHEN $1 THEN $2 ELSE NULL END
+       WHERE id = $3 AND team_id = $4 RETURNING id, cpr_verified`,
+      [verified, req.user.id, req.params.member_id, req.params.team_id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Team member not found' });
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'TEAM_MEMBER_CPR_VERIFY', entity: 'team_members', entityId: req.params.member_id, details: { verified } });
+    res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/teams/:id/notify — WhatsApp the team leader (editable) ────
+router.post('/teams/:id/notify', requireRole(...REMINDER_ROLES), async (req, res, next) => {
+  try {
+    const message = (req.body.message || '').trim();
+    if (!message) return res.status(400).json({ error: 'message is required' });
+    const { rows } = await pool.query(
+      `SELECT t.team_name, u.whatsapp_number, u.whatsapp_number_2, u.phone
+         FROM teams t LEFT JOIN users u ON u.id = t.created_by WHERE t.id = $1`, [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Team not found' });
+    const nums = [rows[0].whatsapp_number, rows[0].whatsapp_number_2].filter(Boolean);
+    if (!nums.length && rows[0].phone) nums.push(rows[0].phone);
+    if (!nums.length) return res.status(400).json({ error: 'No contact number on file for this team.' });
+    const out = await sendWhatsAppMany(nums, message);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'TEAM_NOTIFY', entity: 'teams', entityId: req.params.id, details: { delivered: !!out.delivered, numbers: nums.length } });
+    res.json({ delivered: !!out.delivered, sent: out.sent, recipients: nums.length });
   } catch (err) { next(err); }
 });
 

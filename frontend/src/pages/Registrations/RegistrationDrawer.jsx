@@ -92,6 +92,10 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [team, setTeam] = useState(null);
   const [teamLoading, setTeamLoading] = useState(false);
   const [teamErr, setTeamErr] = useState('');
+  const [teamBusyMember, setTeamBusyMember] = useState(null);
+  const [teamMsg, setTeamMsg] = useState('');
+  const [teamNotifyBusy, setTeamNotifyBusy] = useState(false);
+  const [teamNoteOpen, setTeamNoteOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!participantId) { setLoading(false); return; }
@@ -111,11 +115,30 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
     let alive = true;
     setTeamLoading(true); setTeamErr('');
     teamsApi.members(token, teamId)
-      .then((d) => { if (alive) setTeam(d); })
+      .then((d) => { if (alive) { setTeam(d); setTeamMsg(`Dear ${d.team?.team_name || 'team'} leader, regarding your team registration for ${d.team?.event_name || 'the event'}: `); } })
       .catch((e) => { if (alive) setTeamErr(e.message || 'Failed to load team'); })
       .finally(() => { if (alive) setTeamLoading(false); });
     return () => { alive = false; };
   }, [token, isTeam, teamId]);
+
+  async function toggleMemberVerify(m) {
+    setTeamBusyMember(m.id);
+    setTeam((t) => ({ ...t, members: t.members.map((x) => (x.id === m.id ? { ...x, cpr_verified: !x.cpr_verified } : x)) }));
+    try { await teamsApi.verifyMember(token, teamId, m.id, !m.cpr_verified); }
+    catch (e) { setFlash(e.message); setTeam((t) => ({ ...t, members: t.members.map((x) => (x.id === m.id ? { ...x, cpr_verified: m.cpr_verified } : x)) })); }
+    finally { setTeamBusyMember(null); }
+  }
+  async function sendTeamNote() {
+    if (!teamMsg.trim()) { setFlash('Enter a message first.'); return; }
+    setTeamNotifyBusy(true); setFlash('');
+    try {
+      const r = await teamsApi.notify(token, teamId, teamMsg.trim());
+      setFlash(r.delivered ? `Note sent to ${r.recipients} number(s).` : 'Could not send the note.');
+      setTeamNoteOpen(false);
+    } catch (e) { setFlash(e.message); }
+    finally { setTeamNotifyBusy(false); }
+  }
+  const isImageUrl = (u) => /\.(jpe?g|png|gif|webp|bmp)(\?|$)/i.test(String(u || ''));
 
   useEffect(() => { load(); }, [load]);
 
@@ -269,12 +292,21 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
               <p className="text-sm text-red-600">{teamErr}</p>
             ) : team ? (
               <section>
+                {team.team && (
+                  <p className="mb-2 text-sm font-semibold text-navy-800">
+                    {team.team.event_code ? <span className="font-mono text-xs text-navy-500 mr-1.5">{team.team.event_code}</span> : null}
+                    {team.team.event_name}{team.team.age_group_code ? ` · ${team.team.age_group_code}` : ''}
+                  </p>
+                )}
                 <h3 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">Team members</h3>
-                <p className="mb-3 text-xs text-slate-500">{(team.members || []).length} member(s) — verify each CPR, name and date of birth, then confirm the team's payment.</p>
+                <p className="mb-3 text-xs text-slate-500">
+                  {(team.members || []).length} member(s) · {(team.members || []).filter((m) => m.cpr_verified).length} verified — tick each as you confirm their CPR, name and date of birth.
+                </p>
                 <div className="overflow-x-auto rounded-lg border border-slate-200">
-                  <table className="w-full min-w-[420px] text-sm">
+                  <table className="w-full min-w-[460px] text-sm">
                     <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
                       <tr>
+                        <th className="px-3 py-2 w-10 text-center">OK</th>
                         <th className="px-3 py-2">Name</th>
                         <th className="px-3 py-2">CPR</th>
                         <th className="px-3 py-2">DOB</th>
@@ -283,7 +315,12 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {(team.members || []).map((m) => (
-                        <tr key={m.id}>
+                        <tr key={m.id} className={m.cpr_verified ? 'bg-emerald-50/40' : ''}>
+                          <td className="px-3 py-2 text-center">
+                            <input type="checkbox" checked={!!m.cpr_verified} disabled={!canEditParent || teamBusyMember === m.id}
+                              onChange={() => toggleMemberVerify(m)}
+                              className="h-4 w-4 rounded border-slate-300 text-navy-600 focus:ring-navy-500" />
+                          </td>
                           <td className="px-3 py-2 font-medium text-slate-800">{m.full_name}{m.is_substitute ? <span className="ml-1 text-[10px] text-amber-600">(sub)</span> : ''}</td>
                           <td className="px-3 py-2 font-mono text-slate-600">{m.cpr_number}</td>
                           <td className="px-3 py-2 text-slate-600">{m.dob ? new Date(m.dob).toLocaleDateString('en-GB') : '—'}</td>
@@ -291,24 +328,53 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                         </tr>
                       ))}
                       {(team.members || []).length === 0 && (
-                        <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-400">No members recorded.</td></tr>
+                        <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400">No members recorded.</td></tr>
                       )}
                     </tbody>
                   </table>
                 </div>
+
                 {(team.documents || []).length > 0 && (
                   <div className="mt-3">
-                    <h4 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">CPR documents</h4>
-                    <div className="flex flex-wrap gap-2">
+                    <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">CPR documents ({team.documents.length})</h4>
+                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                       {team.documents.map((d) => (
-                        <a key={d.id} href={d.url} target="_blank" rel="noreferrer"
-                          className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1 text-xs text-navy-700 hover:bg-slate-50">
-                          {d.original_name || 'Document'}
+                        <a key={d.id} href={d.url} target="_blank" rel="noreferrer" title={d.original_name || 'Document'}
+                          className="group block overflow-hidden rounded-md border border-slate-200 hover:border-navy-400">
+                          {isImageUrl(d.url) ? (
+                            <img src={d.url} alt={d.original_name || 'CPR'} loading="lazy"
+                              className="h-24 w-full object-cover" />
+                          ) : (
+                            <div className="flex h-24 w-full items-center justify-center bg-slate-50 text-[11px] text-navy-700">
+                              <ExternalLink size={14} className="mr-1" /> Open
+                            </div>
+                          )}
+                          <div className="truncate px-1.5 py-1 text-[10px] text-slate-500">{d.original_name || 'Document'}</div>
                         </a>
                       ))}
                     </div>
                   </div>
                 )}
+
+                <div className="mt-4 border-t border-slate-100 pt-3">
+                  {!teamNoteOpen ? (
+                    <button onClick={() => setTeamNoteOpen(true)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-navy-700 hover:bg-slate-50">
+                      <MessageSquare size={14} /> Send a note to the team leader
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <label className="block text-[11px] font-medium uppercase tracking-wide text-slate-400">Note to the team leader (WhatsApp) — edit before sending</label>
+                      <textarea value={teamMsg} onChange={(e) => setTeamMsg(e.target.value)} rows={4}
+                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300" />
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setTeamNoteOpen(false)}>Cancel</Button>
+                        <Button variant="primary" size="sm" icon={MessageSquare} loading={teamNotifyBusy} disabled={!teamMsg.trim()} onClick={sendTeamNote}>Send note</Button>
+                      </div>
+                      <p className="text-[11px] text-slate-400">Sent to the number(s) on the team leader's account (both WhatsApp numbers if a second one is on file).</p>
+                    </div>
+                  )}
+                </div>
               </section>
             ) : null
           ) : loading ? (
