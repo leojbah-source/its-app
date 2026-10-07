@@ -97,7 +97,7 @@ export default function RegisterLayout({
 }
 
 function ProfileModal({ token, onClose }) {
-  const [form, setForm] = useState({ full_name: '', phone: '', whatsapp_number: '', kca_member_no: '' });
+  const [form, setForm] = useState({ full_name: '', phone: '', whatsapp_number: '', whatsapp_number_2: '', kca_member_no: '' });
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -107,7 +107,7 @@ function ProfileModal({ token, onClose }) {
   useEffect(() => {
     let alive = true;
     portalApi.getAccount(token)
-      .then((a) => { if (!alive) return; setForm({ full_name: a.full_name || '', phone: a.phone || '', whatsapp_number: a.whatsapp_number || '', kca_member_no: a.kca_member_no || '' }); setEmail(a.email || ''); })
+      .then((a) => { if (!alive) return; setForm({ full_name: a.full_name || '', phone: a.phone || '', whatsapp_number: a.whatsapp_number || '', whatsapp_number_2: a.whatsapp_number_2 || '', kca_member_no: a.kca_member_no || '' }); setEmail(a.email || ''); })
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false));
     return () => { alive = false; };
@@ -145,6 +145,10 @@ function ProfileModal({ token, onClose }) {
                 <label className="mb-1 block text-xs font-medium text-slate-600">WhatsApp (with code)</label>
                 <input value={form.whatsapp_number} onChange={(e) => setForm({ ...form, whatsapp_number: e.target.value })} placeholder="+973…" className={inp} />
               </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Second WhatsApp number (optional) — e.g. the other parent</label>
+              <input value={form.whatsapp_number_2} onChange={(e) => setForm({ ...form, whatsapp_number_2: e.target.value })} placeholder="+973…" className={inp} />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600">KCA member number (optional)</label>

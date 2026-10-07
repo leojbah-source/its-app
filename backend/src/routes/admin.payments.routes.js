@@ -16,7 +16,7 @@ const express = require('express');
 const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
-const { sendWhatsApp } = require('../utils/notify');
+const { sendWhatsApp, sendWhatsAppMany } = require('../utils/notify');
 const { sendEmail } = require('../utils/email');
 
 const router = express.Router();
@@ -81,11 +81,13 @@ router.post('/payments/:id/confirm', requireRole(...paymentActionRoles), async (
 
     // Notify the parent (fire and forget)
     const { rows: pRows } = await pool.query(
-      `SELECT full_name, guardian_phone FROM participants WHERE id = $1`,
+      `SELECT p.full_name, p.guardian_phone, u.whatsapp_number_2
+       FROM participants p LEFT JOIN users u ON u.id = p.created_by
+       WHERE p.id = $1`,
       [rows[0].participant_id]
     );
-    if (pRows[0]?.guardian_phone) {
-      sendWhatsApp(pRows[0].guardian_phone,
+    if (pRows[0]?.guardian_phone || pRows[0]?.whatsapp_number_2) {
+      sendWhatsAppMany([pRows[0].guardian_phone, pRows[0].whatsapp_number_2],
         `KCA ITS: Payment of BHD ${Number(rows[0].amount).toFixed(3)} for ` +
         `${pRows[0].full_name} is CONFIRMED. Thank you!`
       ).catch(() => null);
@@ -118,14 +120,14 @@ router.post('/payments/:id/reject', requireRole(...paymentActionRoles), async (r
 
     // Notify the parent so they can resubmit (e.g. wrong transfer amount)
     const { rows: info } = await pool.query(
-      `SELECT p.full_name, p.guardian_phone, u.email AS parent_email
+      `SELECT p.full_name, p.guardian_phone, u.email AS parent_email, u.whatsapp_number_2
        FROM payments pay
        LEFT JOIN participants p ON p.id = pay.participant_id
        LEFT JOIN users u ON u.id = pay.parent_user_id
        WHERE pay.id = $1`, [req.params.id]);
     const i = info[0] || {};
-    if (i.guardian_phone) {
-      sendWhatsApp(i.guardian_phone,
+    if (i.guardian_phone || i.whatsapp_number_2) {
+      sendWhatsAppMany([i.guardian_phone, i.whatsapp_number_2],
         `KCA ITS: Your payment of BHD ${Number(rows[0].amount).toFixed(3)}` +
         `${i.full_name ? ` for ${i.full_name}` : ''} could NOT be verified: "${reason.trim()}". ` +
         `Please submit the payment again from the registration portal.`).catch(() => null);

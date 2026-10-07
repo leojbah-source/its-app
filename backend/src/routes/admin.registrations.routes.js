@@ -19,7 +19,7 @@ const express = require('express');
 const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
-const { sendWhatsApp, sendWhatsAppImage } = require('../utils/notify');
+const { sendWhatsApp, sendWhatsAppImage, sendWhatsAppImageMany } = require('../utils/notify');
 const { sendEmail } = require('../utils/email');
 
 const router = express.Router();
@@ -606,7 +606,7 @@ function reminderMessage(parentName, childName, statusLine) {
 async function reminderContext(participantId) {
   const { rows: pr } = await pool.query(
     `SELECT p.id, p.full_name, p.guardian_name, p.guardian_phone, p.confirmed_at, p.last_reminder_at,
-            u.full_name AS parent_name
+            u.full_name AS parent_name, u.whatsapp_number_2 AS parent_whatsapp_2
      FROM participants p LEFT JOIN users u ON u.id = p.created_by WHERE p.id = $1`, [participantId]);
   if (!pr[0]) return null;
   const { rows: evs } = await pool.query(
@@ -648,7 +648,7 @@ router.post('/participants/:id/remind', requireRole(...REMINDER_ROLES), async (r
     if (!ctx.p.guardian_phone) return res.status(400).json({ error: 'No WhatsApp/contact number on file for this participant.' });
     const message = (req.body.message && req.body.message.trim()) || ctx.message;
     const logo = await itsLogoUrl();
-    const out = await sendWhatsAppImage(ctx.p.guardian_phone, logo, message);
+    const out = await sendWhatsAppImageMany([ctx.p.guardian_phone, ctx.p.parent_whatsapp_2], logo, message);
     await pool.query(`UPDATE participants SET last_reminder_at = NOW(), reminder_count = COALESCE(reminder_count,0)+1 WHERE id = $1`, [req.params.id]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'SEND_REMINDER', entity: 'participants', entityId: req.params.id, details: { delivered: !!out.delivered } });
     res.json({ delivered: !!out.delivered, last_reminder_at: new Date().toISOString() });
@@ -691,7 +691,7 @@ router.post('/registrations/reminders/send-bulk', requireRole(...REMINDER_ROLES)
         try {
           const ctx = await reminderContext(r.id);
           if (ctx?.p.guardian_phone) {
-            const out = await sendWhatsAppImage(ctx.p.guardian_phone, logo, ctx.message).catch(() => ({ delivered: false }));
+            const out = await sendWhatsAppImageMany([ctx.p.guardian_phone, ctx.p.parent_whatsapp_2], logo, ctx.message).catch(() => ({ delivered: false }));
             await pool.query(`UPDATE participants SET last_reminder_at = NOW(), reminder_count = COALESCE(reminder_count,0)+1 WHERE id = $1`, [r.id]).catch(() => {});
             await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'SEND_REMINDER',
               entity: 'participants', entityId: r.id, details: { delivered: !!out.delivered, bulk: true } }).catch(() => {});

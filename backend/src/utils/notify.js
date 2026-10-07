@@ -87,4 +87,38 @@ async function sendWhatsAppImage(toPhone, imageUrl, caption) {
   }
 }
 
-module.exports = { sendWhatsApp, sendWhatsAppChat, sendWhatsAppImage, waLink, groupChatId };
+// Distinct, normalised international digits from a list of phone inputs
+// (drops blanks and duplicates). Used to message both of a parent's numbers.
+function distinctNumbers(phones) {
+  const seen = new Set();
+  const out = [];
+  for (const ph of (Array.isArray(phones) ? phones : [phones])) {
+    const d = intlDigits(ph);
+    if (d && !seen.has(d)) { seen.add(d); out.push(ph); }
+  }
+  return out;
+}
+
+// Send the same text to one or more phone numbers (e.g. Dad & Mom).
+async function sendWhatsAppMany(phones, message) {
+  const list = distinctNumbers(phones);
+  let delivered = false, sent = 0;
+  for (const ph of list) {
+    const r = await sendWhatsApp(ph, message);
+    if (r.delivered) { delivered = true; sent += 1; }
+  }
+  return { delivered, sent, count: list.length };
+}
+
+// Image + caption to one or more phone numbers.
+async function sendWhatsAppImageMany(phones, imageUrl, caption) {
+  const list = distinctNumbers(phones);
+  let delivered = false, sent = 0;
+  for (const ph of list) {
+    const r = await sendWhatsAppImage(ph, imageUrl, caption);
+    if (r.delivered) { delivered = true; sent += 1; }
+  }
+  return { delivered, sent, count: list.length };
+}
+
+module.exports = { sendWhatsApp, sendWhatsAppChat, sendWhatsAppImage, sendWhatsAppMany, sendWhatsAppImageMany, waLink, groupChatId };

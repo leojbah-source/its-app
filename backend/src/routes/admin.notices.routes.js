@@ -8,7 +8,7 @@ const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { uploadDir } = require('../utils/uploads');
-const { sendWhatsApp, sendWhatsAppChat, groupChatId } = require('../utils/notify');
+const { sendWhatsApp, sendWhatsAppChat, sendWhatsAppMany, groupChatId } = require('../utils/notify');
 
 const router = express.Router();
 router.use(authenticate);
@@ -132,12 +132,15 @@ async function resolveAudience(yearId, criteria = {}) {
   else if (criteria.payment === 'pending')
     where.push(`EXISTS (SELECT 1 FROM payments pay WHERE pay.participant_id = p.id AND pay.status = 'pending')`);
 
-  const sql = `SELECT DISTINCT ON (p.guardian_phone) p.id, p.full_name AS name, p.guardian_phone AS phone
+  const sql = `SELECT DISTINCT ON (p.guardian_phone) p.id, p.full_name AS name,
+                      p.guardian_phone AS phone, u.whatsapp_number_2 AS phone2
                FROM participants p
+               LEFT JOIN users u ON u.id = p.created_by
                WHERE ${where.join(' AND ')}
                ORDER BY p.guardian_phone, p.full_name`;
   const { rows } = await pool.query(sql, args);
-  return rows;
+  // Each parent may have a second WhatsApp number (Dad & Mom) — message both.
+  return rows.map((r) => ({ ...r, phones: [r.phone, r.phone2].filter(Boolean) }));
 }
 
 // GET /api/admin/notices/lookups — options for the audience picker
@@ -249,7 +252,7 @@ router.post('/send', requireRole(...editRoles), async (req, res, next) => {
       let sent = 0, failed = 0; const failedNums = [];
       for (const r of rows) {
         try {
-          const out = await sendWhatsApp(r.phone, message);
+          const out = await sendWhatsAppMany(r.phones && r.phones.length ? r.phones : [r.phone], message);
           if (out.delivered) sent++; else { failed++; failedNums.push(r.phone); }
         } catch { failed++; failedNums.push(r.phone); }
         await new Promise((done) => setTimeout(done, 900));

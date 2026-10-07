@@ -71,14 +71,14 @@ export function ParentAuthProvider({ children }) {
     }
   }, [_persist]);
 
-  const signup = useCallback(async ({ full_name, email, phone, whatsapp_number, kca_member_no, password, heard_about_sources, heard_about_other }) => {
+  const signup = useCallback(async ({ full_name, email, phone, whatsapp_number, whatsapp_number_2, kca_member_no, password, heard_about_sources, heard_about_other }) => {
     setStatus('loading');
     setError(null);
     try {
       const res  = await fetch(`${API_BASE}/api/register/account`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_name, email, phone, whatsapp_number, kca_member_no, password, heard_about_sources, heard_about_other }),
+        body: JSON.stringify({ full_name, email, phone, whatsapp_number, whatsapp_number_2, kca_member_no, password, heard_about_sources, heard_about_other }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Account creation failed');

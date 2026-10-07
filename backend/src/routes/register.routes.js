@@ -24,7 +24,7 @@ const path = require('path');
 const fs = require('fs');
 const pool = require('../db');
 const { verifyMembership } = require('../services/membership');
-const { sendWhatsApp } = require('../utils/notify');
+const { sendWhatsApp, sendWhatsAppMany } = require('../utils/notify');
 const { sendEmail, registrationConfirmationHtml } = require('../utils/email');
 const { logAudit } = require('../utils/audit');
 const { authenticate } = require('../middleware/auth');
@@ -275,7 +275,7 @@ router.get('/events', async (req, res, next) => {
 // Creates a parent user account. Role is 'Viewer' until admin elevates it.
 router.post('/account', async (req, res, next) => {
   try {
-    const { email, password, full_name, phone, whatsapp_number, kca_member_no } = req.body;
+    const { email, password, full_name, phone, whatsapp_number, whatsapp_number_2, kca_member_no } = req.body;
     // How did they hear about ITS this year (optional, multi-select + free-text 'Other').
     const HEARD_OPTIONS = ['Facebook', 'Instagram', 'WhatsApp group', "Friend's status/story", 'Newspaper ad', 'Newspaper report', 'Flyer from school', 'School notice', 'Other'];
     const heardRaw = Array.isArray(req.body.heard_about_sources) ? req.body.heard_about_sources : [];
@@ -288,6 +288,8 @@ router.post('/account', async (req, res, next) => {
       return res.status(400).json({ error: 'Contact number must be a valid Bahrain number (8 digits).' });
     if (whatsapp_number && !isIntlPhone(whatsapp_number))
       return res.status(400).json({ error: 'Enter a valid WhatsApp number including country code.' });
+    if (whatsapp_number_2 && !isIntlPhone(whatsapp_number_2))
+      return res.status(400).json({ error: 'The second WhatsApp number must include the country code.' });
 
     const existing = await pool.query(
       `SELECT id FROM users WHERE email = $1`, [email.toLowerCase()],
@@ -297,11 +299,11 @@ router.post('/account', async (req, res, next) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const { rows } = await pool.query(
-      `INSERT INTO users (full_name, email, phone, whatsapp_number, password_hash, role, is_active,
+      `INSERT INTO users (full_name, email, phone, whatsapp_number, whatsapp_number_2, password_hash, role, is_active,
                           heard_about_sources, heard_about_other, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, 'Viewer', TRUE, $6::text[], $7, NOW(), NOW())
+       VALUES ($1, $2, $3, $4, $5, $6, 'Viewer', TRUE, $7::text[], $8, NOW(), NOW())
        RETURNING id, email, full_name, role`,
-      [full_name, email.toLowerCase(), phone || null, whatsapp_number || null, passwordHash,
+      [full_name, email.toLowerCase(), phone || null, whatsapp_number || null, whatsapp_number_2 || null, passwordHash,
        heardSources.length ? heardSources : null, heardOther],
     );
 
@@ -320,7 +322,7 @@ router.post('/account', async (req, res, next) => {
 router.get('/account/me', authenticate, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, full_name, email, phone, whatsapp_number, kca_member_no, membership_status
+      `SELECT id, full_name, email, phone, whatsapp_number, whatsapp_number_2, kca_member_no, membership_status
        FROM users WHERE id = $1`, [req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Account not found' });
     res.json(rows[0]);
@@ -330,21 +332,25 @@ router.get('/account/me', authenticate, async (req, res, next) => {
 // ── PUT /api/register/account — parent updates their own contact details ─────
 router.put('/account', authenticate, async (req, res, next) => {
   try {
-    const { full_name, phone, whatsapp_number, kca_member_no } = req.body;
+    const { full_name, phone, whatsapp_number, whatsapp_number_2, kca_member_no } = req.body;
     if (phone && !isBahrainPhone(phone))
       return res.status(400).json({ error: 'Contact number must be a valid Bahrain number (8 digits).' });
     if (whatsapp_number && !isIntlPhone(whatsapp_number))
       return res.status(400).json({ error: 'WhatsApp number must include the country code (e.g. +973...).' });
+    if (whatsapp_number_2 && !isIntlPhone(whatsapp_number_2))
+      return res.status(400).json({ error: 'The second WhatsApp number must include the country code (e.g. +973...).' });
 
     await pool.query(
       `UPDATE users SET
          full_name = COALESCE(NULLIF($1, ''), full_name),
          phone = $2,
          whatsapp_number = $3,
+         whatsapp_number_2 = $4,
          updated_at = NOW()
-       WHERE id = $4`,
+       WHERE id = $5`,
       [full_name ? full_name.trim() : null, phone ? phone.trim() : null,
-       whatsapp_number ? whatsapp_number.trim() : null, req.user.id]);
+       whatsapp_number ? whatsapp_number.trim() : null,
+       whatsapp_number_2 ? whatsapp_number_2.trim() : null, req.user.id]);
 
     let membership = null;
     if (kca_member_no !== undefined) {
@@ -367,7 +373,7 @@ router.put('/account', authenticate, async (req, res, next) => {
     }
 
     const { rows } = await pool.query(
-      `SELECT id, full_name, email, phone, whatsapp_number, kca_member_no, membership_status
+      `SELECT id, full_name, email, phone, whatsapp_number, whatsapp_number_2, kca_member_no, membership_status
        FROM users WHERE id = $1`, [req.user.id]);
     res.json({ ...rows[0], membership });
   } catch (err) { next(err); }
@@ -1151,7 +1157,8 @@ router.post('/participant/:id/payment', authenticate, async (req, res, next) => 
       return res.status(400).json({ error: 'proof_url (payment screenshot) is required for BenefitPay / bank transfer' });
 
     const { rows: pRows } = await pool.query(
-      `SELECT id, year_id, full_name, guardian_phone FROM participants WHERE id = $1`,
+      `SELECT p.id, p.year_id, p.full_name, p.guardian_phone, u.whatsapp_number_2
+       FROM participants p LEFT JOIN users u ON u.id = p.created_by WHERE p.id = $1`,
       [req.params.id],
     );
     const p = pRows[0];
@@ -1168,8 +1175,8 @@ router.post('/participant/:id/payment', authenticate, async (req, res, next) => 
     );
 
     // Confirmation WhatsApp on submission (§5.4) — fire and forget
-    if (p.guardian_phone) {
-      sendWhatsApp(p.guardian_phone,
+    if (p.guardian_phone || p.whatsapp_number_2) {
+      sendWhatsAppMany([p.guardian_phone, p.whatsapp_number_2],
         `KCA ITS: Your payment of BHD ${Number(amount).toFixed(3)} for ${p.full_name} ` +
         `(${method.replace('_', ' ')}) has been received and is pending confirmation.`,
       ).catch(() => null);

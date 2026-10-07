@@ -14,7 +14,7 @@ export default function Signup() {
   const { signup } = useParentAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({
-    full_name: '', email: '', phone: '', whatsapp_number: '', kca_member_no: '',
+    full_name: '', email: '', phone: '', whatsapp_number: '', whatsapp_number_2: '', kca_member_no: '',
     password: '', confirm: '',
   });
   const [heardSources, setHeardSources] = useState([]);
@@ -48,6 +48,10 @@ export default function Signup() {
       setError('Enter a valid WhatsApp number including the country code (e.g. +973…).');
       return;
     }
+    if (form.whatsapp_number_2.trim() && !isIntlPhone(form.whatsapp_number_2)) {
+      setError('The second WhatsApp number must include the country code (e.g. +973…).');
+      return;
+    }
     if (heardSources.length === 0) {
       setError('Please tell us how you heard about ITS this year.');
       return;
@@ -60,6 +64,7 @@ export default function Signup() {
         email: form.email.trim(),
         phone: form.phone.trim() || undefined,
         whatsapp_number: form.whatsapp_number.trim() || undefined,
+        whatsapp_number_2: form.whatsapp_number_2.trim() || undefined,
         kca_member_no: form.kca_member_no.trim() || undefined,
         password: form.password,
         heard_about_sources: heardSources,
@@ -140,6 +145,23 @@ export default function Signup() {
           <p className="text-xs text-slate-400 mt-1">
             Include the country code (e.g. +973 for Bahrain). Schedule updates and
             confirmations are sent on WhatsApp — it can be any country's number.
+          </p>
+        </div>
+
+        {/* Second WhatsApp (optional) — Dad & Mom */}
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">
+            Second WhatsApp number <span className="text-slate-400 font-normal">(optional)</span>
+          </label>
+          <input
+            type="tel"
+            value={form.whatsapp_number_2}
+            onChange={set('whatsapp_number_2')}
+            className={inputClass}
+            placeholder="+973 3XXX XXXX"
+          />
+          <p className="text-xs text-slate-400 mt-1">
+            Add a second number (e.g. the other parent) so both receive schedule updates and confirmations.
           </p>
         </div>
 
