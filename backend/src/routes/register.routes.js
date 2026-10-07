@@ -537,7 +537,19 @@ router.post('/participant', authenticate, async (req, res, next) => {
        WHERE p.cpr_number = $1 AND p.year_id = $2`,
       [cpr_number, cfg.id],
     );
-    if (existing[0]) return res.status(200).json({ ...existing[0], already_existed: true });
+    if (existing[0]) {
+      // Backfill gender when the stored record has none — e.g. the child was
+      // first created via team-sheet entry, which does not capture gender.
+      // Without this, gender-specific individual events are silently dropped at
+      // save. The parent re-adding the child here supplies a valid M/F.
+      if (!existing[0].gender && (gender === 'M' || gender === 'F')) {
+        await pool.query(
+          `UPDATE participants SET gender = $1, updated_at = NOW() WHERE id = $2`,
+          [gender, existing[0].id]);
+        existing[0].gender = gender;
+      }
+      return res.status(200).json({ ...existing[0], already_existed: true });
+    }
 
     const { rows } = await pool.query(
       `INSERT INTO participants
@@ -856,7 +868,11 @@ router.post('/participant/:id/events', authenticate, async (req, res, next) => {
       if (!genderEligible(evRows[0].gender_split, p.gender)) {
         await client.query('ROLLBACK');
         return res.status(400).json({
-          error: `Event ${eventId} is restricted to ${evRows[0].gender_split} only`,
+          error: !p.gender
+            ? `We don't have ${p.full_name}'s gender on record, which is needed for ` +
+              `gender-specific events. Please open "Add participant", enter ${p.full_name}'s ` +
+              `CPR and choose Male/Female, then select the events again.`
+            : `Event ${eventId} is restricted to ${evRows[0].gender_split} only`,
         });
       }
 
@@ -997,7 +1013,21 @@ router.put('/participant/:id/events', authenticate, async (req, res, next) => {
           [eventId, p.age_group_id],
         );
         if (!evRows[0]) continue; // silently skip ineligible — caller should validate first
-        if (!genderEligible(evRows[0].gender_split, p.gender)) continue;
+        if (!genderEligible(evRows[0].gender_split, p.gender)) {
+          // A child created via team-sheet entry has no gender on record, so a
+          // gender-specific event cannot be evaluated and would otherwise be
+          // dropped silently (the save appears to do nothing). Surface a clear,
+          // actionable message instead of failing quietly.
+          if (!p.gender) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({
+              error: `We don't have ${p.full_name}'s gender on record, which is needed ` +
+                     `for gender-specific events. Please open "Add participant", enter ` +
+                     `${p.full_name}'s CPR and choose Male/Female, then select the events again.`,
+            });
+          }
+          continue; // known gender, event restricted to the other — skip as before
+        }
 
         const { rows: existing } = await client.query(
           `SELECT id, status FROM registrations WHERE participant_id = $1 AND event_id = $2`,
