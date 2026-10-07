@@ -860,27 +860,36 @@ router.post('/participant/:id/events', authenticate, async (req, res, next) => {
         });
       }
 
-      // Skip if already registered (idempotent)
+      // Existing registration for this (participant, event)? A withdrawn row still
+      // blocks a fresh INSERT via the partial unique index, so reactivate it
+      // instead of inserting a duplicate.
       const { rows: existing } = await client.query(
-        `SELECT id FROM registrations
-         WHERE participant_id = $1 AND event_id = $2 AND status != 'withdrawn'`,
+        `SELECT id, status FROM registrations WHERE participant_id = $1 AND event_id = $2`,
         [req.params.id, eventId],
       );
-      if (existing[0]) continue;
+      if (existing[0] && existing[0].status !== 'withdrawn') continue; // already active
 
       const netFee = eventFee(evRows[0], memberActive);
       grossTotal = round3(grossTotal + Number(evRows[0].fee_amount || 0));
       netTotal = round3(netTotal + netFee);
 
-      const { rows } = await client.query(
-        `INSERT INTO registrations
-           (year_id, participant_id, event_id, age_group_id, category_id,
-            fee_amount, status, registered_by, registered_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,'registered',$7,NOW(),NOW())
-         RETURNING *`,
-        [p.year_id, req.params.id, eventId, p.age_group_id,
-         evRows[0].category_id, netFee, req.user.id],
-      );
+      let rows;
+      if (existing[0]) {
+        ({ rows } = await client.query(
+          `UPDATE registrations SET status = 'registered', fee_amount = $1, age_group_id = $2,
+             category_id = $3, registered_by = $4, updated_at = NOW()
+           WHERE id = $5 RETURNING *`,
+          [netFee, p.age_group_id, evRows[0].category_id, req.user.id, existing[0].id]));
+      } else {
+        ({ rows } = await client.query(
+          `INSERT INTO registrations
+             (year_id, participant_id, event_id, age_group_id, category_id,
+              fee_amount, status, registered_by, registered_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,'registered',$7,NOW(),NOW())
+           RETURNING *`,
+          [p.year_id, req.params.id, eventId, p.age_group_id,
+           evRows[0].category_id, netFee, req.user.id]));
+      }
       created.push(rows[0]);
     }
 
@@ -991,24 +1000,33 @@ router.put('/participant/:id/events', authenticate, async (req, res, next) => {
         if (!genderEligible(evRows[0].gender_split, p.gender)) continue;
 
         const { rows: existing } = await client.query(
-          `SELECT id FROM registrations
-           WHERE participant_id = $1 AND event_id = $2 AND status != 'withdrawn'`,
+          `SELECT id, status FROM registrations WHERE participant_id = $1 AND event_id = $2`,
           [req.params.id, eventId],
         );
-        if (existing[0]) continue;
+        if (existing[0] && existing[0].status !== 'withdrawn') continue; // already active
 
         const netFee = eventFee(evRows[0], memberActive);
         additionalDue = round3(additionalDue + netFee);
 
-        const { rows } = await client.query(
-          `INSERT INTO registrations
-             (year_id, participant_id, event_id, age_group_id, category_id,
-              fee_amount, status, registered_by, registered_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,'registered',$7,NOW(),NOW())
-           RETURNING *`,
-          [p.year_id, req.params.id, eventId, p.age_group_id,
-           evRows[0].category_id, netFee, req.user.id],
-        );
+        let rows;
+        if (existing[0]) {
+          // Reactivate a previously-withdrawn registration (avoids a duplicate-key
+          // failure against the partial unique index on participant_id, event_id).
+          ({ rows } = await client.query(
+            `UPDATE registrations SET status = 'registered', fee_amount = $1, age_group_id = $2,
+               category_id = $3, registered_by = $4, updated_at = NOW()
+             WHERE id = $5 RETURNING *`,
+            [netFee, p.age_group_id, evRows[0].category_id, req.user.id, existing[0].id]));
+        } else {
+          ({ rows } = await client.query(
+            `INSERT INTO registrations
+               (year_id, participant_id, event_id, age_group_id, category_id,
+                fee_amount, status, registered_by, registered_at, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,'registered',$7,NOW(),NOW())
+             RETURNING *`,
+            [p.year_id, req.params.id, eventId, p.age_group_id,
+             evRows[0].category_id, netFee, req.user.id]));
+        }
         added.push(rows[0]);
       }
     }

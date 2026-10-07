@@ -585,16 +585,25 @@ router.put('/participants/:id/events', requireRole('Chairman', 'SuperAdmin'), as
         [eventId, p.age_group_id]);
       if (!ev[0]) { await client.query('ROLLBACK'); return res.status(400).json({ error: `Event ${eventId} is not eligible for this participant` }); }
       const { rows: dup } = await client.query(
-        `SELECT 1 FROM registrations WHERE participant_id = $1 AND event_id = $2 AND status != 'withdrawn'`,
+        `SELECT id, status FROM registrations WHERE participant_id = $1 AND event_id = $2`,
         [p.id, eventId]);
-      if (dup[0]) continue;
+      if (dup[0] && dup[0].status !== 'withdrawn') continue; // already active
       const fee = memberActive && ev[0].member_fee_amount != null
         ? Number(ev[0].member_fee_amount) : Number(ev[0].fee_amount || 0);
-      await client.query(
-        `INSERT INTO registrations (year_id, participant_id, event_id, age_group_id, category_id,
-                                    fee_amount, status, registered_by, registered_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,'registered',$7,NOW(),NOW())`,
-        [p.year_id, p.id, eventId, p.age_group_id, ev[0].category_id, fee, req.user.id]);
+      if (dup[0]) {
+        // Reactivate a previously-withdrawn registration (the partial unique index
+        // on (participant_id, event_id) blocks a fresh INSERT).
+        await client.query(
+          `UPDATE registrations SET status = 'registered', fee_amount = $1, age_group_id = $2,
+             category_id = $3, registered_by = $4, updated_at = NOW() WHERE id = $5`,
+          [fee, p.age_group_id, ev[0].category_id, req.user.id, dup[0].id]);
+      } else {
+        await client.query(
+          `INSERT INTO registrations (year_id, participant_id, event_id, age_group_id, category_id,
+                                      fee_amount, status, registered_by, registered_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,'registered',$7,NOW(),NOW())`,
+          [p.year_id, p.id, eventId, p.age_group_id, ev[0].category_id, fee, req.user.id]);
+      }
       added.push(ev[0].event_code);
     }
 
