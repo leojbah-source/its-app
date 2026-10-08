@@ -139,9 +139,33 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: err.message || 'Internal server error' });
 });
 
+const pool = require('./db');
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`KCA ITS backend listening on port ${PORT}`);
-});
+
+// Apply any pending DB migrations on boot (every file in db/migrations, name
+// order). All migrations are additive + idempotent, so this is safe to run on
+// every start. Best-effort: a failure is logged but never stops the server —
+// this removes the manual "run migrations" step after each deploy.
+async function runStartupMigrations() {
+  const dir = path.join(__dirname, '..', '..', 'db', 'migrations');
+  let files;
+  try { files = fs.readdirSync(dir).filter((x) => x.endsWith('.sql')).sort(); }
+  catch (e) { console.warn('Startup migrations: dir not found, skipping —', e.message); return; }
+  for (const file of files) {
+    try {
+      await pool.query(fs.readFileSync(path.join(dir, file), 'utf8'));
+    } catch (e) {
+      console.error(`Startup migration ${file} failed (continuing): ${e.message}`);
+    }
+  }
+  console.log(`Startup migrations: processed ${files.length} file(s).`);
+}
+
+(async () => {
+  await runStartupMigrations();
+  app.listen(PORT, () => {
+    console.log(`KCA ITS backend listening on port ${PORT}`);
+  });
+})();
 
 module.exports = app;
