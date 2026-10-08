@@ -6,6 +6,7 @@ import {
   UserCog, UserCheck, Combine, Video, Award,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import rpLogo from '../../assets/research-point-logo.png';
 import { yearConfigApi, API_BASE } from '../../api/client';
 
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
@@ -155,22 +156,9 @@ export default function Sidebar() {
       </nav>
 
       <div className="border-t border-white/10 px-4 py-3">
-        <div className="flex items-center gap-2.5">
-          <svg viewBox="0 0 40 40" className="h-8 w-8 shrink-0" aria-hidden="true">
-            <defs>
-              <linearGradient id="rpLogo" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#f59e0b" />
-                <stop offset="50%" stopColor="#ef4444" />
-                <stop offset="100%" stopColor="#8b5cf6" />
-              </linearGradient>
-            </defs>
-            <rect x="0" y="0" width="40" height="40" rx="9" fill="url(#rpLogo)" />
-            <text x="20" y="29" textAnchor="middle" fontFamily="Georgia, 'Times New Roman', serif" fontWeight="800" fontSize="25" fill="#ffffff">R</text>
-          </svg>
-          <div className="leading-tight">
-            <p className="text-sm font-semibold text-white">TalentHub</p>
-            <p className="text-[11px] text-navy-300">by Research Point WLL</p>
-          </div>
+        <p className="text-sm font-semibold text-white">TalentHub</p>
+        <div className="mt-2 rounded-md bg-white px-2.5 py-2">
+          <img src={rpLogo} alt="Research Point WLL" className="h-auto w-full" />
         </div>
         <p className="mt-2 text-[10px] text-navy-500">talentscan.kcabah.com</p>
       </div>

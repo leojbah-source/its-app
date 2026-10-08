@@ -23,7 +23,7 @@ const fmtBD = (v) => `BD ${Number(v || 0).toFixed(3)}`;
 const fmtDate = (d) =>
   new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
-const emptyMember = () => ({ full_name: '', dob: '', cpr_number: '', school_id: '', found: null, checking: false });
+const emptyMember = () => ({ full_name: '', dob: '', cpr_number: '', gender: '', school_id: '', found: null, checking: false });
 
 const inputCls =
   'w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-400 bg-white';
@@ -50,6 +50,7 @@ function MemberRows({ members, setMembers, schools, max, token, firstIsCaptain =
           checking: false, found: true,
           full_name: r.participant.full_name,
           dob: r.participant.dob ? String(r.participant.dob).slice(0, 10) : '',
+          gender: r.participant.gender || '',
           school_id: r.participant.school_id || '',
         });
       } else {
@@ -82,7 +83,7 @@ function MemberRows({ members, setMembers, schools, max, token, firstIsCaptain =
               onChange={(e) => update(i, {
                 cpr_number: e.target.value,
                 // a different CPR means a different child — clear stale details
-                found: null, full_name: '', dob: '', school_id: '',
+                found: null, full_name: '', dob: '', gender: '', school_id: '',
               })}
               className={inputCls} />
             <button onClick={() => checkCpr(i)} disabled={m.checking || !m.cpr_number.trim()}
@@ -110,12 +111,18 @@ function MemberRows({ members, setMembers, schools, max, token, firstIsCaptain =
               <div className="grid grid-cols-2 gap-2">
                 <input type="date" value={m.dob}
                   onChange={(e) => update(i, { dob: e.target.value })} className={inputCls} />
-                <select value={m.school_id}
-                  onChange={(e) => update(i, { school_id: e.target.value })} className={inputCls}>
-                  <option value="">School (optional)</option>
-                  {schools.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                <select value={m.gender}
+                  onChange={(e) => update(i, { gender: e.target.value })} className={inputCls}>
+                  <option value="">Gender</option>
+                  <option value="M">Male</option>
+                  <option value="F">Female</option>
                 </select>
               </div>
+              <select value={m.school_id}
+                onChange={(e) => update(i, { school_id: e.target.value })} className={inputCls}>
+                <option value="">School</option>
+                {schools.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
               {m.found === false && (
                 <button onClick={() => setScanRow(scanRow === i ? null : i)}
                   className="text-xs font-medium text-navy-600 underline flex items-center gap-1">
@@ -239,8 +246,11 @@ function TeamCard({ token, team, schools, config, onChanged }) {
   }
 
   async function saveMembers() {
-    const valid = newMembers.filter((m) => m.full_name && m.dob && m.cpr_number);
-    if (!valid.length) { setMsg('Fill name, DOB and CPR for each member.'); return; }
+    const filled = newMembers.filter((m) => m.full_name || m.dob || m.cpr_number || m.gender || m.school_id);
+    if (!filled.length) { setMsg('Add at least one member with name, CPR, date of birth, gender and school.'); return; }
+    if (filled.some((m) => !(m.full_name && m.dob && m.cpr_number && m.gender && m.school_id))) {
+      setMsg('Each member needs name, CPR, date of birth, gender and school.'); return; }
+    const valid = filled;
     setBusy(true); setMsg('');
     try {
       const r = await portalApi.teamAddMembers(token, team.id, valid);
@@ -412,8 +422,11 @@ export default function TeamRegister() {
     if (captainPhone.trim() && !isBahrainPhone(captainPhone)) {
       setError("Captain's contact number must be a valid Bahrain number (8 digits)."); return;
     }
-    const valid = members.filter((m) => m.full_name && m.dob && m.cpr_number);
-    if (!valid.length) { setError('Enter at least one member (name, DOB, CPR) — you can add the rest later.'); return; }
+    const filled = members.filter((m) => m.full_name || m.dob || m.cpr_number || m.gender || m.school_id);
+    if (!filled.length) { setError('Enter at least one member with name, CPR, date of birth, gender and school.'); return; }
+    if (filled.some((m) => !(m.full_name && m.dob && m.cpr_number && m.gender && m.school_id))) {
+      setError('Each member needs name, CPR, date of birth, gender and school.'); return; }
+    const valid = filled;
     if (!agreed) { setError('Please agree to the General Rules & Regulations before registering.'); return; }
     setBusy(true);
     try {

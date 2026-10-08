@@ -1253,7 +1253,17 @@ async function findOrCreateMember(client, yearId, m, createdByUserId) {
   const { rows: found } = await client.query(
     `SELECT id, dob FROM participants WHERE cpr_number = $1 AND year_id = $2`,
     [String(m.cpr_number).trim(), yearId]);
-  if (found[0]) return found[0].id;
+  if (found[0]) {
+    // Backfill gender/school on an existing record that lacks them (e.g. a child
+    // first created via an older team entry), so later individual registration
+    // isn't blocked by a missing gender.
+    await client.query(
+      `UPDATE participants
+         SET gender = COALESCE(gender, $1), school_id = COALESCE(school_id, $2), updated_at = NOW()
+       WHERE id = $3`,
+      [(m.gender === 'M' || m.gender === 'F') ? m.gender : null, m.school_id || null, found[0].id]);
+    return found[0].id;
+  }
   const ageGroupId = await resolveAgeGroup(m.dob, yearId);
   const { rows } = await client.query(
     `INSERT INTO participants
@@ -1367,9 +1377,9 @@ router.post('/team', authenticate, async (req, res, next) => {
     const memberResults = [];
     let firstAgeGroupId = null;
     for (const [idx, m] of members.entries()) {
-      if (!m.full_name || !m.dob || !m.cpr_number) {
+      if (!m.full_name || !m.dob || !m.cpr_number || !m.school_id || !['M', 'F'].includes(m.gender)) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'Each member needs full_name, dob and cpr_number' });
+        return res.status(400).json({ error: 'Each member needs full name, CPR, date of birth, gender (M/F) and school.' });
       }
       const elig = await dobEligibleForEvent(client, event_id, m.dob);
       if (!firstAgeGroupId && elig.ok) firstAgeGroupId = elig.age_group_id;
@@ -1509,9 +1519,9 @@ router.post('/team/:id/members', authenticate, async (req, res, next) => {
 
     const added = [];
     for (const m of members) {
-      if (!m.full_name || !m.dob || !m.cpr_number) {
+      if (!m.full_name || !m.dob || !m.cpr_number || !m.school_id || !['M', 'F'].includes(m.gender)) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'Each member needs full_name, dob and cpr_number' });
+        return res.status(400).json({ error: 'Each member needs full name, CPR, date of birth, gender (M/F) and school.' });
       }
       added.push(await addMemberToTeam(client, team, m, req.user.id));
     }
