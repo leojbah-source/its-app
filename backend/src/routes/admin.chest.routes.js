@@ -90,6 +90,52 @@ router.get('/:event_id/roster', requireRole(...staffRoles), async (req, res, nex
   } catch (err) { next(err); }
 });
 
+// ── GET /api/admin/chest/:event_id/team-roster?age_group_id= — teams + members ─
+// Team Event-Day view: one row per TEAM (its registration carries the chest and
+// attendance, exactly like an individual entry) with the team's members listed.
+router.get('/:event_id/team-roster', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const ag = grp(req.query.age_group_id);
+    const { rows: teams } = await pool.query(
+      `SELECT r.id AS registration_id, r.status, r.age_group_id,
+              t.id AS team_id, t.team_name,
+              sc.name AS school_name,
+              ag.code AS age_group,
+              ca.chest_number,
+              (vr.id IS NOT NULL) AS video_wants,
+              vr.recorded AS video_recorded
+       FROM registrations r
+       JOIN teams t ON t.id = r.team_id
+       LEFT JOIN schools sc ON sc.id = t.school_id
+       LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+       LEFT JOIN chest_assignments ca ON ca.registration_id = r.id
+       LEFT JOIN video_requests vr ON vr.registration_id = r.id
+       WHERE r.event_id = $1 AND r.team_id IS NOT NULL
+         AND r.status NOT IN ('withdrawn','swapped')
+         AND ($2::int IS NULL OR r.age_group_id = $2)
+       ORDER BY ca.chest_number NULLS LAST, t.team_name`,
+      [req.params.event_id, ag]);
+
+    if (teams.length) {
+      const teamIds = teams.map((t) => t.team_id);
+      const { rows: members } = await pool.query(
+        `SELECT tm.team_id, p.id AS participant_id, p.full_name, p.cpr_number, p.gender,
+                tm.is_captain, tm.is_substitute, tm.attendance_confirmed
+         FROM team_members tm JOIN participants p ON p.id = tm.participant_id
+         WHERE tm.team_id = ANY($1::int[])
+         ORDER BY tm.is_captain DESC, tm.is_substitute, p.full_name`,
+        [teamIds]);
+      const byTeam = new Map();
+      for (const m of members) {
+        if (!byTeam.has(m.team_id)) byTeam.set(m.team_id, []);
+        byTeam.get(m.team_id).push(m);
+      }
+      for (const t of teams) t.members = byTeam.get(t.team_id) || [];
+    }
+    res.json(teams);
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/admin/chest/:event_id/attendance — mark present/absent ─────────
 router.post('/:event_id/attendance', requireRole(...markRoles), async (req, res, next) => {
   try {

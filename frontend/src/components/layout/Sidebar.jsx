@@ -22,6 +22,7 @@ const NAV_ITEMS = [
   { to: '/admin/schedule', label: 'Schedule', icon: CalendarClock, active: true, roles: ORG },
   { to: '/admin/judging/assignment', label: 'Event assignment', icon: UserCheck, active: true, roles: ['SuperAdmin', 'Chairman'] },
   { to: '/admin/event-day', label: 'Event Day', icon: ClipboardCheck, active: true, roles: ORG },
+  { to: '/admin/team-event-day', label: 'Team Event Day', icon: ClipboardList, active: true, roles: ORG },
   {
     group: 'Judging', icon: Gavel, roles: ['SuperAdmin', 'Chairman'],
     children: [

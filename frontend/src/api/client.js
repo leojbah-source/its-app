@@ -392,6 +392,8 @@ export const chestApi = {
   groups: (token, eventId) => request(`/api/admin/chest/${eventId}/groups`, { token }),
   roster: (token, eventId, ageGroupId) =>
     request(`/api/admin/chest/${eventId}/roster${ageGroupId ? `?age_group_id=${ageGroupId}` : ''}`, { token }),
+  teamRoster: (token, eventId, ageGroupId) =>
+    request(`/api/admin/chest/${eventId}/team-roster${ageGroupId ? `?age_group_id=${ageGroupId}` : ''}`, { token }),
   markAttendance: (token, eventId, registration_id, present) =>
     request(`/api/admin/chest/${eventId}/attendance`, { method: 'POST', token, body: { registration_id, present } }),
   assignAuto: (token, eventId, age_group_id) =>

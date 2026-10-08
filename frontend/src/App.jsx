@@ -15,6 +15,7 @@ import Lists from './pages/Lists';
 import Consolidation from './pages/Consolidation';
 import Schedule from './pages/Schedule';
 import EventDay from './pages/EventDay';
+import TeamEventDay from './pages/TeamEventDay';
 import Judges from './pages/Judges';
 import Assignment from './pages/judging/Assignment';
 import Results from './pages/judging/Results';
@@ -123,6 +124,10 @@ export default function App() {
               <Route
                 path="/admin/event-day"
                 element={<ProtectedRoute allowedRoles={ORG}><EventDay /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/team-event-day"
+                element={<ProtectedRoute allowedRoles={ORG}><TeamEventDay /></ProtectedRoute>}
               />
               <Route
                 path="/admin/judging/judges"
