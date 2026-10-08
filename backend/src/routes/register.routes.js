@@ -1388,11 +1388,15 @@ router.post('/team', authenticate, async (req, res, next) => {
       memberResults.push(r);
     }
 
-    // ONE team-level registration row (schema CHECK: participant XOR team)
-    const regAgeGroupId = firstAgeGroupId
-      || (await client.query(
-          `SELECT ag.id FROM event_age_groups eag JOIN age_groups ag ON ag.id = eag.age_group_id
-           WHERE eag.event_id = $1 ORDER BY ag.sort_order LIMIT 1`, [event_id])).rows[0]?.id;
+    // ONE team-level registration row (schema CHECK: participant XOR team).
+    // Team events are a single contest per event (all Juniors judged together,
+    // all Seniors together), so every team is bucketed under the event's BASE
+    // age group regardless of individual members' groups. This keeps judging
+    // pooled per team event. (Members keep their own real age groups.)
+    void firstAgeGroupId; // (kept above for member validation; not used for bucketing)
+    const regAgeGroupId = (await client.query(
+      `SELECT ag.id FROM event_age_groups eag JOIN age_groups ag ON ag.id = eag.age_group_id
+       WHERE eag.event_id = $1 ORDER BY ag.sort_order LIMIT 1`, [event_id])).rows[0]?.id;
     if (!regAgeGroupId) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'This team event has no eligible age groups configured' });
