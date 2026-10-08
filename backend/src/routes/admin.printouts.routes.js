@@ -27,7 +27,8 @@ router.get('/certificates/:year_id', requireRole('SuperAdmin', 'Admin', 'Chairma
     if (!yearId) return res.status(400).json({ error: 'No active year' });
     const { rows: winners } = await pool.query(
       `SELECT er.prize_place, er.grade,
-              COALESCE(p.full_name, t.team_name) AS name,
+              COALESCE(p.full_name, tm_member.full_name) AS name,
+              t.team_name,
               e.event_name, c.name AS category_name, ag.label AS age_group_label
        FROM event_results er
        JOIN registrations r ON r.id = er.registration_id
@@ -36,8 +37,18 @@ router.get('/certificates/:year_id', requireRole('SuperAdmin', 'Admin', 'Chairma
        LEFT JOIN teams t ON t.id = r.team_id
        LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+       -- For a TEAM winner, emit one certificate per PRESENT member (members
+       -- marked absent are excluded); for an individual this lateral yields no
+       -- rows, so the single participant row stands.
+       LEFT JOIN LATERAL (
+         SELECT pm.full_name
+         FROM team_members tmx JOIN participants pm ON pm.id = tmx.participant_id
+         WHERE tmx.team_id = r.team_id
+           AND tmx.attendance_status IS DISTINCT FROM 'absent'
+       ) tm_member ON TRUE
        WHERE r.year_id = $1 AND er.is_finalised = TRUE AND er.prize_place IN (1,2,3)
-       ORDER BY e.event_name, ag.label, er.prize_place`, [yearId]);
+         AND (r.team_id IS NULL OR tm_member.full_name IS NOT NULL)
+       ORDER BY e.event_name, ag.label, er.prize_place, name`, [yearId]);
     res.json({ branding: await branding(), winners });
   } catch (err) { next(err); }
 });

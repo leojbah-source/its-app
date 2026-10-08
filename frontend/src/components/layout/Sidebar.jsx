@@ -157,8 +157,8 @@ export default function Sidebar() {
 
       <div className="border-t border-white/10 px-4 py-3">
         <p className="text-sm font-semibold text-white">TalentHub</p>
-        <div className="mt-2 rounded-md bg-white px-2.5 py-2">
-          <img src={rpLogo} alt="Research Point WLL" className="h-auto w-full" />
+        <div className="mt-2 inline-block rounded-md bg-white px-2 py-1.5">
+          <img src={rpLogo} alt="Research Point WLL" className="h-auto w-28" />
         </div>
         <p className="mt-2 text-[10px] text-navy-500">talentscan.kcabah.com</p>
       </div>
