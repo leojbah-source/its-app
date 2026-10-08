@@ -90,37 +90,35 @@ router.get('/:event_id/roster', requireRole(...staffRoles), async (req, res, nex
   } catch (err) { next(err); }
 });
 
-// ── GET /api/admin/chest/:event_id/team-roster?age_group_id= — teams + members ─
-// Team Event-Day view: one row per TEAM (its registration carries the chest and
-// attendance, exactly like an individual entry) with the team's members listed.
+// ── GET /api/admin/chest/:event_id/team-roster — ALL teams + members ─────────
+// Team Event-Day view. Teams are NOT subdivided by age group: every team in the
+// event appears together, alphabetical by team name, with one combined chest
+// sequence. Each team's members carry their own present/absent status.
 router.get('/:event_id/team-roster', requireRole(...staffRoles), async (req, res, next) => {
   try {
-    const ag = grp(req.query.age_group_id);
     const { rows: teams } = await pool.query(
       `SELECT r.id AS registration_id, r.status, r.age_group_id,
               t.id AS team_id, t.team_name,
               sc.name AS school_name,
-              ag.code AS age_group,
               ca.chest_number,
               (vr.id IS NOT NULL) AS video_wants,
               vr.recorded AS video_recorded
        FROM registrations r
        JOIN teams t ON t.id = r.team_id
        LEFT JOIN schools sc ON sc.id = t.school_id
-       LEFT JOIN age_groups ag ON ag.id = r.age_group_id
        LEFT JOIN chest_assignments ca ON ca.registration_id = r.id
        LEFT JOIN video_requests vr ON vr.registration_id = r.id
        WHERE r.event_id = $1 AND r.team_id IS NOT NULL
          AND r.status NOT IN ('withdrawn','swapped')
-         AND ($2::int IS NULL OR r.age_group_id = $2)
-       ORDER BY ca.chest_number NULLS LAST, t.team_name`,
-      [req.params.event_id, ag]);
+       ORDER BY lower(t.team_name)`,
+      [req.params.event_id]);
 
     if (teams.length) {
       const teamIds = teams.map((t) => t.team_id);
       const { rows: members } = await pool.query(
-        `SELECT tm.team_id, p.id AS participant_id, p.full_name, p.cpr_number, p.gender,
-                tm.is_captain, tm.is_substitute, tm.attendance_confirmed
+        `SELECT tm.team_id, tm.id AS team_member_id, p.id AS participant_id,
+                p.full_name, p.cpr_number, p.gender,
+                tm.is_captain, tm.is_substitute, tm.attendance_confirmed, tm.attendance_status
          FROM team_members tm JOIN participants p ON p.id = tm.participant_id
          WHERE tm.team_id = ANY($1::int[])
          ORDER BY tm.is_captain DESC, tm.is_substitute, p.full_name`,
@@ -132,8 +130,132 @@ router.get('/:event_id/team-roster', requireRole(...staffRoles), async (req, res
       }
       for (const t of teams) t.members = byTeam.get(t.team_id) || [];
     }
-    res.json(teams);
+
+    const { rows: sz } = await pool.query(
+      `SELECT COALESCE(e.min_participants_per_team, yc.team_size_min, 5) AS size_min,
+              COALESCE(e.max_participants_per_team, yc.team_size_max, 10) AS size_max
+       FROM events e JOIN year_config yc ON yc.id = e.year_id
+       WHERE e.id = $1`, [req.params.event_id]);
+    const locked = await groupLocked(req.params.event_id, null);
+    res.json({ teams, size_min: Number(sz[0]?.size_min ?? 5), size_max: Number(sz[0]?.size_max ?? 10), locked });
   } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/chest/:event_id/assign-teams — ONE combined chest sequence ─
+// Numbers all ATTENDED teams alphabetically, continuing from the current max
+// (teams are a single pool for the event — no per-group restart).
+router.post('/:event_id/assign-teams', requireRole(...markRoles), async (req, res, next) => {
+  try {
+    if (await groupLocked(req.params.event_id, null))
+      return res.status(409).json({ error: 'Chest numbers are locked — judging has started.' });
+    const yearId = await eventYearId(req.params.event_id);
+    const { rows: pending } = await pool.query(
+      `SELECT r.id AS registration_id, r.age_group_id, t.team_name
+       FROM registrations r JOIN teams t ON t.id = r.team_id
+       WHERE r.event_id = $1 AND r.team_id IS NOT NULL AND r.status = 'attended'
+         AND r.id NOT IN (SELECT registration_id FROM chest_assignments WHERE event_id = $1)
+       ORDER BY lower(t.team_name)`,
+      [req.params.event_id]);
+    const { rows: mx } = await pool.query(
+      `SELECT COALESCE(MAX(chest_number), 0) AS max_no FROM chest_assignments WHERE event_id = $1`,
+      [req.params.event_id]);
+    let n = Number(mx[0].max_no);
+    const assigned = [];
+    for (const r of pending) {
+      n += 1;
+      const { rows } = await pool.query(
+        `INSERT INTO chest_assignments
+           (year_id, event_id, age_group_id, registration_id, chest_number, allocation_mode, allocated_by)
+         VALUES ($1,$2,$3,$4,$5,'auto',$6) RETURNING registration_id, chest_number`,
+        [yearId, req.params.event_id, r.age_group_id, r.registration_id, n, req.user.id]);
+      assigned.push(rows[0]);
+    }
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'ASSIGN_CHEST_TEAMS', entity: 'chest_assignments', entityId: req.params.event_id, details: { count: assigned.length } });
+    res.json(assigned);
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/chest/:event_id/team/:teamId/member-attendance ───────────
+// Mark one team member present/absent. body: { participant_id, present }
+router.post('/:event_id/team/:teamId/member-attendance', requireRole(...markRoles), async (req, res, next) => {
+  try {
+    const { participant_id, present } = req.body;
+    if (!participant_id || typeof present !== 'boolean')
+      return res.status(400).json({ error: 'participant_id and present (boolean) are required' });
+    const { rowCount } = await pool.query(
+      `UPDATE team_members
+         SET attendance_status = $1, attendance_confirmed = $2, confirmed_by = $3, confirmed_at = NOW()
+       WHERE team_id = $4 AND participant_id = $5`,
+      [present ? 'present' : 'absent', present, req.user.id, req.params.teamId, participant_id]);
+    if (!rowCount) return res.status(404).json({ error: 'Member not found in this team' });
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'TEAM_MEMBER_ATTENDANCE', entity: 'team_members', entityId: req.params.teamId,
+      details: { participant_id, present } });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/chest/:event_id/team/:teamId/substitute ──────────────────
+// Replace an absent member with a new person (recorded as an approved substitute).
+// body: { absent_participant_id?, full_name, cpr_number, dob, gender, reason }
+router.post('/:event_id/team/:teamId/substitute', requireRole(...markRoles), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const { absent_participant_id, full_name, cpr_number, dob, gender, reason } = req.body;
+    if (!full_name || !cpr_number || !dob || !gender)
+      return res.status(400).json({ error: 'full_name, cpr_number, dob and gender are required' });
+    if (!['M', 'F'].includes(gender))
+      return res.status(400).json({ error: 'gender must be M (male) or F (female)' });
+    await client.query('BEGIN');
+
+    const { rows: trow } = await client.query(`SELECT year_id FROM teams WHERE id = $1`, [req.params.teamId]);
+    if (!trow[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Team not found' }); }
+    const yearId = trow[0].year_id;
+
+    let { rows: pr } = await client.query(
+      `SELECT id FROM participants WHERE year_id = $1 AND cpr_number = $2`, [yearId, String(cpr_number).trim()]);
+    let newPid;
+    if (pr[0]) {
+      newPid = pr[0].id;
+    } else {
+      const ins = await client.query(
+        `INSERT INTO participants (year_id, cpr_number, full_name, dob, gender, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+        [yearId, String(cpr_number).trim(), full_name.trim(), dob, gender, req.user.id]);
+      newPid = ins.rows[0].id;
+    }
+
+    const { rows: dup } = await client.query(
+      `SELECT 1 FROM team_members WHERE team_id = $1 AND participant_id = $2`, [req.params.teamId, newPid]);
+    if (!dup[0]) {
+      await client.query(
+        `INSERT INTO team_members
+           (team_id, participant_id, is_substitute, substitute_reason, approved_by, approved_at,
+            attendance_status, attendance_confirmed, confirmed_by, confirmed_at)
+         VALUES ($1,$2,TRUE,$3,$4,NOW(),'present',TRUE,$4,NOW())`,
+        [req.params.teamId, newPid, reason || 'Event-day replacement', req.user.id]);
+    } else {
+      await client.query(
+        `UPDATE team_members SET attendance_status='present', attendance_confirmed=TRUE, confirmed_by=$3, confirmed_at=NOW()
+         WHERE team_id=$1 AND participant_id=$2`, [req.params.teamId, newPid, req.user.id]);
+    }
+
+    if (absent_participant_id) {
+      await client.query(
+        `UPDATE team_members SET attendance_status='absent', attendance_confirmed=FALSE, confirmed_by=$3, confirmed_at=NOW()
+         WHERE team_id=$1 AND participant_id=$2`, [req.params.teamId, absent_participant_id, req.user.id]);
+    }
+
+    await client.query('COMMIT');
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'TEAM_SUBSTITUTE', entity: 'team_members', entityId: req.params.teamId,
+      details: { new_participant_id: newPid, absent_participant_id: absent_participant_id || null, reason: reason || null } });
+    res.json({ ok: true, participant_id: newPid });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
+    next(err);
+  } finally { client.release(); }
 });
 
 // ── POST /api/admin/chest/:event_id/attendance — mark present/absent ─────────
