@@ -444,6 +444,8 @@ export const judgesApi = {
   unassign: (token, assignmentId) => request(`/api/admin/judges/assign/${assignmentId}`, { method: 'DELETE', token }),
   blacklistReport: (token) => request('/api/admin/judges/blacklist-report', { token }),
   resetSession: (token, id) => request(`/api/admin/judges/${id}/reset-session`, { method: 'POST', token, body: {} }),
+  currentOtp: (token, id) => request(`/api/admin/judges/${id}/otp`, { token }),
+  resetOtp: (token, id) => request(`/api/admin/judges/${id}/otp/reset`, { method: 'POST', token, body: {} }),
 };
 
 export { ApiError };

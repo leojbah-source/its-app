@@ -25,6 +25,7 @@ export default function Assignment() {
   const [flash, setFlash] = useState('');
   const [sendingId, setSendingId] = useState(null);
   const [otpInfo, setOtpInfo] = useState(null);
+  const [otpBusy, setOtpBusy] = useState(false);
 
   const [modalRow, setModalRow] = useState(null);
   const [candidates, setCandidates] = useState([]);
@@ -97,6 +98,18 @@ export default function Assignment() {
       setModalRow(null); setFlash('Judges updated.'); load();
     } catch (err) { setModalErr(err.message); }
     finally { setBusy(false); }
+  }
+
+  async function resetOtps() {
+    if (!otpInfo?.codes?.length) { setOtpInfo(null); return; }
+    if (!window.confirm('Reset (invalidate) the current login codes for these judges? They will need a new code to sign in.')) return;
+    setOtpBusy(true);
+    try {
+      await Promise.all(otpInfo.codes.filter((c) => c.id).map((c) => judgesApi.resetOtp(token, c.id)));
+      setFlash('OTPs reset. Send again to issue new codes.');
+      setOtpInfo(null);
+    } catch (err) { setFlash(err.message); }
+    finally { setOtpBusy(false); }
   }
 
   async function sendOtps(row) {
@@ -257,21 +270,31 @@ export default function Assignment() {
             <h3 className="text-base font-semibold text-navy-900">Judge OTPs — {otpInfo.event}</h3>
             <p className="mt-1 text-xs text-slate-500">
               {otpInfo.delivered > 0 ? `${otpInfo.delivered} sent via WhatsApp automatically. ` : 'WhatsApp API not configured. '}
-              Tap “Open WhatsApp” to send each judge their OTP.
+              The code is shown next to each judge so you can read it out or share it manually.
             </p>
+            {otpInfo.deferred && (
+              <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-700">
+                Deferred-judging event — these codes do not expire and stay valid until you resend or reset them.
+              </p>
+            )}
             <div className="mt-3 divide-y divide-slate-100 rounded-md border border-slate-200">
               {(otpInfo.links || []).map((l) => {
-                const code = (otpInfo.dev_codes || []).find((d) => d.name === l.name)?.code;
+                const code = (otpInfo.codes || []).find((d) => d.name === l.name)?.code;
                 return (
                   <div key={l.phone} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
                     <div>
                       <div className="font-medium text-slate-800">{l.name}</div>
-                      <div className="text-xs text-slate-500">{l.phone}{code ? ` · code ${code}` : ''}{l.delivered ? ' · sent ✓' : ''}</div>
+                      <div className="text-xs text-slate-500">{l.phone}{l.delivered ? ' · sent ✓' : ''}</div>
                     </div>
-                    {l.url && (
-                      <a href={l.url} target="_blank" rel="noreferrer"
-                        className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700">Open WhatsApp</a>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {code && (
+                        <span className="rounded-md border border-navy-200 bg-navy-50 px-2 py-1 font-mono text-base font-bold tracking-widest text-navy-800">{code}</span>
+                      )}
+                      {l.url && (
+                        <a href={l.url} target="_blank" rel="noreferrer"
+                          className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700">Open WhatsApp</a>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -280,7 +303,11 @@ export default function Assignment() {
             {otpInfo.skipped?.length > 0 && (
               <p className="mt-2 text-xs text-amber-600">No phone on file: {otpInfo.skipped.join(', ')}</p>
             )}
-            <div className="mt-4 text-right">
+            <div className="mt-4 flex items-center justify-between">
+              <button onClick={resetOtps} disabled={otpBusy}
+                className="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50">
+                {otpBusy ? 'Resetting…' : 'Reset these OTPs'}
+              </button>
               <button onClick={() => setOtpInfo(null)} className="rounded-md border border-slate-300 px-4 py-1.5 text-sm">Done</button>
             </div>
           </div>

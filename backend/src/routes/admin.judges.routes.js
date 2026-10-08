@@ -14,7 +14,7 @@ const express = require('express');
 const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
-const { createOtp } = require('../utils/otp');
+const { createOtp, revokeOtps, currentOtp } = require('../utils/otp');
 const { sendWhatsApp } = require('../utils/notify');
 
 const router = express.Router();
@@ -200,15 +200,23 @@ router.post('/:id/send-otp', requireRole(...assignRoles), async (req, res, next)
     if (!rows[0]) return res.status(404).json({ error: 'Judge not found' });
     if (!rows[0].phone) return res.status(400).json({ error: 'Judge has no phone number on file' });
 
-    const code = await createOtp(rows[0].phone);
+    // Deferred-judging events need a standing code (no expiry, reusable until reset).
+    const { rows: defr } = await pool.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM judge_assignments ja JOIN events e ON e.id = ja.event_id
+         WHERE ja.judge_id = $1 AND e.deferred_judging = TRUE
+       ) AS deferred`, [req.params.id]);
+    const standing = !!defr[0]?.deferred;
+    const code = await createOtp(rows[0].phone, { standing });
     const r = await sendWhatsApp(rows[0].phone, `KCA ITS — your judge login OTP is ${code}.`);
     await pool.query(
       `UPDATE judges SET otp_sent_at = NOW(), otp_sent_by = $1 WHERE id = $2`,
       [req.user.id, req.params.id]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'SEND_JUDGE_OTP', entity: 'judges', entityId: req.params.id });
-    const dev = process.env.OTP_DEV_ECHO === 'true' || process.env.NODE_ENV !== 'production';
-    res.json({ message: r.delivered ? 'OTP sent to judge' : 'WhatsApp not configured — use the link to send', link: r.link, ...(dev ? { code } : {}) });
+    // Code is returned to the caller (Chairman/SuperAdmin only) so it can be
+    // shared manually when WhatsApp is unavailable.
+    res.json({ message: r.delivered ? 'OTP sent to judge' : 'WhatsApp not configured — share the code or use the link', link: r.link, code, standing });
   } catch (err) { next(err); }
 });
 
@@ -390,20 +398,48 @@ router.post('/event/:eventId/send-otps', requireRole(...assignRoles), async (req
        WHERE ja.event_id = $1 AND ($2::int IS NULL OR ja.age_group_id = $2)`,
       [req.params.eventId, ag]);
     if (!judges.length) return res.status(400).json({ error: 'No judges assigned to this event/age group yet' });
-    const dev = process.env.OTP_DEV_ECHO === 'true' || process.env.NODE_ENV !== 'production';
-    let delivered = 0; const skipped = []; const links = []; const devCodes = [];
+    // Deferred-judging events get standing codes (no expiry, reusable until reset).
+    const { rows: evr } = await pool.query(`SELECT deferred_judging FROM events WHERE id = $1`, [req.params.eventId]);
+    const standing = !!evr[0]?.deferred_judging;
+    let delivered = 0; const skipped = []; const links = []; const codes = [];
     for (const j of judges) {
       if (!j.phone) { skipped.push(j.full_name); continue; }
-      const code = await createOtp(j.phone);
+      const code = await createOtp(j.phone, { standing });
       const r = await sendWhatsApp(j.phone, `KCA ITS — your judge login OTP is ${code}. Log in with phone ${j.phone}.`);
       if (r.delivered) delivered += 1;
       links.push({ name: j.full_name, phone: j.phone, url: r.link, delivered: !!r.delivered });
-      if (dev) devCodes.push({ name: j.full_name, code });
+      codes.push({ id: j.id, name: j.full_name, phone: j.phone, code, standing });
       await pool.query(`UPDATE judges SET otp_sent_at = NOW(), otp_sent_by = $1, active_event_id = $3 WHERE id = $2`, [req.user.id, j.id, req.params.eventId]);
     }
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
-      action: 'SEND_EVENT_OTPS', entity: 'events', entityId: req.params.eventId, details: { delivered, skipped } });
-    res.json({ total: judges.length, delivered, skipped, links, ...(dev ? { dev_codes: devCodes } : {}) });
+      action: 'SEND_EVENT_OTPS', entity: 'events', entityId: req.params.eventId, details: { delivered, skipped, standing } });
+    // codes are always returned (endpoint is Chairman/SuperAdmin only) so they
+    // can be read out / shared manually when WhatsApp is down.
+    res.json({ total: judges.length, delivered, skipped, links, codes, deferred: standing });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/admin/judges/:id/otp — the judge's current active login code ─────
+// Chairman/SuperAdmin only. Lets you re-view a code to share it manually.
+router.get('/:id/otp', requireRole(...assignRoles), async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(`SELECT phone FROM judges WHERE id = $1`, [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Judge not found' });
+    if (!rows[0].phone) return res.json({ code: null });
+    const cur = await currentOtp(rows[0].phone);
+    res.json(cur || { code: null });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/judges/:id/otp/reset — invalidate the judge's code(s) ─────
+router.post('/:id/otp/reset', requireRole(...assignRoles), async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(`SELECT phone FROM judges WHERE id = $1`, [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Judge not found' });
+    const revoked = rows[0].phone ? await revokeOtps(rows[0].phone) : 0;
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'RESET_JUDGE_OTP', entity: 'judges', entityId: req.params.id });
+    res.json({ ok: true, revoked });
   } catch (err) { next(err); }
 });
 
