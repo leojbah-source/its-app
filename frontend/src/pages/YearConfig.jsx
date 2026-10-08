@@ -177,7 +177,7 @@ export default function YearConfig() {
       <div className="mx-auto flex max-w-5xl flex-col gap-5">
         <Card>
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <div className="flex items-end gap-4">
+            <div className="flex flex-wrap items-end gap-4">
               <Input
                 label="Contest year"
                 type="number"
@@ -199,6 +199,27 @@ export default function YearConfig() {
                 value={config.event_end_date}
                 error={errors.event_end_date}
                 onChange={(e) => setConfig({ ...config, event_end_date: e.target.value })}
+                className="w-44"
+              />
+              <Input
+                label="Registration deadline"
+                type="date"
+                value={(config.reg_deadline || '').slice(0, 10)}
+                onChange={(e) => setConfig({ ...config, reg_deadline: e.target.value })}
+                className="w-44"
+              />
+              <Input
+                label="Team registration deadline"
+                type="date"
+                value={(config.team_reg_deadline || '').slice(0, 10)}
+                onChange={(e) => setConfig({ ...config, team_reg_deadline: e.target.value })}
+                className="w-44"
+              />
+              <Input
+                label="Teacher-name deadline"
+                type="date"
+                value={(config.teacher_name_deadline || '').slice(0, 10)}
+                onChange={(e) => setConfig({ ...config, teacher_name_deadline: e.target.value })}
                 className="w-44"
               />
             </div>
