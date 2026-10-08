@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   Settings, ListChecks, Users, Gavel, CalendarClock, Trophy, Wallet,
   Sparkles, ClipboardList, ChevronDown, ClipboardCheck, Megaphone, BadgeDollarSign,
-  UserCog, UserCheck, Combine, Video,
+  UserCog, UserCheck, Combine, Video, Award,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { yearConfigApi, API_BASE } from '../../api/client';
@@ -14,7 +14,6 @@ const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`
 const ORG = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
 
 const NAV_ITEMS = [
-  { to: '/admin/config/year', label: 'Year Setup', icon: Settings, active: true, roles: ORG },
   { to: '/admin/events', label: 'Events', icon: ListChecks, active: true, roles: ORG },
   { to: '/admin/registrations', label: 'Registrations', icon: Users, active: true, roles: [...ORG, 'Registrar'] },
   { to: '/admin/lists', label: 'Lists', icon: ClipboardList, active: true, roles: ORG },
@@ -23,14 +22,8 @@ const NAV_ITEMS = [
   { to: '/admin/judging/assignment', label: 'Event assignment', icon: UserCheck, active: true, roles: ['SuperAdmin', 'Chairman'] },
   { to: '/admin/event-day', label: 'Event Day', icon: ClipboardCheck, active: true, roles: ORG },
   { to: '/admin/team-event-day', label: 'Team Event Day', icon: ClipboardList, active: true, roles: ORG },
-  {
-    group: 'Judging', icon: Gavel, roles: ['SuperAdmin', 'Chairman'],
-    children: [
-      { to: '/admin/judging/judges', label: 'Judges', active: true },
-      { to: '/admin/judging/results', label: 'Results', active: true },
-      { to: '/admin/judging/judge-review', label: 'Judge review', active: true },
-    ],
-  },
+  { to: '/admin/judging/judges', label: 'Judges', icon: Gavel, active: true, roles: ['SuperAdmin', 'Chairman'] },
+  { to: '/admin/judging/results', label: 'Results', icon: Award, active: true, roles: ['SuperAdmin', 'Chairman'] },
   { to: '/admin/awards', label: 'Awards', icon: Trophy, active: true, roles: ['SuperAdmin', 'Chairman'] },
   { to: '/admin/media', label: 'Results & posters', icon: Trophy, active: true, roles: ['Media'] },
   { to: '/admin/video', label: 'Videography', icon: Video, active: true, roles: ['Media', 'SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'] },
@@ -38,6 +31,7 @@ const NAV_ITEMS = [
   { to: '/admin/payments', label: 'Payments', icon: BadgeDollarSign, active: true, roles: ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Accountant'] },
   { to: '/admin/finance', label: 'Finance', icon: Wallet, active: true, roles: ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Accountant'] },
   { to: '/admin/users', label: 'Users', icon: UserCog, active: true, roles: ['SuperAdmin', 'Admin'] },
+  { to: '/admin/config/year', label: 'Year Setup', icon: Settings, active: true, roles: ORG },
 ];
 
 function NavGroup({ item }) {
@@ -160,8 +154,25 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="border-t border-white/10 px-5 py-4 text-xs text-navy-400">
-        talentscan.kcabah.com
+      <div className="border-t border-white/10 px-4 py-3">
+        <div className="flex items-center gap-2.5">
+          <svg viewBox="0 0 40 40" className="h-8 w-8 shrink-0" aria-hidden="true">
+            <defs>
+              <linearGradient id="rpLogo" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#f59e0b" />
+                <stop offset="50%" stopColor="#ef4444" />
+                <stop offset="100%" stopColor="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <rect x="0" y="0" width="40" height="40" rx="9" fill="url(#rpLogo)" />
+            <text x="20" y="29" textAnchor="middle" fontFamily="Georgia, 'Times New Roman', serif" fontWeight="800" fontSize="25" fill="#ffffff">R</text>
+          </svg>
+          <div className="leading-tight">
+            <p className="text-sm font-semibold text-white">TalentHub</p>
+            <p className="text-[11px] text-navy-300">by Research Point WLL</p>
+          </div>
+        </div>
+        <p className="mt-2 text-[10px] text-navy-500">talentscan.kcabah.com</p>
       </div>
     </aside>
   );

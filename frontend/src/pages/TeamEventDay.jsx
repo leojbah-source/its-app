@@ -131,6 +131,10 @@ export default function TeamEventDay() {
   }
   async function assignChests() {
     if (!canMark) return;
+    const anyUnmarkedMembers = teams.filter((t) => t.status === 'attended')
+      .some((t) => (t.members || []).some((m) => !m.attendance_status));
+    if (anyUnmarkedMembers &&
+        !window.confirm('Some present teams still have members not marked present or absent. Assign chest numbers anyway?')) return;
     setBusy(true); setFlash('');
     try {
       const r = await chestApi.assignTeams(token, eventId);
@@ -189,6 +193,15 @@ export default function TeamEventDay() {
 
   const allMarked = teams.length > 0 && teams.every((t) => t.status === 'attended' || t.status === 'absent');
 
+  // Alphabetical until chests are drawn; once drawn, show in chest-number order.
+  const sortedTeams = useMemo(() => [...teams].sort((a, b) => {
+    const ca = a.chest_number, cb = b.chest_number;
+    if (ca != null && cb != null) return ca - cb;
+    if (ca != null) return -1;
+    if (cb != null) return 1;
+    return (a.team_name || '').localeCompare(b.team_name || '');
+  }), [teams]);
+
   const inp = 'w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
 
   return (
@@ -241,14 +254,13 @@ export default function TeamEventDay() {
                   <tr>
                     <th className="px-3 py-2 font-medium">Chest</th>
                     <th className="px-3 py-2 font-medium">Team</th>
-                    <th className="px-3 py-2 font-medium">School</th>
                     <th className="px-3 py-2 font-medium">Present</th>
                     <th className="px-3 py-2 font-medium">Attendance</th>
                     <th className="px-3 py-2" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {teams.map((t) => {
+                  {sortedTeams.map((t) => {
                     const isOpen = open.has(t.team_id);
                     const pc = presentCount(t);
                     const short = t.status === 'attended' && pc < sizeMin;
@@ -262,7 +274,6 @@ export default function TeamEventDay() {
                             </button>
                           </td>
                           <td className="px-3 py-2 font-medium text-slate-800">{t.team_name}</td>
-                          <td className="px-3 py-2 text-xs text-slate-500">{t.school_name || '—'}</td>
                           <td className="px-3 py-2">
                             <button onClick={() => toggleOpen(t.team_id)} className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-navy-700 hover:bg-navy-50">
                               {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -285,7 +296,7 @@ export default function TeamEventDay() {
                         {isOpen && (
                           <tr className="bg-slate-50/60">
                             <td />
-                            <td colSpan={5} className="px-3 py-2">
+                            <td colSpan={4} className="px-3 py-2">
                               <ul className="divide-y divide-slate-100 rounded-md border border-slate-200 bg-white">
                                 {(t.members || []).length === 0 && <li className="px-3 py-2 text-xs text-slate-400">No members recorded.</li>}
                                 {(t.members || []).map((m) => (

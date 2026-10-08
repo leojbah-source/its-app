@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LogOut, KeyRound, X, Eye, EyeOff } from 'lucide-react';
+import { LogOut, KeyRound, X, Eye, EyeOff, PanelLeft } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -10,15 +10,35 @@ import Button from '../ui/Button';
 export default function AdminLayout({ title, subtitle, actions, children }) {
   const { user, logout, token } = useAuth();
   const [pwOpen, setPwOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('its_nav_collapsed') === '1'; } catch { return false; }
+  });
+  function toggleNav() {
+    setCollapsed((c) => {
+      const n = !c;
+      try { localStorage.setItem('its_nav_collapsed', n ? '1' : '0'); } catch { /* ignore */ }
+      return n;
+    });
+  }
 
   return (
     <div className="flex h-screen bg-slate-50">
-      <Sidebar />
+      {!collapsed && <Sidebar />}
       <div className="flex h-full flex-1 flex-col overflow-hidden">
         <header className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
-          <div>
-            <h1 className="text-xl font-semibold text-navy-900">{title}</h1>
-            {subtitle && <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleNav}
+              className="shrink-0 rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-navy-700"
+              title={collapsed ? 'Show menu' : 'Hide menu'}
+              aria-label={collapsed ? 'Show menu' : 'Hide menu'}
+            >
+              <PanelLeft size={18} />
+            </button>
+            <div>
+              <h1 className="text-xl font-semibold text-navy-900">{title}</h1>
+              {subtitle && <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {actions}

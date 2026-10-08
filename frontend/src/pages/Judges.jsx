@@ -4,7 +4,7 @@
 // on the Schedule page (event level), where 3 judges are picked per event from
 // those whose expertise matches the event's category.
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Plus, Gavel, Ban, ShieldCheck, Trash2, Save } from 'lucide-react';
+import { RefreshCw, Plus, Gavel, Ban, ShieldCheck, Trash2, Save, ClipboardCheck } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -12,6 +12,7 @@ import Drawer from '../components/ui/Drawer';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import { Input, Textarea } from '../components/ui/FormField';
 import { PageLoader, ErrorBanner, EmptyState } from '../components/ui/States';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { judgesApi, categoriesApi } from '../api/client';
 
@@ -46,6 +47,7 @@ function ExpertisePicker({ categories, value, onChange }) {
 
 export default function Judges() {
   const { token, user } = useAuth();
+  const navigate = useNavigate();
   const canManage = MANAGE_ROLES.includes(user?.role);
 
   const [judges, setJudges] = useState([]);
@@ -116,7 +118,15 @@ export default function Judges() {
   }
 
   return (
-    <AdminLayout title="Judges" subtitle="Judge profiles and fields of expertise. Assign judges to events (and send briefing OTPs) from the Schedule page.">
+    <AdminLayout
+      title="Judges"
+      subtitle="Judge profiles and fields of expertise. Assign judges to events (and send briefing OTPs) from the Schedule page."
+      actions={(
+        <Button variant="outline" icon={ClipboardCheck} onClick={() => navigate('/admin/judging/judge-review')}>
+          Judge review
+        </Button>
+      )}
+    >
       <div className="mb-4 flex items-center justify-between gap-2">
         <div className="text-sm text-slate-500">{judges.length} judge(s)</div>
         <div className="flex gap-2">
