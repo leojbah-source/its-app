@@ -142,26 +142,32 @@ router.get('/:event_id/team-roster', requireRole(...staffRoles), async (req, res
 });
 
 // ── POST /api/admin/chest/:event_id/assign-teams — ONE combined chest sequence ─
-// Numbers all ATTENDED teams alphabetically, continuing from the current max
-// (teams are a single pool for the event — no per-group restart).
+// Random draw across all ATTENDED teams of the event (one pool — no per-group
+// restart). Only allowed once every team has been marked present or absent.
 router.post('/:event_id/assign-teams', requireRole(...markRoles), async (req, res, next) => {
   try {
     if (await groupLocked(req.params.event_id, null))
       return res.status(409).json({ error: 'Chest numbers are locked — judging has started.' });
+    // Every team must be marked present/absent first (nothing left 'registered').
+    const { rows: um } = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM registrations
+       WHERE event_id = $1 AND team_id IS NOT NULL AND status = 'registered'`,
+      [req.params.event_id]);
+    if (um[0].c > 0)
+      return res.status(400).json({ error: 'Mark every team present or absent before assigning chest numbers.' });
     const yearId = await eventYearId(req.params.event_id);
     const { rows: pending } = await pool.query(
       `SELECT r.id AS registration_id, r.age_group_id, t.team_name
        FROM registrations r JOIN teams t ON t.id = r.team_id
        WHERE r.event_id = $1 AND r.team_id IS NOT NULL AND r.status = 'attended'
-         AND r.id NOT IN (SELECT registration_id FROM chest_assignments WHERE event_id = $1)
-       ORDER BY lower(t.team_name)`,
+         AND r.id NOT IN (SELECT registration_id FROM chest_assignments WHERE event_id = $1)`,
       [req.params.event_id]);
     const { rows: mx } = await pool.query(
       `SELECT COALESCE(MAX(chest_number), 0) AS max_no FROM chest_assignments WHERE event_id = $1`,
       [req.params.event_id]);
     let n = Number(mx[0].max_no);
     const assigned = [];
-    for (const r of pending) {
+    for (const r of shuffle(pending)) {
       n += 1;
       const { rows } = await pool.query(
         `INSERT INTO chest_assignments
@@ -379,6 +385,7 @@ router.post('/:event_id/assign-timeslot', requireRole(...markRoles), async (req,
 router.put('/manual/:reg_id', requireRole('Chairman', 'SuperAdmin'), async (req, res, next) => {
   try {
     const { event_id, chest_number } = req.body;
+    const manualReason = (req.body?.reason || '').trim();
     if (!event_id || !chest_number) return res.status(400).json({ error: 'event_id and chest_number are required' });
     const { rows: reg } = await pool.query(
       `SELECT year_id, age_group_id FROM registrations WHERE id = $1 AND event_id = $2`, [req.params.reg_id, event_id]);
@@ -454,7 +461,7 @@ router.put('/manual/:reg_id', requireRole('Chairman', 'SuperAdmin'), async (req,
       }
       await client.query('COMMIT');
       await logAudit({ actorId: req.user.id, actorRole: req.user.role,
-        action: 'MANUAL_CHEST_NUMBER', entity: 'chest_assignments', entityId: req.params.reg_id, details: { event_id, chest_number: target, mode } });
+        action: 'MANUAL_CHEST_NUMBER', entity: 'chest_assignments', entityId: req.params.reg_id, details: { event_id, chest_number: target, mode, reason: manualReason || null }, reason: manualReason || null });
       res.json({ registration_id: Number(req.params.reg_id), chest_number: target, mode, affected: mapping.size });
     } catch (e) {
       await client.query('ROLLBACK').catch(() => {});

@@ -7,7 +7,7 @@
 // and a replacement can be recorded as an approved substitute. Judging is
 // identical to individual events — the chest number represents the team.
 import { useEffect, useState, useCallback, useMemo, Fragment } from 'react';
-import { Users, ChevronDown, ChevronRight, RefreshCw, Hash, UserPlus } from 'lucide-react';
+import { Users, ChevronDown, ChevronRight, RefreshCw, Hash, UserPlus, Sparkles } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -18,6 +18,48 @@ import { scheduleApi, chestApi } from '../api/client';
 const MARK_ROLES = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 const MANUAL_ROLES = ['SuperAdmin', 'Chairman'];
 const today = () => new Date().toISOString().slice(0, 10);
+
+// Dramatized chest-number draw (projector-friendly) — mirrors the individual
+// Event Day reveal.
+function BigReveal({ item }) {
+  const [on, setOn] = useState(false);
+  useEffect(() => { setOn(false); const t = setTimeout(() => setOn(true), 30); return () => clearTimeout(t); }, [item.chest]);
+  return (
+    <div className={`flex flex-col items-center transition-all duration-500 ${on ? 'scale-100 opacity-100' : 'scale-50 opacity-0'}`}>
+      <div className="mb-2 text-sm uppercase tracking-[0.3em] text-gold-400">Chest Number</div>
+      <div className="font-mono font-black leading-none text-white" style={{ fontSize: 'clamp(4rem, 16vw, 12rem)' }}>{item.chest}</div>
+      <div className="mt-4 text-center text-2xl font-semibold text-white md:text-4xl">{item.name}</div>
+    </div>
+  );
+}
+function DrawOverlay({ items, onClose }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (i >= items.length) return;
+    const t = setTimeout(() => setI(i + 1), 1200);
+    return () => clearTimeout(t);
+  }, [i, items.length]);
+  const current = i > 0 ? items[i - 1] : null;
+  const done = i >= items.length;
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-navy-900/95 p-6 backdrop-blur">
+      <div className="flex items-center gap-2 text-gold-300"><Sparkles size={18} /><span className="text-sm uppercase tracking-[0.3em]">Team Chest Draw</span></div>
+      <div className="flex w-full flex-1 items-center justify-center">
+        {current ? <BigReveal item={current} /> : <div className="text-xl text-white/70">Drawing…</div>}
+      </div>
+      <div className="flex max-h-40 flex-wrap justify-center gap-2 overflow-y-auto">
+        {items.slice(0, i).map((it) => (
+          <span key={it.chest} className="rounded-full bg-white/10 px-3 py-1 text-sm text-white">
+            <span className="font-mono font-bold text-gold-300">{it.chest}</span> · {it.name}
+          </span>
+        ))}
+      </div>
+      <button onClick={onClose} className="mt-6 rounded-md bg-white/15 px-5 py-2 text-sm font-medium text-white hover:bg-white/25">
+        {done ? 'Done' : 'Skip'}
+      </button>
+    </div>
+  );
+}
 
 export default function TeamEventDay() {
   const { token, user } = useAuth();
@@ -35,6 +77,7 @@ export default function TeamEventDay() {
   const [flash, setFlash] = useState('');
   const [busy, setBusy] = useState(false);
   const [sub, setSub] = useState(null);
+  const [draw, setDraw] = useState(null);
 
   useEffect(() => { scheduleApi.list(token).then(setSchedule).catch(() => {}); }, [token]);
 
@@ -72,23 +115,33 @@ export default function TeamEventDay() {
 
   async function markTeam(t, present) {
     if (!canMark) return;
-    setBusy(true); setFlash('');
-    try { await chestApi.markAttendance(token, eventId, t.registration_id, present); await loadTeams(); }
-    catch (err) { setFlash(err.message || 'Could not update attendance'); }
-    finally { setBusy(false); }
+    const status = present ? 'attended' : 'absent';
+    setTeams((ts) => ts.map((x) => (x.team_id === t.team_id ? { ...x, status } : x)));
+    try { await chestApi.markAttendance(token, eventId, t.registration_id, present); }
+    catch (err) { setFlash(err.message || 'Could not update attendance'); loadTeams(); }
   }
   async function markMember(t, m, present) {
     if (!canMark) return;
-    setBusy(true); setFlash('');
-    try { await chestApi.memberAttendance(token, eventId, t.team_id, m.participant_id, present); await loadTeams(); }
-    catch (err) { setFlash(err.message || 'Could not update member'); }
-    finally { setBusy(false); }
+    const status = present ? 'present' : 'absent';
+    setTeams((ts) => ts.map((x) => (x.team_id !== t.team_id ? x : {
+      ...x, members: (x.members || []).map((mm) => (mm.participant_id === m.participant_id ? { ...mm, attendance_status: status } : mm)),
+    })));
+    try { await chestApi.memberAttendance(token, eventId, t.team_id, m.participant_id, present); }
+    catch (err) { setFlash(err.message || 'Could not update member'); loadTeams(); }
   }
   async function assignChests() {
     if (!canMark) return;
     setBusy(true); setFlash('');
-    try { const r = await chestApi.assignTeams(token, eventId); setFlash(`Assigned ${Array.isArray(r) ? r.length : 0} chest number(s).`); await loadTeams(); }
-    catch (err) { setFlash(err.message || 'Could not assign chest numbers'); }
+    try {
+      const r = await chestApi.assignTeams(token, eventId);
+      const list = Array.isArray(r) ? r : [];
+      const nameByReg = new Map(teams.map((x) => [x.registration_id, x.team_name]));
+      const byReg = new Map(list.map((a) => [a.registration_id, a.chest_number]));
+      setTeams((ts) => ts.map((x) => (byReg.has(x.registration_id) ? { ...x, chest_number: byReg.get(x.registration_id) } : x)));
+      const items = list.map((a) => ({ chest: a.chest_number, name: nameByReg.get(a.registration_id) || `#${a.registration_id}` }))
+        .sort((a, b) => a.chest - b.chest);
+      if (items.length) setDraw(items); else setFlash('No new chest numbers to assign.');
+    } catch (err) { setFlash(err.message || 'Could not assign chest numbers'); }
     finally { setBusy(false); }
   }
   async function clearChests() {
@@ -106,8 +159,10 @@ export default function TeamEventDay() {
     if (val == null || !String(val).trim()) return;
     const number = Number(val);
     if (!Number.isInteger(number) || number <= 0) { setFlash('Enter a whole number greater than 0.'); return; }
+    const reason = window.prompt('Reason for setting/changing this chest number (required):', '');
+    if (reason == null || !reason.trim()) { setFlash('A reason is required to change a chest number.'); return; }
     setBusy(true); setFlash('');
-    try { await chestApi.manual(token, t.registration_id, Number(eventId), number, 'manual'); await loadTeams(); }
+    try { await chestApi.manual(token, t.registration_id, Number(eventId), number, 'set', reason.trim()); await loadTeams(); }
     catch (err) { setFlash(err.message || 'Could not set chest number'); }
     finally { setBusy(false); }
   }
@@ -131,6 +186,8 @@ export default function TeamEventDay() {
     absent: teams.filter((t) => t.status === 'absent').length,
     withChest: teams.filter((t) => t.chest_number != null).length,
   }), [teams]);
+
+  const allMarked = teams.length > 0 && teams.every((t) => t.status === 'attended' || t.status === 'absent');
 
   const inp = 'w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
 
@@ -168,11 +225,12 @@ export default function TeamEventDay() {
             <span className="text-xs text-slate-400">Min squad: {sizeMin}</span>
             <div className="ml-auto flex items-center gap-2">
               <Button variant="ghost" size="sm" icon={RefreshCw} onClick={loadTeams}>Refresh</Button>
-              {canMark && !locked && <Button size="sm" icon={Hash} disabled={busy || stats.attended === 0} onClick={assignChests}>Assign chest numbers</Button>}
+              {canMark && !locked && <Button size="sm" icon={Hash} disabled={busy || !allMarked || stats.attended === 0} onClick={assignChests}>Assign chest numbers</Button>}
               {canManual && !locked && stats.withChest > 0 && <Button variant="outline" size="sm" onClick={clearChests} disabled={busy}>Clear</Button>}
             </div>
           </div>
           {locked && <p className="mb-3 text-xs text-amber-600">Chest numbers are locked — judging has started.</p>}
+          {!locked && !allMarked && teams.length > 0 && <p className="mb-3 text-xs text-amber-600">Mark every team Present or Absent (and ideally check each team's members) before drawing chest numbers.</p>}
 
           {loading ? <PageLoader /> : teams.length === 0 ? (
             <p className="text-sm text-slate-400">No teams registered for this event.</p>
@@ -273,6 +331,8 @@ export default function TeamEventDay() {
           )}
         </>
       )}
+
+      {draw && <DrawOverlay items={draw} onClose={() => setDraw(null)} />}
 
       {sub && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setSub(null)}>
