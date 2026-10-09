@@ -193,7 +193,7 @@ export default function Registrations() {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'its-registrations.csv';
+                a.download = 'its-registrations.xlsx';
                 a.click();
                 URL.revokeObjectURL(url);
               } catch (err) {
@@ -203,7 +203,7 @@ export default function Registrations() {
             className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition"
           >
             <Download size={14} />
-            Export CSV
+            Export Excel
           </button>
         </div>
       </div>

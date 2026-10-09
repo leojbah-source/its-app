@@ -90,11 +90,13 @@ router.get('/registrations/source-summary', requireRole(...staffRoles), async (r
 // Full CSV export of registrations for the active year.
 router.get('/registrations/export', requireRole(...staffRoles), async (req, res, next) => {
   try {
+    const ExcelJS = require('exceljs');
     const { rows: cfg } = await pool.query(
       `SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`,
     );
     const year_id = cfg[0]?.id || null;
 
+    // ── Sheet 1: Completed registrations ────────────────────────────────────
     // One row per participant (or team): parent details, all events in a single
     // comma-separated column, and the total fee across their events.
     const { rows } = await pool.query(
@@ -147,25 +149,117 @@ router.get('/registrations/export', requireRole(...staffRoles), async (req, res,
       [year_id],
     );
 
-    const bd = (v) => Number(v || 0).toFixed(3);
-    const header = 'Participant,Type,CPR,Gender,DOB,Age Group,School,Registration Date,Registration Time,' +
-      'Parent,Parent Email,Parent Phone,WhatsApp,KCA Member No,KCA Membership,' +
-      'Events,No. of Events,Total Fee (BD),Payment Status,Payment Methods,Paid Confirmed (BD)';
-    const csv = [
-      header,
-      ...rows.map((r) =>
-        [r.participant_name, r.entry_type, r.cpr_number, r.gender, r.dob,
-         r.age_group_code, r.school_name, r.reg_date, r.reg_time,
-         r.parent_name, r.parent_email, r.parent_phone, r.parent_whatsapp,
-         r.kca_member_no, r.kca_membership,
-         r.events, r.event_count, bd(r.total_fee),
-         r.payment_status, r.payment_methods, bd(r.paid_confirmed)]
-          .map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')),
-    ].join('\n');
+    // ── Sheet 2: In Progress ────────────────────────────────────────────────
+    // Individual participants who have NOT completed (confirmed_at IS NULL),
+    // whether they picked some events or none at all. Team entries never appear
+    // here (they are always treated as complete). Mirrors the In Progress tab
+    // on the Registrations screen, with whatever parent/participant info exists.
+    const { rows: inprog } = await pool.query(
+      `SELECT
+         p.id AS participant_id,
+         p.full_name AS participant_name,
+         p.cpr_number, p.gender, to_char(p.dob, 'YYYY-MM-DD') AS dob,
+         pag.code AS age_group_code, s.name AS school_name,
+         to_char(p.created_at AT TIME ZONE 'Asia/Bahrain', 'YYYY-MM-DD') AS created_date,
+         to_char(p.created_at AT TIME ZONE 'Asia/Bahrain', 'HH24:MI') AS created_time,
+         to_char(p.last_reminder_at AT TIME ZONE 'Asia/Bahrain', 'YYYY-MM-DD HH24:MI') AS last_reminder,
+         string_agg(e.event_code || ' ' || e.event_name, ', '
+                    ORDER BY e.event_code) FILTER (WHERE r.id IS NOT NULL AND r.status <> 'withdrawn') AS events,
+         COUNT(r.id) FILTER (WHERE r.status <> 'withdrawn') AS event_count,
+         pu.full_name AS parent_name, pu.email AS parent_email,
+         pu.phone AS parent_phone, pu.whatsapp_number AS parent_whatsapp,
+         pu.whatsapp_number_2 AS parent_whatsapp_2,
+         pu.kca_member_no, pu.membership_status AS kca_membership
+       FROM participants p
+       LEFT JOIN registrations r ON r.participant_id = p.id
+       LEFT JOIN events e ON e.id = r.event_id
+       LEFT JOIN users pu ON pu.id = p.created_by
+       LEFT JOIN schools s ON s.id = p.school_id
+       LEFT JOIN age_groups pag ON pag.id = p.age_group_id
+       WHERE ($1::int IS NULL OR p.year_id = $1)
+         AND p.confirmed_at IS NULL
+       GROUP BY p.id, p.full_name, p.cpr_number, p.gender, p.dob, p.created_at,
+                p.last_reminder_at, pag.code, s.name,
+                pu.full_name, pu.email, pu.phone, pu.whatsapp_number,
+                pu.whatsapp_number_2, pu.kca_member_no, pu.membership_status
+       ORDER BY p.created_at DESC`,
+      [year_id],
+    );
 
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename="registrations_export.csv"');
-    res.send(csv);
+    const bd = (v) => Number(v || 0).toFixed(3);
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'KCA ITS';
+    wb.created = new Date();
+
+    const styleHeader = (ws) => {
+      const h = ws.getRow(1);
+      h.font = { bold: true };
+      h.alignment = { vertical: 'middle' };
+      ws.views = [{ state: 'frozen', ySplit: 1 }];
+    };
+
+    // Sheet 1 — Completed
+    const ws1 = wb.addWorksheet('Completed');
+    ws1.columns = [
+      { header: 'Participant', key: 'participant_name', width: 26 },
+      { header: 'Type', key: 'entry_type', width: 11 },
+      { header: 'CPR', key: 'cpr_number', width: 14 },
+      { header: 'Gender', key: 'gender', width: 8 },
+      { header: 'DOB', key: 'dob', width: 12 },
+      { header: 'Age Group', key: 'age_group_code', width: 11 },
+      { header: 'School', key: 'school_name', width: 26 },
+      { header: 'Registration Date', key: 'reg_date', width: 16 },
+      { header: 'Registration Time', key: 'reg_time', width: 16 },
+      { header: 'Parent', key: 'parent_name', width: 22 },
+      { header: 'Parent Email', key: 'parent_email', width: 26 },
+      { header: 'Parent Phone', key: 'parent_phone', width: 15 },
+      { header: 'WhatsApp', key: 'parent_whatsapp', width: 15 },
+      { header: 'KCA Member No', key: 'kca_member_no', width: 15 },
+      { header: 'KCA Membership', key: 'kca_membership', width: 15 },
+      { header: 'Events', key: 'events', width: 40 },
+      { header: 'No. of Events', key: 'event_count', width: 13 },
+      { header: 'Total Fee (BD)', key: 'total_fee', width: 14 },
+      { header: 'Payment Status', key: 'payment_status', width: 15 },
+      { header: 'Payment Methods', key: 'payment_methods', width: 18 },
+      { header: 'Paid Confirmed (BD)', key: 'paid_confirmed', width: 18 },
+    ];
+    rows.forEach((r) => ws1.addRow({
+      ...r,
+      total_fee: Number(bd(r.total_fee)),
+      paid_confirmed: Number(bd(r.paid_confirmed)),
+    }));
+    styleHeader(ws1);
+
+    // Sheet 2 — In Progress
+    const ws2 = wb.addWorksheet('In Progress');
+    ws2.columns = [
+      { header: 'Participant', key: 'participant_name', width: 26 },
+      { header: 'CPR', key: 'cpr_number', width: 14 },
+      { header: 'Gender', key: 'gender', width: 8 },
+      { header: 'DOB', key: 'dob', width: 12 },
+      { header: 'Age Group', key: 'age_group_code', width: 11 },
+      { header: 'School', key: 'school_name', width: 26 },
+      { header: 'Started On', key: 'created_date', width: 14 },
+      { header: 'Started At', key: 'created_time', width: 12 },
+      { header: 'Last Reminder', key: 'last_reminder', width: 18 },
+      { header: 'Events So Far', key: 'events', width: 40 },
+      { header: 'No. of Events', key: 'event_count', width: 13 },
+      { header: 'Parent', key: 'parent_name', width: 22 },
+      { header: 'Parent Email', key: 'parent_email', width: 26 },
+      { header: 'Parent Phone', key: 'parent_phone', width: 15 },
+      { header: 'WhatsApp', key: 'parent_whatsapp', width: 15 },
+      { header: 'WhatsApp 2', key: 'parent_whatsapp_2', width: 15 },
+      { header: 'KCA Member No', key: 'kca_member_no', width: 15 },
+      { header: 'KCA Membership', key: 'kca_membership', width: 15 },
+    ];
+    inprog.forEach((r) => ws2.addRow(r));
+    styleHeader(ws2);
+
+    const buf = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="registrations_export.xlsx"');
+    res.send(Buffer.from(buf));
   } catch (err) { next(err); }
 });
 
