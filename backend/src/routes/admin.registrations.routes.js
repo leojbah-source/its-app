@@ -191,6 +191,8 @@ router.get('/registrations/export', requireRole(...staffRoles), async (req, res,
        LEFT JOIN age_groups pag ON pag.id = p.age_group_id
        WHERE ($1::int IS NULL OR p.year_id = $1)
          AND p.confirmed_at IS NULL
+         -- Individual entries only: exclude children who exist solely as team members.
+         AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.participant_id = p.id)
        GROUP BY p.id, p.full_name, p.cpr_number, p.gender, p.dob, p.created_at,
                 p.last_reminder_at, pag.code, s.name,
                 pu.full_name, pu.email, pu.phone, pu.whatsapp_number,
@@ -598,6 +600,11 @@ router.get('/registrations/partial', requireRole(...staffRoles), async (req, res
          AND p.confirmed_at IS NULL
          AND NOT EXISTS (
            SELECT 1 FROM registrations r WHERE r.participant_id = p.id
+         )
+         -- Individual entries only: a child who exists solely as a team member
+         -- is not an in-progress individual registration.
+         AND NOT EXISTS (
+           SELECT 1 FROM team_members tm WHERE tm.participant_id = p.id
          )
        ORDER BY p.created_at DESC`,
       [year_id],

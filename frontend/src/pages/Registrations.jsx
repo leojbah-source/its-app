@@ -304,29 +304,43 @@ export default function Registrations() {
           />
         ) : (
           <>
-          <div className="mb-4 flex rounded-lg border border-slate-300 overflow-hidden w-fit text-sm font-medium">
-            {[['individual', 'Individual events'], ['team', 'Team events']].map(([k, label]) => (
-              <button
-                key={k}
-                onClick={() => setRegTab(k)}
-                className={`px-4 py-2 transition-colors ${
-                  regTab === k ? 'bg-navy-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                {label} ({k === 'individual'
-                  ? visibleRegs.filter((r) => r.participant_id).length
-                  : visibleRegs.filter((r) => r.team_id).length})
-              </button>
-            ))}
-          </div>
-          <RegistrationsTable
-            key={regTab + completion}
-            registrations={regTab === 'individual'
-              ? visibleRegs.filter((r) => r.participant_id)
-              : visibleRegs.filter((r) => r.team_id)}
-            onView={setViewReg}
-            onComplete={setCompleteReg}
-          />
+          {/* Team entries are always complete, so the In-progress view is
+              individual-only. Elsewhere, switch between individual and team. */}
+          {(() => {
+            const tabs = completion === 'incomplete'
+              ? [['individual', 'Individual events']]
+              : [['individual', 'Individual events'], ['team', 'Team events']];
+            const effTab = completion === 'incomplete' ? 'individual' : regTab;
+            return (
+              <>
+              {tabs.length > 1 && (
+                <div className="mb-4 flex rounded-lg border border-slate-300 overflow-hidden w-fit text-sm font-medium">
+                  {tabs.map(([k, label]) => (
+                    <button
+                      key={k}
+                      onClick={() => setRegTab(k)}
+                      className={`px-4 py-2 transition-colors ${
+                        effTab === k ? 'bg-navy-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {label} ({k === 'individual'
+                        ? visibleRegs.filter((r) => r.participant_id).length
+                        : visibleRegs.filter((r) => r.team_id).length})
+                    </button>
+                  ))}
+                </div>
+              )}
+              <RegistrationsTable
+                key={effTab + completion}
+                registrations={effTab === 'individual'
+                  ? visibleRegs.filter((r) => r.participant_id)
+                  : visibleRegs.filter((r) => r.team_id)}
+                onView={setViewReg}
+                onComplete={setCompleteReg}
+              />
+              </>
+            );
+          })()}
           </>
         )
       )}
