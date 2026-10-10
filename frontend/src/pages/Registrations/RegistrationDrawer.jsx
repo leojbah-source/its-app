@@ -61,6 +61,8 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [showIssueForm, setShowIssueForm] = useState(false);
   const [rejectFor, setRejectFor] = useState(null);  // payment id
   const [rejectReason, setRejectReason] = useState('');
+  const [amtFor, setAmtFor] = useState(null);        // payment id being amount-adjusted
+  const [amtVal, setAmtVal] = useState('');
   const [flash, setFlash] = useState('');
   const [msgOpen, setMsgOpen] = useState(false);
   const [msgText, setMsgText] = useState('');
@@ -224,6 +226,19 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
       setFlash(action === 'confirm' ? 'Payment confirmed — parent notified.' : 'Payment rejected — parent notified.');
       setRejectFor(null);
       setRejectReason('');
+      load();
+    } catch (err) { setFlash(err.message); }
+    finally { setBusy(''); }
+  }
+
+  async function doAdjustAmount(id) {
+    const amount = Number(amtVal);
+    if (!(amount > 0)) { setFlash('Enter a valid amount.'); return; }
+    setBusy(`pay${id}`); setFlash('');
+    try {
+      await paymentsApi.updateAmount(token, id, amount);
+      setFlash(`Amount updated to BD ${amount.toFixed(3)}.`);
+      setAmtFor(null); setAmtVal('');
       load();
     } catch (err) { setFlash(err.message); }
     finally { setBusy(''); }
@@ -548,6 +563,22 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
               {/* ── Payments ── */}
               <section>
                 <SectionTitle icon={CreditCard}>Payments</SectionTitle>
+                {(() => {
+                  const due = (data.registrations || [])
+                    .filter((r) => r.status !== 'withdrawn' && r.status !== 'swapped')
+                    .reduce((t, r) => t + Number(r.fee_amount || 0), 0);
+                  const confirmed = (data.payments || [])
+                    .filter((p) => p.status === 'confirmed')
+                    .reduce((t, p) => t + Number(p.amount || 0), 0);
+                  const bal = Math.max(0, due - confirmed);
+                  return (
+                    <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                      <span className="text-slate-500">Total due: <b className="text-slate-700">BD {due.toFixed(3)}</b></span>
+                      <span className="text-slate-500">Confirmed: <b className="text-slate-700">BD {confirmed.toFixed(3)}</b></span>
+                      <span className={bal > 0 ? 'text-amber-600' : 'text-emerald-600'}>Balance: <b>BD {bal.toFixed(3)}</b></span>
+                    </div>
+                  );
+                })()}
                 {data.payments.length === 0 ? (
                   <p className="text-sm text-slate-400">No payments submitted.</p>
                 ) : (
@@ -595,11 +626,27 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                                 </Button>
                               </div>
                             </div>
+                          ) : amtFor === pay.id ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs text-slate-500">New amount (BD)</span>
+                              <input
+                                type="number" step="0.001" min="0" value={amtVal}
+                                onChange={(e) => setAmtVal(e.target.value)}
+                                className="w-28 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                              />
+                              <Button variant="primary" size="sm" loading={busy === `pay${pay.id}`}
+                                onClick={() => doAdjustAmount(pay.id)}>Save</Button>
+                              <Button variant="outline" size="sm" onClick={() => { setAmtFor(null); setAmtVal(''); }}>Cancel</Button>
+                            </div>
                           ) : (
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap gap-2">
                               <Button variant="primary" size="sm" loading={busy === `pay${pay.id}`}
                                 onClick={() => doPayment(pay.id, 'confirm')}>
                                 Confirm payment
+                              </Button>
+                              <Button variant="outline" size="sm"
+                                onClick={() => { setAmtFor(pay.id); setAmtVal(Number(pay.amount).toFixed(3)); }}>
+                                Adjust amount…
                               </Button>
                               <Button variant="outline" size="sm" onClick={() => { setRejectFor(pay.id); setRejectReason(''); }}>
                                 Reject…

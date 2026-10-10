@@ -149,6 +149,7 @@ export const paymentsApi = {
   list: (token, { yearId, status, q } = {}) => request(`/api/admin/payments${qs({ year_id: yearId, status, q })}`, { token }),
   confirm: (token, id) => request(`/api/admin/payments/${id}/confirm`, { method: 'POST', token, body: {} }),
   reject: (token, id, reason) => request(`/api/admin/payments/${id}/reject`, { method: 'POST', token, body: { reason } }),
+  updateAmount: (token, id, amount, reason) => request(`/api/admin/payments/${id}/amount`, { method: 'PUT', token, body: { amount, reason } }),
   refunds: (token, { yearId, status } = {}) => request(`/api/admin/refunds${qs({ year_id: yearId, status })}`, { token }),
   refundConfirm: (token, id, body) => request(`/api/admin/refunds/${id}/confirm`, { method: 'POST', token, body }),
   refundReject: (token, id) => request(`/api/admin/refunds/${id}/reject`, { method: 'POST', token, body: {} }),

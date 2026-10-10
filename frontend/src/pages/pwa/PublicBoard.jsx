@@ -7,6 +7,7 @@
 // (Awards are intentionally NOT shown here — announced separately after contests.)
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import rpLogo from '../../assets/research-point-logo.png';
 import { Trophy, CalendarDays, UserRound, Megaphone, FileText, ChevronDown, Search } from 'lucide-react';
 import { publicApi, API_BASE } from '../../api/client';
 
@@ -66,7 +67,7 @@ export default function PublicBoard() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
           <div className="flex items-center gap-3">
             {asset(year?.its_logo_url) && <img src={asset(year.its_logo_url)} alt="ITS" className="h-11 w-auto object-contain" />}
             {asset(year?.kca_logo_url) && <img src={asset(year.kca_logo_url)} alt="KCA" className="h-9 w-auto object-contain" />}
@@ -75,9 +76,18 @@ export default function PublicBoard() {
               <div className="text-[11px] text-slate-500">Results & Schedule</div>
             </div>
           </div>
-          <Link to="/pwa/login" className="inline-flex items-center gap-1 rounded-lg bg-gold-500 px-3 py-1.5 text-xs font-semibold text-white">
-            <UserRound size={14} /> My results
-          </Link>
+          <div className="flex items-center gap-3">
+            {asset(year?.sponsor_logo_url) && (
+              <img src={asset(year.sponsor_logo_url)} alt={year?.sponsor_name || 'Title sponsor'}
+                   className="h-8 w-auto max-w-[96px] object-contain" />
+            )}
+            <span className="flex items-center rounded bg-white p-px ring-1 ring-slate-200">
+              <img src={rpLogo} alt="Research Point WLL" className="h-6 w-auto object-contain" />
+            </span>
+            <Link to="/pwa/login" className="inline-flex items-center gap-1 rounded-lg bg-gold-500 px-3 py-1.5 text-xs font-semibold text-white">
+              <UserRound size={14} /> My results
+            </Link>
+          </div>
         </div>
       </header>
 

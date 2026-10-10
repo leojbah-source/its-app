@@ -96,6 +96,42 @@ router.post('/payments/:id/confirm', requireRole(...paymentActionRoles), async (
   } catch (err) { next(err); }
 });
 
+// ── PUT /api/admin/payments/:id/amount ───────────────────────────────────────
+// Correct the amount of a PENDING payment before confirming — e.g. an event was
+// added after the parent submitted, so the office actually collected more than
+// the parent first recorded. Only pending payments can be adjusted; confirmed
+// ones are immutable (reject + re-enter instead). Fully audited.
+router.put('/payments/:id/amount', requireRole(...paymentActionRoles), async (req, res, next) => {
+  try {
+    const amount = Number(req.body?.amount);
+    if (!(amount > 0)) return res.status(400).json({ error: 'A positive amount is required' });
+    const reason = (req.body?.reason || '').trim();
+    const cashOnly = req.user.role === 'Registrar';
+
+    const { rows: before } = await pool.query(
+      `SELECT id, amount, method, status FROM payments WHERE id = $1`, [req.params.id]);
+    if (!before[0]) return res.status(404).json({ error: 'Payment not found' });
+    if (before[0].status !== 'pending')
+      return res.status(400).json({ error: 'Only a pending payment can be adjusted.' });
+    if (cashOnly && before[0].method !== 'cash')
+      return res.status(403).json({ error: 'Registrars can only adjust KCA-office (cash) payments.' });
+
+    const note = `Amount adjusted ${Number(before[0].amount).toFixed(3)} → ${amount.toFixed(3)} by ${req.user.role}` +
+      (reason ? ` (${reason})` : '');
+    const { rows } = await pool.query(
+      `UPDATE payments SET amount = $1, notes = COALESCE(notes || E'\n', '') || $2, updated_at = NOW()
+       WHERE id = $3 AND status = 'pending' RETURNING *`,
+      [amount, note, req.params.id]);
+    if (!rows[0]) return res.status(409).json({ error: 'Payment is no longer pending.' });
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'ADJUST_PAYMENT_AMOUNT', entity: 'payments', entityId: rows[0].id,
+      before: { amount: before[0].amount }, details: { amount }, reason: reason || null });
+
+    res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/admin/payments/:id/reject ──────────────────────────────────────
 router.post('/payments/:id/reject', requireRole(...paymentActionRoles), async (req, res, next) => {
   try {
