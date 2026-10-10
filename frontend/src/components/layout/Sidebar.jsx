@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   Settings, ListChecks, Users, Gavel, CalendarClock, Trophy, Wallet,
   Sparkles, ClipboardList, ChevronDown, ClipboardCheck, Megaphone, BadgeDollarSign,
-  UserCog, UserCheck, Combine, Video, Award,
+  UserCog, UserCheck, Combine, Video, Award, FileUp,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import rpLogo from '../../assets/research-point-logo.png';
@@ -17,6 +17,7 @@ const ORG = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
 const NAV_ITEMS = [
   { to: '/admin/events', label: 'Events', icon: ListChecks, active: true, roles: ORG },
   { to: '/admin/registrations', label: 'Registrations', icon: Users, active: true, roles: [...ORG, 'Registrar'] },
+  { to: '/admin/import', label: 'Import walk-ins', icon: FileUp, active: true, roles: ['SuperAdmin', 'Admin', 'Coordinator', 'Registrar'] },
   { to: '/admin/lists', label: 'Lists', icon: ClipboardList, active: true, roles: ORG },
   { to: '/admin/consolidation', label: 'Consolidation', icon: Combine, active: true, roles: ORG },
   { to: '/admin/schedule', label: 'Schedule', icon: CalendarClock, active: true, roles: ORG },
@@ -157,8 +158,8 @@ export default function Sidebar() {
 
       <div className="border-t border-white/10 px-4 py-3">
         <p className="text-sm font-semibold text-white">TalentHub</p>
-        <div className="mt-2 inline-block rounded-md bg-white px-2 py-1.5">
-          <img src={rpLogo} alt="Research Point WLL" className="h-auto w-28" />
+        <div className="mt-2 inline-block rounded bg-white p-px">
+          <img src={rpLogo} alt="Research Point WLL" className="block h-auto w-28" />
         </div>
         <p className="mt-2 text-[10px] text-navy-500">talentscan.kcabah.com</p>
       </div>

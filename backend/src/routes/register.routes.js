@@ -205,7 +205,7 @@ router.get('/config', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, max_individual_events, reg_deadline, team_reg_deadline, teacher_name_deadline,
-              benefit_pay_number, kca_iban, rules_pdf_url, its_logo_url, event_year_label
+              benefit_pay_number, kca_iban, rules_pdf_url, its_logo_url, kca_logo_url, event_year_label
        FROM year_config WHERE is_active = TRUE LIMIT 1`,
     );
     if (!rows[0]) return res.status(404).json({ error: 'No active year configured' });
