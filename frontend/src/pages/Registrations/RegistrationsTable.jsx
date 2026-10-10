@@ -1,6 +1,6 @@
 // src/pages/registrations/RegistrationsTable.jsx
 import { useMemo, useState } from 'react';
-import { ArrowUp, ArrowDown, ArrowUpDown, Search, Eye } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowUpDown, Search, Eye, CheckCircle2 } from 'lucide-react';
 import { Badge } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/States';
@@ -36,7 +36,7 @@ const COLUMNS = [
 
 const PAGE_SIZES = [25, 50, 100];
 
-export default function RegistrationsTable({ registrations, onView }) {
+export default function RegistrationsTable({ registrations, onView, onComplete }) {
   const [mode,     setMode]     = useState('participant'); // 'participant' | 'entries'
   const [search,   setSearch]   = useState('');
   const [status,   setStatus]   = useState('');   // '' = all, 'registered'
@@ -115,6 +115,7 @@ export default function RegistrationsTable({ registrations, onView }) {
           age_group_code: r.age_group_code,
           school_name: r.school_name,
           last_reminder_at: r.last_reminder_at,
+          confirmed_at: r.confirmed_at,
           events: [],
           first: r,
         });
@@ -330,9 +331,17 @@ export default function RegistrationsTable({ registrations, onView }) {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <Button variant="ghost" size="sm" icon={Eye} onClick={() => onView(g.first)}>
-                      View
-                    </Button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      {onComplete && !g.is_team && !g.confirmed_at
+                        && g.events.some((ev) => !ev.no_events && ev.status !== 'withdrawn' && ev.status !== 'swapped') && (
+                        <Button variant="primary" size="sm" icon={CheckCircle2} onClick={() => onComplete(g.first)}>
+                          Complete
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="sm" icon={Eye} onClick={() => onView(g.first)}>
+                        View
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}

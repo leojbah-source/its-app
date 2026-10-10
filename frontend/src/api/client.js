@@ -263,6 +263,21 @@ export const registrationsApi = {
   /** CSV download URL (open in browser tab) */
   exportUrl: () => `${API_BASE}/api/admin/registrations/export`,
 
+  /** Readiness check before completing an in-progress entry (fields/fees/blockers). */
+  completeCheck: (token, id) =>
+    request(`/api/admin/registrations/participant/${id}/complete-check`, { token }),
+  /** Admin: finish an in-progress entry — records optional cash and sets confirmed. */
+  complete: (token, id, body) =>
+    request(`/api/admin/registrations/participant/${id}/complete`, { method: 'POST', token, body }),
+  /** Download the walk-in import template (xlsx). */
+  importTemplateUrl: () => `${API_BASE}/api/admin/registrations/import/template`,
+  /** Validate an uploaded import workbook (no writes) — returns a per-row report. */
+  importValidate: (token, formData) =>
+    request('/api/admin/registrations/import/validate', { method: 'POST', token, body: formData, isFormData: true }),
+  /** Commit a validated import (idempotent, transactional). */
+  importCommit: (token, formData) =>
+    request('/api/admin/registrations/import/commit', { method: 'POST', token, body: formData, isFormData: true }),
+
   /** How many in-progress parents the bulk send will reach right now. */
   remindersEligible: (token) =>
     request('/api/admin/registrations/reminders/eligible', { token }),

@@ -20,7 +20,20 @@ const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { sendWhatsApp, sendWhatsAppImage, sendWhatsAppImageMany, sendWhatsAppMany } = require('../utils/notify');
-const { sendEmail } = require('../utils/email');
+const { sendEmail, registrationConfirmationHtml } = require('../utils/email');
+const bcrypt = require('bcrypt');
+const multer = require('multer');
+const {
+  round3, isBahrainPhone, isIntlPhone, eventFee, genderEligible,
+  cprDobMismatch, parentMemberActive, resolveAgeGroup,
+} = require('../utils/registration');
+
+// In-memory upload for the walk-in Excel import (parsed with exceljs, never
+// written to disk). 5 MB cap — an import sheet is tiny.
+const xlsxUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
 
 const router = express.Router();
 router.use(authenticate);
@@ -262,6 +275,198 @@ router.get('/registrations/export', requireRole(...staffRoles), async (req, res,
     res.send(Buffer.from(buf));
   } catch (err) { next(err); }
 });
+
+// ── Mark an In-Progress registration Completed (admin) ───────────────────────
+// Some parents finish everything in person (events chosen, documents given,
+// cash paid at the office) but never log back in to press "Register". Staff can
+// finish it for them here — but ONLY when every required field is present and at
+// least one valid event is on record. Optionally records the cash paid in
+// office and sends the same acknowledgement the parent flow sends.
+
+// Shared readiness check — pure reads. Returns the participant, their events,
+// fee totals and a list of blockers (must fix) / warnings (informational).
+async function registrationReadiness(db, participantId) {
+  const { rows: pRows } = await db.query(
+    `SELECT p.id, p.year_id, p.full_name, p.cpr_number, p.dob, p.gender,
+            p.school_id, p.age_group_id, p.confirmed_at, p.guardian_phone,
+            s.name AS school_name, ag.code AS age_group_code, ag.label AS age_group_label,
+            pu.id AS parent_id, pu.full_name AS parent_name, pu.email AS parent_email,
+            pu.phone AS parent_phone, pu.whatsapp_number AS parent_whatsapp,
+            pu.whatsapp_number_2 AS parent_whatsapp_2, pu.kca_member_no,
+            pu.membership_status
+     FROM participants p
+     LEFT JOIN schools s ON s.id = p.school_id
+     LEFT JOIN age_groups ag ON ag.id = p.age_group_id
+     LEFT JOIN users pu ON pu.id = p.created_by
+     WHERE p.id = $1`, [participantId]);
+  const p = pRows[0];
+  if (!p) return { notFound: true };
+
+  const { rows: items } = await db.query(
+    `SELECT e.event_code, e.event_name, r.fee_amount, r.id AS registration_id
+     FROM registrations r JOIN events e ON e.id = r.event_id
+     WHERE r.participant_id = $1 AND r.status NOT IN ('withdrawn','swapped')
+     ORDER BY e.event_code`, [participantId]);
+
+  const { rows: pays } = await db.query(
+    `SELECT amount, method, status FROM payments WHERE participant_id = $1 ORDER BY created_at`,
+    [participantId]);
+
+  const feesTotal = round3(items.reduce((t, r) => t + Number(r.fee_amount || 0), 0));
+  const paidConfirmed = round3(pays.filter((x) => x.status === 'confirmed')
+    .reduce((t, x) => t + Number(x.amount), 0));
+  const paidSubmitted = round3(pays.filter((x) => x.status === 'pending' || x.status === 'confirmed')
+    .reduce((t, x) => t + Number(x.amount), 0));
+
+  const blockers = [];
+  if (!p.full_name || !String(p.full_name).trim()) blockers.push('Full name is missing');
+  if (!p.dob) blockers.push('Date of birth is missing');
+  if (!(p.gender === 'M' || p.gender === 'F')) blockers.push('Gender (Male/Female) is missing');
+  if (!p.cpr_number || !String(p.cpr_number).trim()) {
+    blockers.push('CPR number is missing');
+  } else if (p.dob) {
+    const cprErr = cprDobMismatch(p.cpr_number, p.dob);
+    if (cprErr) blockers.push(cprErr);
+  }
+  if (items.length === 0) blockers.push('No events selected — at least one event is required');
+
+  const warnings = [];
+  if (!p.school_id) warnings.push('School is not recorded');
+  if (!p.confirmed_at && feesTotal > 0 && paidConfirmed + 0.0001 < feesTotal) {
+    warnings.push(`Balance of BD ${round3(feesTotal - paidConfirmed).toFixed(3)} not yet recorded as paid`);
+  }
+  if (p.confirmed_at) warnings.push('This entry is already completed');
+
+  return {
+    p, items, pays, feesTotal, paidConfirmed, paidSubmitted,
+    balanceDue: round3(Math.max(0, feesTotal - paidConfirmed)),
+    memberRateApplied: p.membership_status === 'active',
+    blockers, warnings,
+    ready: blockers.length === 0,
+  };
+}
+
+// GET readiness for the completion modal (fields present/missing, fees, balance).
+router.get('/registrations/participant/:id/complete-check',
+  requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const r = await registrationReadiness(pool, req.params.id);
+    if (r.notFound) return res.status(404).json({ error: 'Participant not found' });
+    res.json({
+      participant: {
+        id: r.p.id, full_name: r.p.full_name, cpr_number: r.p.cpr_number,
+        dob: r.p.dob, gender: r.p.gender, school_id: r.p.school_id,
+        school_name: r.p.school_name, age_group_code: r.p.age_group_code,
+        confirmed_at: r.p.confirmed_at,
+      },
+      parent: {
+        name: r.p.parent_name, email: r.p.parent_email,
+        phone: r.p.parent_phone, whatsapp: r.p.parent_whatsapp,
+        kca_member_no: r.p.kca_member_no, membership_status: r.p.membership_status,
+      },
+      events: r.items.map((i) => ({ event_code: i.event_code, event_name: i.event_name, fee_amount: Number(i.fee_amount || 0) })),
+      event_count: r.items.length,
+      fees: {
+        total_due: r.feesTotal, paid_confirmed: r.paidConfirmed,
+        paid_submitted: r.paidSubmitted, balance_due: r.balanceDue,
+        member_rate_applied: r.memberRateApplied,
+      },
+      blockers: r.blockers, warnings: r.warnings, ready: r.ready,
+    });
+  } catch (err) { next(err); }
+});
+
+// POST complete — records an optional cash payment and sets confirmed_at.
+router.post('/registrations/participant/:id/complete',
+  requireRole(...editRoles), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const { cash_amount, payment_method, payment_reference, send_confirmation } = req.body || {};
+
+    await client.query('BEGIN');
+    const r = await registrationReadiness(client, req.params.id);
+    if (r.notFound) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Participant not found' }); }
+    if (!r.ready) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Cannot complete — required details are missing', blockers: r.blockers });
+    }
+    const p = r.p;
+
+    // Backfill the age group from DOB if it was never set (keeps results/age-group
+    // reporting correct). Never overwrites an existing value.
+    if (!p.age_group_id) {
+      const agId = await resolveAgeGroup(p.dob, p.year_id, client);
+      if (agId) await client.query(
+        `UPDATE participants SET age_group_id = $1, updated_at = NOW() WHERE id = $2 AND age_group_id IS NULL`,
+        [agId, p.id]);
+    }
+
+    // Optional: record cash (or other) paid in office as a CONFIRMED payment.
+    let paid_recorded = 0;
+    const amt = Number(cash_amount || 0);
+    if (amt > 0) {
+      const method = payment_method || 'cash';
+      if (!['cash', 'benefitpay', 'bank_transfer'].includes(method)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: "payment_method must be 'cash', 'benefitpay' or 'bank_transfer'" });
+      }
+      await client.query(
+        `INSERT INTO payments
+           (year_id, parent_user_id, participant_id, amount, method, status,
+            reference, notes, confirmed_by, confirmed_at, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,'confirmed',$6,$7,$8,NOW(),NOW(),NOW())`,
+        [p.year_id, p.parent_id, p.id, round3(amt), method,
+         payment_reference || null,
+         `Recorded at office by ${req.user.role} on completion`, req.user.id]);
+      paid_recorded = round3(amt);
+    }
+
+    // Mark complete — this is what moves it into the Completed list.
+    await client.query(
+      `UPDATE participants SET confirmed_at = COALESCE(confirmed_at, NOW()), updated_at = NOW() WHERE id = $1`,
+      [p.id]);
+
+    await client.query('COMMIT');
+
+    // Acknowledgement (same content as the parent self-service confirm) — only
+    // when staff asked for it, and only if the parent account has an email.
+    let email_sent = false;
+    if (send_confirmation && p.parent_email) {
+      try {
+        const { rows: yl } = await pool.query(
+          `SELECT event_year_label, rules_pdf_url, its_logo_url FROM year_config WHERE id = $1`, [p.year_id]);
+        const result = await sendEmail({
+          to: p.parent_email,
+          subject: `${yl[0]?.event_year_label || 'KCA ITS'} — Registration confirmed for ${p.full_name}`,
+          html: registrationConfirmationHtml({
+            yearLabel: yl[0]?.event_year_label, rulesUrl: yl[0]?.rules_pdf_url, logoUrl: yl[0]?.its_logo_url,
+            parent: { full_name: p.parent_name, email: p.parent_email, phone: p.parent_phone,
+                      whatsapp_number: p.parent_whatsapp, kca_member_no: p.kca_member_no },
+            participant: p, items: r.items, payments: r.pays,
+            summary: { fees_total: r.feesTotal, paid_confirmed: round3(r.paidConfirmed + paid_recorded),
+                       balance_due: round3(Math.max(0, r.feesTotal - r.paidConfirmed - paid_recorded)) },
+          }),
+        });
+        email_sent = result.sent;
+      } catch (e) { console.error('completion email failed:', e.message); }
+    }
+    if (send_confirmation && p.guardian_phone) {
+      sendWhatsApp(p.guardian_phone,
+        `KCA ITS: Registration for ${p.full_name} is now complete — ${r.items.length} event(s). Thank you!`)
+        .catch(() => null);
+    }
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'ADMIN_COMPLETE_REGISTRATION', entity: 'participants', entityId: p.id,
+      details: { events: r.items.length, paid_recorded, email_sent } });
+
+    res.json({ completed: true, events: r.items.length, paid_recorded, email_sent });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
+    next(err);
+  } finally { client.release(); }
+});
+
 
 // ── GET /api/admin/participants ───────────────────────────────────────────────
 // List participants for the active year with registration counts.
@@ -1038,5 +1243,562 @@ router.put('/participants/:id/identity', requireRole(...editRoles), async (req, 
     next(err);
   }
 });
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// Walk-in Excel import  —  template · validate (dry-run) · commit
+// ────────────────────────────────────────────────────────────────────────────
+// For parents who give all details in person / over WhatsApp and pay in office.
+// Staff fill the template, upload it, review a validation report, then commit.
+// Validation performs NO writes. Commit is transactional + idempotent: existing
+// parents/participants/registrations are reused, never duplicated or altered
+// beyond harmless back-fills, so live data is safe.
+// ════════════════════════════════════════════════════════════════════════════
+
+const IMPORT_COLUMNS = [
+  'Full Name', 'CPR', 'Gender (M/F)', 'DOB (YYYY-MM-DD)', 'School',
+  'Parent Name', 'Parent Email', 'Parent Phone', 'WhatsApp', 'KCA Member No',
+  'Event Codes', 'Cash Paid (BD)', 'Payment Method', 'Payment Ref',
+];
+
+// Flexible header → canonical key mapping (case/space-insensitive).
+const HEADER_ALIASES = {
+  full_name:   ['full name', 'participant', 'name', 'participant name'],
+  cpr:         ['cpr', 'cpr number', 'cpr no', 'cpr no.'],
+  gender:      ['gender', 'gender (m/f)', 'sex'],
+  dob:         ['dob', 'dob (yyyy-mm-dd)', 'date of birth', 'birth date'],
+  school:      ['school', 'school name'],
+  parent_name: ['parent', 'parent name', 'guardian', 'guardian name'],
+  parent_email:['parent email', 'email', 'e-mail'],
+  parent_phone:['parent phone', 'phone', 'contact', 'contact number', 'mobile'],
+  whatsapp:    ['whatsapp', 'whatsapp number', 'whatsapp no', 'wa'],
+  member_no:   ['kca member no', 'member no', 'kca membership no', 'membership no', 'kca member'],
+  event_codes: ['event codes', 'events', 'event code', 'event'],
+  cash:        ['cash paid (bd)', 'cash paid', 'amount paid', 'paid', 'amount'],
+  pay_method:  ['payment method', 'method'],
+  pay_ref:     ['payment ref', 'reference', 'receipt no', 'receipt', 'txn no'],
+};
+
+const OFFICE_EMAIL = 'walkin.office@its.local';
+
+function normHeader(h) { return String(h ?? '').trim().toLowerCase(); }
+
+function keyForHeader(h) {
+  const n = normHeader(h);
+  for (const [key, aliases] of Object.entries(HEADER_ALIASES)) {
+    if (aliases.includes(n)) return key;
+  }
+  return null;
+}
+
+// Excel cells: a DOB may be a JS Date (date cell) or a string. Normalise to
+// 'YYYY-MM-DD' using UTC parts (exceljs stores dates at UTC midnight).
+function parseDob(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date && !isNaN(v)) {
+    return `${v.getUTCFullYear()}-${String(v.getUTCMonth() + 1).padStart(2, '0')}-${String(v.getUTCDate()).padStart(2, '0')}`;
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);          // YYYY-MM-DD
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);              // DD-MM-YYYY
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  const d = new Date(s);
+  if (!isNaN(d)) return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return null; // unparseable
+}
+
+const cellText = (v) => {
+  if (v == null) return '';
+  if (typeof v === 'object') {
+    if (v.text) return String(v.text).trim();           // rich text / hyperlink
+    if (v.result != null) return String(v.result).trim(); // formula
+    if (v instanceof Date) return v.toISOString();
+  }
+  return String(v).trim();
+};
+
+function splitCodes(raw) {
+  return [...new Set(
+    String(raw ?? '').split(/[\s,;/|]+/).map((c) => c.trim().toUpperCase()).filter(Boolean),
+  )];
+}
+
+// Parse the uploaded workbook into an array of raw row objects keyed canonically.
+async function parseImportWorkbook(buffer) {
+  const ExcelJS = require('exceljs');
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  // Prefer a sheet named "Registrations"; else the first worksheet.
+  const ws = wb.getWorksheet('Registrations') || wb.worksheets[0];
+  if (!ws) return { error: 'The workbook has no sheets.' };
+
+  // Build header map from the first row.
+  const headerRow = ws.getRow(1);
+  const colKey = {}; // column index → canonical key
+  headerRow.eachCell((cell, col) => {
+    const k = keyForHeader(cell.value);
+    if (k) colKey[col] = k;
+  });
+  if (!Object.values(colKey).includes('full_name') || !Object.values(colKey).includes('cpr')) {
+    return { error: 'Could not find the expected header row (need at least "Full Name" and "CPR"). Use the provided template.' };
+  }
+
+  const dobCol = Object.keys(colKey).find((c) => colKey[c] === 'dob');
+  const rows = [];
+  ws.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const obj = { _row: rowNumber };
+    let any = false;
+    for (const [col, key] of Object.entries(colKey)) {
+      const raw = row.getCell(Number(col)).value;
+      obj[key] = key === 'dob' ? parseDob(raw) : cellText(raw);
+      if (key === 'dob' ? raw != null : obj[key]) any = true;
+    }
+    obj._dobRaw = dobCol ? cellText(row.getCell(Number(dobCol)).value) : '';
+    // skip blank rows and the template EXAMPLE row
+    if (!any) return;
+    if (/^example\b/i.test(obj.full_name || '')) return;
+    rows.push(obj);
+  });
+  return { rows };
+}
+
+// Shared validation — builds a per-row plan with resolved ids for commit.
+// Pure reads only.
+async function buildImportPlan(db, rows) {
+  const { rows: cfg } = await db.query(
+    `SELECT id, max_individual_events FROM year_config WHERE is_active = TRUE LIMIT 1`);
+  const year = cfg[0];
+  if (!year) return { error: 'No active year is configured.' };
+
+  const { rows: schools } = await db.query(
+    `SELECT id, name FROM schools WHERE is_active = TRUE`);
+  const schoolByName = new Map(schools.map((s) => [s.name.trim().toLowerCase(), s]));
+
+  const { rows: events } = await db.query(
+    `SELECT id, event_code, event_name, fee_amount, member_fee_amount, gender_split,
+            category_id, is_cancelled
+     FROM events WHERE year_id = $1 AND event_kind = 'individual'`, [year.id]);
+  const eventByCode = new Map(events.map((e) => [e.event_code.trim().toUpperCase(), e]));
+
+  const { rows: eag } = await db.query(
+    `SELECT eag.event_id, eag.age_group_id FROM event_age_groups eag
+     JOIN events e ON e.id = eag.event_id WHERE e.year_id = $1`, [year.id]);
+  const ageGroupsByEvent = new Map();
+  for (const r of eag) {
+    if (!ageGroupsByEvent.has(r.event_id)) ageGroupsByEvent.set(r.event_id, new Set());
+    ageGroupsByEvent.get(r.event_id).add(r.age_group_id);
+  }
+
+  const plan = [];
+  for (const row of rows) {
+    const errors = [];
+    const warnings = [];
+    const full_name = (row.full_name || '').trim();
+    const cpr = (row.cpr || '').replace(/\s/g, '');
+    const gender = (row.gender || '').trim().toUpperCase().slice(0, 1);
+    const dob = row.dob; // already normalised or null
+    const entry = {
+      row: row._row, full_name, cpr,
+      gender: gender === 'M' || gender === 'F' ? gender : '',
+      dob, school_name: (row.school || '').trim(),
+      parent_name: (row.parent_name || '').trim(),
+      parent_email: (row.parent_email || '').trim().toLowerCase(),
+      parent_phone: (row.parent_phone || '').trim(),
+      whatsapp: (row.whatsapp || '').trim(),
+      member_no: (row.member_no || '').trim(),
+      cash: Number(row.cash || 0) || 0,
+      pay_method: (row.pay_method || '').trim().toLowerCase().replace(/\s+/g, '_') || 'cash',
+      pay_ref: (row.pay_ref || '').trim(),
+      errors, warnings,
+    };
+
+    // Required identity fields
+    if (!full_name) errors.push('Full name is required');
+    if (!cpr) errors.push('CPR is required');
+    if (!(gender === 'M' || gender === 'F')) errors.push('Gender must be M or F');
+    if (!dob) errors.push(`Date of birth missing or unreadable${row._dobRaw ? ` ("${row._dobRaw}")` : ''} — use YYYY-MM-DD`);
+
+    // CPR ↔ DOB
+    if (cpr && dob) {
+      const cprErr = cprDobMismatch(cpr, dob);
+      if (cprErr) errors.push(cprErr);
+    }
+
+    // Age group from DOB
+    let ageGroupId = null;
+    if (dob) {
+      ageGroupId = await resolveAgeGroup(dob, year.id, db);
+      if (!ageGroupId) errors.push(`Date of birth ${dob} does not fall in any age group`);
+    }
+    entry.age_group_id = ageGroupId;
+
+    // School (optional but validated if given)
+    let schoolId = null;
+    if (entry.school_name) {
+      const sc = schoolByName.get(entry.school_name.toLowerCase());
+      if (sc) schoolId = sc.id;
+      else errors.push(`School "${entry.school_name}" not found — check spelling against the Schools tab`);
+    } else {
+      warnings.push('No school given');
+    }
+    entry.school_id = schoolId;
+
+    // Phone sanity (non-blocking)
+    if (entry.parent_phone && !isBahrainPhone(entry.parent_phone)) warnings.push('Parent phone is not a valid 8-digit Bahrain number');
+    if (entry.whatsapp && !isIntlPhone(entry.whatsapp)) warnings.push('WhatsApp number looks invalid');
+
+    // Payment method
+    if (!['cash', 'benefitpay', 'bank_transfer'].includes(entry.pay_method)) {
+      warnings.push(`Unknown payment method "${entry.pay_method}" — treated as cash`);
+      entry.pay_method = 'cash';
+    }
+
+    // Parent account resolution (reuse by email / create / office fallback)
+    let parentMember = false;
+    if (entry.parent_email) {
+      const { rows: u } = await db.query(
+        `SELECT id, membership_status FROM users WHERE email = $1`, [entry.parent_email]);
+      if (u[0]) { entry.parent_action = 'reuse'; entry.parent_id = u[0].id; parentMember = u[0].membership_status === 'active'; }
+      else entry.parent_action = 'create';
+    } else {
+      entry.parent_action = 'office';
+      warnings.push('No parent email — will be grouped under the shared office account');
+    }
+    entry.member_rate = parentMember;
+
+    // Existing participant?
+    let participant = null;
+    if (cpr) {
+      const { rows: p } = await db.query(
+        `SELECT id, confirmed_at, gender, school_id FROM participants WHERE cpr_number = $1 AND year_id = $2`,
+        [cpr, year.id]);
+      participant = p[0] || null;
+    }
+    entry.participant_id = participant?.id || null;
+    entry.participant_exists = !!participant;
+    if (participant?.confirmed_at) warnings.push('This participant is already completed — events will be added if new');
+
+    // Event codes
+    const codes = splitCodes(row.event_codes);
+    if (codes.length === 0) errors.push('At least one event code is required');
+    const resolvedEvents = [];
+    let totalFee = 0;
+    for (const code of codes) {
+      const ev = eventByCode.get(code);
+      if (!ev) { errors.push(`Event code "${code}" not found (individual events only)`); continue; }
+      if (ev.is_cancelled) { errors.push(`Event "${code}" is cancelled`); continue; }
+      if (ageGroupId && !(ageGroupsByEvent.get(ev.id)?.has(ageGroupId))) {
+        errors.push(`Event "${code}" is not open to this child's age group`); continue;
+      }
+      if (!genderEligible(ev.gender_split, entry.gender)) {
+        errors.push(`Event "${code}" is restricted to ${ev.gender_split} only`); continue;
+      }
+      // already registered?
+      let action = 'add';
+      if (participant) {
+        const { rows: ex } = await db.query(
+          `SELECT status FROM registrations WHERE participant_id = $1 AND event_id = $2`,
+          [participant.id, ev.id]);
+        if (ex[0] && ex[0].status !== 'withdrawn') action = 'skip';
+      }
+      const fee = eventFee(ev, parentMember);
+      if (action === 'add') totalFee = round3(totalFee + fee);
+      resolvedEvents.push({ code, event_id: ev.id, event_name: ev.event_name,
+        category_id: ev.category_id, fee, action });
+    }
+    entry.events = resolvedEvents;
+    entry.total_fee = totalFee;
+    const toAdd = resolvedEvents.filter((e) => e.action === 'add').length;
+
+    // Max individual events cap (existing active + new)
+    if (participant && toAdd > 0) {
+      const { rows: cnt } = await db.query(
+        `SELECT COUNT(*)::int AS c FROM registrations
+         WHERE participant_id = $1 AND status NOT IN ('withdrawn','swapped')`, [participant.id]);
+      if (cnt[0].c + toAdd > year.max_individual_events)
+        errors.push(`Would exceed the ${year.max_individual_events}-event limit (already has ${cnt[0].c})`);
+    } else if (toAdd > year.max_individual_events) {
+      errors.push(`More than the ${year.max_individual_events}-event limit`);
+    }
+
+    entry.will_import = errors.length === 0 && toAdd > 0;
+    if (errors.length === 0 && toAdd === 0) warnings.push('All listed events are already registered — nothing new to add');
+    entry.status = errors.length ? 'error' : (toAdd === 0 ? 'skip' : (warnings.length ? 'warning' : 'ok'));
+    plan.push(entry);
+  }
+
+  const summary = {
+    total: plan.length,
+    importable: plan.filter((p) => p.will_import).length,
+    errors: plan.filter((p) => p.status === 'error').length,
+    skip: plan.filter((p) => p.status === 'skip').length,
+    warnings: plan.filter((p) => p.status === 'warning').length,
+  };
+  return { year, plan, summary };
+}
+
+// Strip internal ids before returning the plan to the browser.
+function publicPlan(plan) {
+  return plan.map((p) => ({
+    row: p.row, status: p.status, will_import: p.will_import,
+    full_name: p.full_name, cpr: p.cpr, gender: p.gender, dob: p.dob,
+    age_group_id: p.age_group_id, school_name: p.school_name,
+    parent_name: p.parent_name, parent_email: p.parent_email, parent_action: p.parent_action,
+    member_rate: p.member_rate,
+    events: p.events.map((e) => ({ code: e.code, event_name: e.event_name, fee: e.fee, action: e.action })),
+    total_fee: p.total_fee, cash: p.cash, pay_method: p.pay_method,
+    errors: p.errors, warnings: p.warnings,
+  }));
+}
+
+// GET template workbook
+router.get('/registrations/import/template', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const { rows: cfg } = await pool.query(
+      `SELECT id, event_year_label, max_individual_events FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    const year = cfg[0];
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'KCA ITS';
+
+    const ws = wb.addWorksheet('Registrations');
+    ws.columns = IMPORT_COLUMNS.map((h) => ({ header: h, key: h, width: Math.max(14, h.length + 2) }));
+    ws.getRow(1).font = { bold: true };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    // Example row (removed automatically on import — starts with EXAMPLE)
+    ws.addRow(['EXAMPLE Child Name', '101234567', 'M', '2015-03-22', '',
+      'Parent Name', 'parent@email.com', '39000000', '39000000', '',
+      'S01, S06', '', 'cash', '']);
+    ws.getRow(2).font = { italic: true, color: { argb: 'FF999999' } };
+
+    const ins = wb.addWorksheet('Instructions');
+    ins.columns = [{ width: 100 }];
+    [
+      `KCA ITS — Walk-in registration import${year?.event_year_label ? ` (${year.event_year_label})` : ''}`,
+      '',
+      'Fill one row per child on the "Registrations" tab. Delete the grey EXAMPLE row.',
+      '',
+      'Required columns:  Full Name,  CPR,  Gender (M or F),  DOB (YYYY-MM-DD),  Event Codes.',
+      'Event Codes: one or more codes separated by commas or spaces, e.g.  S01, S06.',
+      '   See the "Event Codes" tab for valid codes (individual events only).',
+      'School: must match a name on the "Schools" tab exactly (optional but recommended).',
+      'Parent Email: if given, the child is linked to that parent account (created if new, so',
+      '   they can later log in). If blank, the child is grouped under the shared office account.',
+      'Cash Paid (BD): amount taken in office (optional). Payment Method: cash / benefitpay / bank_transfer.',
+      '',
+      'Nothing is saved when you upload — you first see a validation report. You then press',
+      'Confirm to import. Re-running the same file will not create duplicates.',
+      `Each child may register up to ${year?.max_individual_events ?? ''} individual events.`,
+    ].forEach((line) => ins.addRow([line]));
+    ins.getRow(1).font = { bold: true, size: 13 };
+
+    // Reference: event codes
+    const { rows: events } = await pool.query(
+      `SELECT event_code, event_name, fee_amount, member_fee_amount, gender_split
+       FROM events WHERE year_id = $1 AND event_kind = 'individual' AND is_cancelled = FALSE
+       ORDER BY event_code`, [year?.id]);
+    const evWs = wb.addWorksheet('Event Codes');
+    evWs.columns = [
+      { header: 'Code', key: 'c', width: 18 }, { header: 'Event', key: 'n', width: 34 },
+      { header: 'Fee (BD)', key: 'f', width: 10 }, { header: 'Member Fee (BD)', key: 'm', width: 16 },
+      { header: 'For', key: 'g', width: 10 },
+    ];
+    evWs.getRow(1).font = { bold: true };
+    events.forEach((e) => evWs.addRow({
+      c: e.event_code, n: e.event_name,
+      f: Number(e.fee_amount || 0), m: e.member_fee_amount != null ? Number(e.member_fee_amount) : Number(e.fee_amount || 0),
+      g: e.gender_split === 'boys' ? 'Boys' : e.gender_split === 'girls' ? 'Girls' : 'All',
+    }));
+
+    // Reference: schools
+    const { rows: schools } = await pool.query(
+      `SELECT name FROM schools WHERE is_active = TRUE ORDER BY name`);
+    const scWs = wb.addWorksheet('Schools');
+    scWs.columns = [{ header: 'School Name (copy exactly)', key: 's', width: 50 }];
+    scWs.getRow(1).font = { bold: true };
+    schools.forEach((s) => scWs.addRow({ s: s.name }));
+
+    const buf = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="its-import-template.xlsx"');
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+});
+
+// POST validate (dry-run) — parse + validate, NO writes.
+router.post('/registrations/import/validate', requireRole(...editRoles),
+  xlsxUpload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Please attach the filled .xlsx file.' });
+    const parsed = await parseImportWorkbook(req.file.buffer);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    if (!parsed.rows.length) return res.status(400).json({ error: 'No data rows found in the workbook.' });
+    const built = await buildImportPlan(pool, parsed.rows);
+    if (built.error) return res.status(400).json({ error: built.error });
+    res.json({ summary: built.summary, rows: publicPlan(built.plan) });
+  } catch (err) { next(err); }
+});
+
+// POST commit — re-validate then write, transactionally and idempotently.
+router.post('/registrations/import/commit', requireRole(...editRoles),
+  xlsxUpload.single('file'), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Please attach the filled .xlsx file.' });
+    const parsed = await parseImportWorkbook(req.file.buffer);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    const built = await buildImportPlan(client, parsed.rows);
+    if (built.error) return res.status(400).json({ error: built.error });
+    const year = built.year;
+
+    // Ensure the shared office account exists if any row needs it.
+    let officeId = null;
+    const needOffice = built.plan.some((p) => p.will_import && p.parent_action === 'office');
+    if (needOffice) {
+      const { rows: o } = await client.query(`SELECT id FROM users WHERE email = $1`, [OFFICE_EMAIL]);
+      if (o[0]) officeId = o[0].id;
+      else {
+        const hash = await bcrypt.hash(require('crypto').randomBytes(12).toString('hex'), 10);
+        const { rows: ins } = await client.query(
+          `INSERT INTO users (full_name, email, password_hash, role, is_active, created_at, updated_at)
+           VALUES ('Office / Walk-in', $1, $2, 'Viewer', TRUE, NOW(), NOW()) RETURNING id`,
+          [OFFICE_EMAIL, hash]);
+        officeId = ins[0].id;
+      }
+    }
+
+    const results = [];
+    let created = 0, reusedParticipants = 0, addedEvents = 0, paymentsRecorded = 0, parentsCreated = 0;
+
+    for (const p of built.plan) {
+      if (!p.will_import) {
+        results.push({ row: p.row, full_name: p.full_name, status: p.status,
+          message: p.errors[0] || p.warnings[0] || 'Skipped', events_added: 0 });
+        continue;
+      }
+      await client.query('SAVEPOINT imp');
+      try {
+        // 1) Parent account — reuse by email (incl. one created earlier in THIS
+        // file), create only when truly new, else the shared office account.
+        let parentId = p.parent_id || null;
+        if (!parentId && p.parent_action === 'create') {
+          const { rows: existing } = await client.query(
+            `SELECT id FROM users WHERE email = $1`, [p.parent_email]);
+          if (existing[0]) {
+            parentId = existing[0].id;
+          } else {
+            const hash = await bcrypt.hash(require('crypto').randomBytes(12).toString('hex'), 10);
+            const { rows: u } = await client.query(
+              `INSERT INTO users (full_name, email, phone, whatsapp_number, kca_member_no, password_hash, role, is_active, created_at, updated_at)
+               VALUES ($1,$2,$3,$4,$5,$6,'Viewer',TRUE,NOW(),NOW()) RETURNING id`,
+              [p.parent_name || 'Parent', p.parent_email,
+               isBahrainPhone(p.parent_phone) ? p.parent_phone : null,
+               p.whatsapp || null, p.member_no || null, hash]);
+            parentId = u[0].id;
+            parentsCreated++;
+          }
+        }
+        if (!parentId) parentId = officeId;
+
+        // 2) Participant (reuse by CPR+year, else create). Re-check here so a
+        // child listed twice in one file is reused rather than colliding.
+        let participantId = p.participant_id;
+        if (!participantId) {
+          const { rows: again } = await client.query(
+            `SELECT id FROM participants WHERE cpr_number = $1 AND year_id = $2`, [p.cpr, year.id]);
+          if (again[0]) participantId = again[0].id;
+        }
+        if (participantId) {
+          await client.query(
+            `UPDATE participants
+               SET gender = COALESCE(gender, $1), school_id = COALESCE(school_id, $2),
+                   age_group_id = COALESCE(age_group_id, $3), updated_at = NOW()
+             WHERE id = $4`,
+            [p.gender || null, p.school_id || null, p.age_group_id || null, participantId]);
+          reusedParticipants++;
+        } else {
+          const { rows: np } = await client.query(
+            `INSERT INTO participants
+               (year_id, cpr_number, full_name, dob, gender, school_id, age_group_id,
+                guardian_name, guardian_phone, cpr_verified_method, created_by, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'manual',$10,NOW(),NOW()) RETURNING id`,
+            [year.id, p.cpr, p.full_name, p.dob, p.gender, p.school_id || null, p.age_group_id || null,
+             p.parent_name || null, isBahrainPhone(p.parent_phone) ? p.parent_phone : null, parentId]);
+          participantId = np[0].id;
+          created++;
+        }
+
+        // 3) Registrations for each new event code
+        let addedHere = 0;
+        for (const ev of p.events) {
+          if (ev.action !== 'add') continue;
+          const { rows: ex } = await client.query(
+            `SELECT id, status FROM registrations WHERE participant_id = $1 AND event_id = $2`,
+            [participantId, ev.event_id]);
+          if (ex[0] && ex[0].status !== 'withdrawn') continue; // already active
+          if (ex[0]) {
+            await client.query(
+              `UPDATE registrations SET status='registered', fee_amount=$1, age_group_id=$2,
+                 category_id=$3, registered_by=$4, updated_at=NOW() WHERE id=$5`,
+              [ev.fee, p.age_group_id, ev.category_id, req.user.id, ex[0].id]);
+          } else {
+            await client.query(
+              `INSERT INTO registrations
+                 (year_id, participant_id, event_id, age_group_id, category_id, fee_amount,
+                  status, registered_by, registered_at, updated_at)
+               VALUES ($1,$2,$3,$4,$5,$6,'registered',$7,NOW(),NOW())`,
+              [year.id, participantId, ev.event_id, p.age_group_id, ev.category_id, ev.fee, req.user.id]);
+          }
+          addedHere++;
+        }
+        addedEvents += addedHere;
+
+        // 4) Record cash paid in office (guarded: only if none confirmed yet)
+        if (p.cash > 0) {
+          const { rows: paid } = await client.query(
+            `SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE participant_id=$1 AND status='confirmed'`,
+            [participantId]);
+          if (Number(paid[0].s) === 0) {
+            await client.query(
+              `INSERT INTO payments
+                 (year_id, parent_user_id, participant_id, amount, method, status, reference, notes, confirmed_by, confirmed_at, created_at, updated_at)
+               VALUES ($1,$2,$3,$4,$5,'confirmed',$6,$7,$8,NOW(),NOW(),NOW())`,
+              [year.id, parentId, participantId, round3(p.cash), p.pay_method,
+               p.pay_ref || null, `Walk-in import by ${req.user.role}`, req.user.id]);
+            paymentsRecorded++;
+          }
+        }
+
+        // 5) Mark complete
+        await client.query(
+          `UPDATE participants SET confirmed_at = COALESCE(confirmed_at, NOW()), updated_at = NOW() WHERE id = $1`,
+          [participantId]);
+
+        await client.query('RELEASE SAVEPOINT imp');
+        results.push({ row: p.row, full_name: p.full_name, status: 'imported', events_added: addedHere });
+      } catch (rowErr) {
+        await client.query('ROLLBACK TO SAVEPOINT imp');
+        results.push({ row: p.row, full_name: p.full_name, status: 'failed', events_added: 0, message: rowErr.message });
+      }
+    }
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'IMPORT_REGISTRATIONS', entity: 'participants', entityId: null,
+      details: { created, reusedParticipants, addedEvents, paymentsRecorded, parentsCreated } });
+
+    res.json({
+      committed: true,
+      summary: { created, reused_participants: reusedParticipants, events_added: addedEvents,
+payments_recorded: paymentsRecorded, parents_created: parentsCreated,
+        failed: results.filter((r) => r.status === 'failed').length },
+      results,
+    });
+  } catch (err) {
+    next(err);
+  } finally { client.release(); }
+});
+
 
 module.exports = router;

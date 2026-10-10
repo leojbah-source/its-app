@@ -5,13 +5,15 @@
 //   3. Summary        — counts per event/age group for split-merge monitoring
 
 import { useEffect, useState, useCallback } from 'react';
-import { Download, RefreshCw, Users, ClipboardList, BarChart2 } from 'lucide-react';
+import { Download, RefreshCw, Users, ClipboardList, BarChart2, FileUp } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import AdminLayout from '../components/layout/AdminLayout';
 import { useAuth } from '../context/AuthContext';
 import { registrationsApi, participantsApi, API_BASE } from '../api/client';
 import RegistrationsTable from './Registrations/RegistrationsTable';
 import { useState as useTabState } from 'react';
 import RegistrationDrawer from './Registrations/RegistrationDrawer';
+import CompleteModal from './Registrations/CompleteModal';
 import { EmptyState, ErrorBanner, PageLoader } from '../components/ui/States';
 import { Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -28,6 +30,7 @@ export default function Registrations() {
   const { token } = useAuth();
   const [regTab, setRegTab] = useTabState('individual');
   const [activeTab, setActiveTab] = useState('registrations');
+  const [completeReg, setCompleteReg] = useState(null);
   const [completion, setCompletion] = useState('completed'); // completed | incomplete | all
   const [reminderDue, setReminderDue] = useState(null); // server-side eligible count
 
@@ -182,6 +185,13 @@ export default function Registrations() {
           >
             Refresh
           </Button>
+          <Link
+            to="/admin/import"
+            className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition"
+          >
+            <FileUp size={14} />
+            Import walk-ins
+          </Link>
           <button
             onClick={async () => {
               try {
@@ -315,6 +325,7 @@ export default function Registrations() {
               ? visibleRegs.filter((r) => r.participant_id)
               : visibleRegs.filter((r) => r.team_id)}
             onView={setViewReg}
+            onComplete={setCompleteReg}
           />
           </>
         )
@@ -362,6 +373,15 @@ export default function Registrations() {
           token={token}
           onClose={() => setViewReg(null)}
           onUpdated={handleRegUpdated}
+        />
+      )}
+
+      {completeReg && (
+        <CompleteModal
+          token={token}
+          registration={completeReg}
+          onClose={() => setCompleteReg(null)}
+          onCompleted={() => { setCompleteReg(null); loadRegistrations(); }}
         />
       )}
     </div>

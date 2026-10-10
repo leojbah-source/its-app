@@ -11,6 +11,7 @@ import Login from './pages/Login';
 import YearConfig from './pages/YearConfig';
 import Events from './pages/Events';
 import Registrations from './pages/Registrations';
+import ImportRegistrations from './pages/ImportRegistrations';
 import Lists from './pages/Lists';
 import Consolidation from './pages/Consolidation';
 import Schedule from './pages/Schedule';
@@ -108,6 +109,10 @@ export default function App() {
               <Route
                 path="/admin/registrations"
                 element={<ProtectedRoute allowedRoles={[...ORG, 'Registrar']}><Registrations /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/import"
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Coordinator', 'Registrar']}><ImportRegistrations /></ProtectedRoute>}
               />
               <Route
                 path="/admin/lists"
