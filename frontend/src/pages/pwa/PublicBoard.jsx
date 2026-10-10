@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import rpLogo from '../../assets/research-point-logo.png';
-import { Trophy, CalendarDays, UserRound, Megaphone, FileText, ChevronDown, Search } from 'lucide-react';
+import { Trophy, CalendarDays, UserRound, Megaphone, FileText, ChevronDown, Search, BookOpen } from 'lucide-react';
 import { publicApi, API_BASE } from '../../api/client';
 
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
@@ -111,6 +111,19 @@ export default function PublicBoard() {
               </div>
             ))}
           </div>
+        )}
+        {asset(year?.rules_pdf_url) && (
+          <a href={asset(year.rules_pdf_url)} target="_blank" rel="noreferrer"
+             className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-navy-200 bg-navy-50 px-4 py-3 hover:bg-navy-100 transition-colors">
+            <span className="flex items-center gap-2.5">
+              <BookOpen size={18} className="shrink-0 text-navy-600" />
+              <span>
+                <span className="block text-sm font-semibold text-navy-800">Rules &amp; Regulations</span>
+                <span className="block text-[11px] text-slate-500">Tap to read the official guidelines (PDF)</span>
+              </span>
+            </span>
+            <FileText size={16} className="shrink-0 text-navy-500" />
+          </a>
         )}
         <div className="mb-4 flex gap-2">
           <TabBtn id="results" icon={Trophy} label="Results" />
