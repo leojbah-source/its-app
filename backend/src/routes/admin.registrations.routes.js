@@ -1843,6 +1843,8 @@ router.post('/registrations/import/commit', requireRole(...editRoles),
     if (built.error) return res.status(400).json({ error: built.error });
     const year = built.year;
 
+    await client.query('BEGIN');
+
     // Ensure the shared office account exists if any row needs it.
     let officeId = null;
     const needOffice = built.plan.some((p) => p.will_import && p.parent_action === 'office');
@@ -1974,6 +1976,8 @@ router.post('/registrations/import/commit', requireRole(...editRoles),
       }
     }
 
+    await client.query('COMMIT');
+
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'IMPORT_REGISTRATIONS', entity: 'participants', entityId: null,
       details: { created, reusedParticipants, addedEvents, paymentsRecorded, parentsCreated } });
@@ -1986,6 +1990,7 @@ payments_recorded: paymentsRecorded, parents_created: parentsCreated,
       results,
     });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
     next(err);
   } finally { client.release(); }
 });
