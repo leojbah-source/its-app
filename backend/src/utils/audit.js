@@ -36,4 +36,79 @@ async function logAudit({ actorId, actorRole, action, entity, entityId, details,
   }
 }
 
-module.exports = { logAudit };
+/**
+ * Records a BLOCKED access attempt (forbidden role, or reaching a record that
+ * isn't yours) so staff can see who tried what. Best-effort; never blocks the
+ * response. Shows up in the audit trail with action 'ACCESS_DENIED'.
+ */
+// Roles that are legitimate staff. Anyone else (a parent 'Viewer', a 'PWA'
+// result-checker, or an unauthenticated token) reaching an admin path, or any
+// cross-account access, is treated as a real security event worth an alert.
+const STAFF_ROLES_AUDIT = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Registrar', 'Accountant', 'Media'];
+const _alertThrottle = new Map();   // actor key -> last alert epoch ms
+const ALERT_GAP_MS = 30 * 60 * 1000;
+
+async function logAccessDenied(req, reason, { targetType = 'security', targetId = null, alert } = {}) {
+  const path = (req.originalUrl || req.url || '').split('?')[0];
+  try {
+    await logAudit({
+      actorId: req.user?.id ?? null,
+      actorRole: req.user?.role ?? 'anonymous',
+      action: 'ACCESS_DENIED',
+      entity: targetType,
+      entityId: targetId,
+      details: {
+        method: req.method,
+        path,
+        email: req.user?.email ?? null,
+        reason,
+      },
+      reason,
+    });
+  } catch (e) { /* best-effort */ }
+  console.warn(`[ACCESS_DENIED] user=${req.user?.id ?? '-'} role=${req.user?.role ?? '-'} ${req.method} ${path} :: ${reason}`);
+
+  // Decide whether to raise an alert. Default: a non-staff account reaching an
+  // admin path. Callers can force it (e.g. a cross-account record access).
+  const isStaff = STAFF_ROLES_AUDIT.includes(req.user?.role);
+  const shouldAlert = alert !== undefined ? alert : (path.startsWith('/api/admin') && !isStaff);
+  if (shouldAlert) sendSecurityAlert(req, reason, path).catch(() => {});
+}
+
+// Throttled WhatsApp + email to SuperAdmins when a blocked attempt looks like
+// someone reaching beyond their permissions. Best-effort; never blocks.
+async function sendSecurityAlert(req, reason, path) {
+  const key = String(req.user?.id || req.ip || 'anon');
+  const now = Date.now();
+  if (now - (_alertThrottle.get(key) || 0) < ALERT_GAP_MS) return;
+  _alertThrottle.set(key, now);
+
+  const who = req.user?.email || `user#${req.user?.id || '?'}` || 'anonymous';
+  const role = req.user?.role || 'anonymous';
+  const when = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Bahrain' });
+  const msg = `⚠️ KCA ITS security alert
+${who} (role: ${role}) was BLOCKED trying ${req.method} ${path}.
+${reason}
+${when} (Bahrain). Open Admin → Security for details.`;
+
+  try {
+    const pool = require('../db');
+    const { rows } = await pool.query(
+      `SELECT phone, email FROM users WHERE role = 'SuperAdmin' AND is_active = TRUE`);
+    const phones = rows.map((r) => r.phone).filter(Boolean);
+    const emails = rows.map((r) => r.email).filter(Boolean);
+    if (phones.length) {
+      const { sendWhatsAppMany } = require('./notify');
+      sendWhatsAppMany(phones, msg).catch(() => {});
+    }
+    if (emails.length) {
+      const { sendEmail } = require('./email');
+      for (const to of emails) {
+        sendEmail({ to, subject: 'KCA ITS — security alert (blocked access)',
+          html: `<p>${msg.replace(/\n/g, '<br>')}</p>` }).catch(() => {});
+      }
+    }
+  } catch (e) { console.error('security alert failed:', e.message); }
+}
+
+module.exports = { logAudit, logAccessDenied, sendSecurityAlert };

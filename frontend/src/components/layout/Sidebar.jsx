@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   Settings, ListChecks, Users, Gavel, CalendarClock, Trophy, Wallet,
   Sparkles, ClipboardList, ChevronDown, ClipboardCheck, Megaphone, BadgeDollarSign,
-  UserCog, UserCheck, Combine, Video, Award,
+  UserCog, UserCheck, Combine, Video, Award, ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import rpLogo from '../../assets/research-point-logo.png';
@@ -32,6 +32,7 @@ const NAV_ITEMS = [
   { to: '/admin/payments', label: 'Payments', icon: BadgeDollarSign, active: true, roles: ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Accountant'] },
   { to: '/admin/finance', label: 'Finance', icon: Wallet, active: true, roles: ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Accountant'] },
   { to: '/admin/users', label: 'Users', icon: UserCog, active: true, roles: ['SuperAdmin', 'Admin'] },
+  { to: '/admin/security', label: 'Security', icon: ShieldAlert, active: true, roles: ['SuperAdmin', 'Admin', 'Chairman'] },
   { to: '/admin/config/year', label: 'Year Setup', icon: Settings, active: true, roles: ORG },
 ];
 

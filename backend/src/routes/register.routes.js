@@ -26,7 +26,7 @@ const pool = require('../db');
 const { verifyMembership } = require('../services/membership');
 const { sendWhatsApp, sendWhatsAppMany } = require('../utils/notify');
 const { sendEmail, registrationConfirmationHtml } = require('../utils/email');
-const { logAudit } = require('../utils/audit');
+const { logAudit, logAccessDenied } = require('../utils/audit');
 const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
@@ -169,12 +169,15 @@ async function resolveAgeGroup(dob, yearId) {
 // A parent may only read/modify a participant they created. Prevents a logged-in
 // parent from reaching another family's child by changing the id (or CPR).
 const PORTAL_STAFF_ROLES = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
-async function assertOwnsParticipant(participantId, user) {
+async function assertOwnsParticipant(participantId, user, req) {
   const { rows } = await pool.query(
     `SELECT id, created_by FROM participants WHERE id = $1`, [participantId]);
   if (!rows[0]) return { status: 404, error: 'Participant not found' };
-  if (!PORTAL_STAFF_ROLES.includes(user.role) && rows[0].created_by !== user.id)
+  if (!PORTAL_STAFF_ROLES.includes(user.role) && rows[0].created_by !== user.id) {
+    if (req) logAccessDenied(req, 'Tried to access a participant belonging to another account',
+      { targetType: 'participants', targetId: Number(participantId), alert: true });
     return { status: 403, error: 'This participant belongs to another account' };
+  }
   return { ok: true, created_by: rows[0].created_by };
 }
 
@@ -671,6 +674,8 @@ router.get('/participant/lookup', authenticate, async (req, res, next) => {
     // no personal details — so a parent can't look up other families by CPR.
     const isStaff = PORTAL_STAFF_ROLES.includes(req.user.role);
     if (!isStaff && rows[0].created_by !== req.user.id) {
+      logAccessDenied(req, 'CPR lookup matched a child registered under another account',
+        { targetType: 'participants', targetId: rows[0].id, alert: false });
       return res.json({ found: true, owned: false });
     }
 
@@ -720,7 +725,7 @@ router.get('/my-participants', authenticate, async (req, res, next) => {
 // Returns participant profile + their active registrations.
 router.get('/participant/:id', authenticate, async (req, res, next) => {
   try {
-    const _own = await assertOwnsParticipant(req.params.id, req.user);
+    const _own = await assertOwnsParticipant(req.params.id, req.user, req);
     if (!_own.ok) return res.status(_own.status).json({ error: _own.error });
     const { rows } = await pool.query(
       `SELECT p.*, s.name AS school_name,
@@ -756,7 +761,7 @@ router.get('/participant/:id', authenticate, async (req, res, next) => {
 // Stores OCR-extracted CPR fields against a participant record.
 router.post('/participant/:id/scan', authenticate, async (req, res, next) => {
   try {
-    const _own = await assertOwnsParticipant(req.params.id, req.user);
+    const _own = await assertOwnsParticipant(req.params.id, req.user, req);
     if (!_own.ok) return res.status(_own.status).json({ error: _own.error });
     const { cpr_number, full_name, dob, cpr_scan_url } = req.body;
     if (!cpr_number) return res.status(400).json({ error: 'cpr_number (OCR result) is required' });
@@ -828,7 +833,7 @@ router.post('/participant/:id/events', authenticate, async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const _own = await assertOwnsParticipant(req.params.id, req.user);
+    const _own = await assertOwnsParticipant(req.params.id, req.user, req);
     if (!_own.ok) { await client.query('ROLLBACK'); return res.status(_own.status).json({ error: _own.error }); }
 
     const { event_ids } = req.body;
@@ -959,7 +964,7 @@ router.put('/participant/:id/events', authenticate, async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const _own = await assertOwnsParticipant(req.params.id, req.user);
+    const _own = await assertOwnsParticipant(req.params.id, req.user, req);
     if (!_own.ok) { await client.query('ROLLBACK'); return res.status(_own.status).json({ error: _own.error }); }
     const { add_event_ids = [], remove_event_ids = [], removal_reason } = req.body;
 
@@ -1114,7 +1119,7 @@ router.put('/participant/:id/events', authenticate, async (req, res, next) => {
 // participant's active events in that category in one call.
 router.put('/participant/:id/teacher', authenticate, async (req, res, next) => {
   try {
-    const _own = await assertOwnsParticipant(req.params.id, req.user);
+    const _own = await assertOwnsParticipant(req.params.id, req.user, req);
     if (!_own.ok) return res.status(_own.status).json({ error: _own.error });
     const { event_id, teacher_type, teacher_name, apply_to_all } = req.body;
     if (!teacher_type || !teacher_name || (!event_id && !apply_to_all))
@@ -1164,7 +1169,7 @@ router.put('/participant/:id/teacher', authenticate, async (req, res, next) => {
 // Live fee summary (§5.2): per-event fees, discount, payments, balance due.
 router.get('/participant/:id/fees', authenticate, async (req, res, next) => {
   try {
-    const _own = await assertOwnsParticipant(req.params.id, req.user);
+    const _own = await assertOwnsParticipant(req.params.id, req.user, req);
     if (!_own.ok) return res.status(_own.status).json({ error: _own.error });
     const { rows: items } = await pool.query(
       `SELECT r.id AS registration_id, r.event_id, r.fee_amount, r.status,
@@ -1230,7 +1235,7 @@ router.get('/participant/:id/fees', authenticate, async (req, res, next) => {
 // benefitpay or bank_transfer (with proof screenshot + reference).
 router.post('/participant/:id/payment', authenticate, async (req, res, next) => {
   try {
-    const _own = await assertOwnsParticipant(req.params.id, req.user);
+    const _own = await assertOwnsParticipant(req.params.id, req.user, req);
     if (!_own.ok) return res.status(_own.status).json({ error: _own.error });
     const { amount, method, reference, proof_url, notes } = req.body;
     if (!amount || Number(amount) <= 0)
@@ -1654,7 +1659,7 @@ router.get('/team/:id/documents', authenticate, async (req, res, next) => {
 // summary email + WhatsApp acknowledgement; returns email_sent for the UI.
 router.post('/participant/:id/confirm', authenticate, async (req, res, next) => {
   try {
-    const _own = await assertOwnsParticipant(req.params.id, req.user);
+    const _own = await assertOwnsParticipant(req.params.id, req.user, req);
     if (!_own.ok) return res.status(_own.status).json({ error: _own.error });
     const { rows: pRows } = await pool.query(
       `SELECT p.id, p.year_id, p.full_name, p.cpr_number, p.dob, p.gender,
@@ -1739,7 +1744,7 @@ router.post('/participant/:id/swap', authenticate, async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const _own = await assertOwnsParticipant(req.params.id, req.user);
+    const _own = await assertOwnsParticipant(req.params.id, req.user, req);
     if (!_own.ok) { await client.query('ROLLBACK'); return res.status(_own.status).json({ error: _own.error }); }
 
     const { old_registration_id, new_event_id } = req.body;

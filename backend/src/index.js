@@ -31,6 +31,7 @@ const adminNoticesRoutes = require('./routes/admin.notices.routes');
 const adminPrintoutsRoutes = require('./routes/admin.printouts.routes');
 const adminUsersRoutes = require('./routes/admin.users.routes');
 const adminVideoRoutes = require('./routes/admin.video.routes');
+const adminSecurityRoutes = require('./routes/admin.security.routes');
 const path = require('path');
 
 const app = express();
@@ -88,6 +89,7 @@ app.use('/api/admin/printouts', adminPrintoutsRoutes);
 app.use('/api/judge', judgeRoutes);
 app.use('/api/admin/event-staff', adminEventStaffRoutes);
 app.use('/api/admin/users', adminUsersRoutes);
+app.use('/api/admin', adminSecurityRoutes);
 app.use('/api/mc', mcRoutes);
 app.use('/api/timer', timerRoutes);
 

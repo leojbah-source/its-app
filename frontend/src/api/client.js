@@ -491,3 +491,8 @@ export const judgesApi = {
 };
 
 export { ApiError };
+
+// ── Security (senior staff) ──────────────────────────────────────────────────
+export const securityApi = {
+  audit: (token) => request('/api/admin/security/audit', { token }),
+};
