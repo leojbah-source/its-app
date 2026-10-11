@@ -270,6 +270,9 @@ export const registrationsApi = {
   /** Admin: finish an in-progress entry — records optional cash and sets confirmed. */
   complete: (token, id, body) =>
     request(`/api/admin/registrations/participant/${id}/complete`, { method: 'POST', token, body }),
+  /** Waive or adjust a participant's event fees (mode 'free' | 'custom'). */
+  waiveFees: (token, id, body) =>
+    request(`/api/admin/registrations/participant/${id}/waive-fees`, { method: 'POST', token, body }),
   /** Download the walk-in import template (xlsx). */
   importTemplateUrl: () => `${API_BASE}/api/admin/registrations/import/template`,
   /** Validate an uploaded import workbook (no writes) — returns a per-row report. */

@@ -1262,6 +1262,77 @@ router.put('/participants/:id/identity', requireRole(...editRoles), async (req, 
 // beyond harmless back-fills, so live data is safe.
 // ════════════════════════════════════════════════════════════════════════════
 
+// ── Fee waiver / adjustment (admin) ──────────────────────────────────────────
+// Sponsor-related or hardship cases sometimes get a full waiver (free) or a
+// discounted fee. This sets the fee on a participant's active event entries —
+// zero for free, or any reduced amount per event — with a mandatory reason that
+// is audited. After adjusting, complete the registration as usual: the balance
+// reflects the new (lower / zero) fee, so no phantom amount is left due.
+router.post('/registrations/participant/:id/waive-fees',
+  requireRole(...editRoles), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const { mode, fees, reason } = req.body || {};
+    if (!reason || !String(reason).trim())
+      return res.status(400).json({ error: 'A reason is required for a fee waiver or discount.' });
+
+    await client.query('BEGIN');
+    const { rows: regs } = await client.query(
+      `SELECT r.id, r.fee_amount, e.event_code
+       FROM registrations r JOIN events e ON e.id = r.event_id
+       WHERE r.participant_id = $1 AND r.status NOT IN ('withdrawn','swapped')
+       ORDER BY e.event_code`, [req.params.id]);
+    if (!regs.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No active event entries to adjust.' });
+    }
+
+    const updated = [];
+    if (mode === 'free') {
+      for (const r of regs) {
+        if (Number(r.fee_amount) !== 0) {
+          await client.query(`UPDATE registrations SET fee_amount = 0, updated_at = NOW() WHERE id = $1`, [r.id]);
+        }
+        updated.push({ id: r.id, event_code: r.event_code, was: Number(r.fee_amount), now: 0 });
+      }
+    } else {
+      // custom: fees is a map { registration_id: amount } for this participant's rows
+      if (!fees || typeof fees !== 'object') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Provide the new fee for each event.' });
+      }
+      const byId = new Map(regs.map((r) => [String(r.id), r]));
+      for (const [rid, val] of Object.entries(fees)) {
+        const r = byId.get(String(rid));
+        if (!r) continue; // ignore ids that aren't this participant's active rows
+        const amt = Number(val);
+        if (!(amt >= 0)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: `Fee for ${r.event_code} must be zero or more.` });
+        }
+        if (round3(amt) !== Number(r.fee_amount)) {
+          await client.query(`UPDATE registrations SET fee_amount = $1, updated_at = NOW() WHERE id = $2`, [round3(amt), r.id]);
+        }
+        updated.push({ id: r.id, event_code: r.event_code, was: Number(r.fee_amount), now: round3(amt) });
+      }
+    }
+
+    await client.query('COMMIT');
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'ADJUST_FEES', entity: 'participants', entityId: Number(req.params.id),
+      details: { mode: mode === 'free' ? 'waive-free' : 'custom', changes: updated },
+      reason: String(reason).trim() });
+
+    const total = updated.reduce((t, u) => t + u.now, 0);
+    res.json({ updated, new_total: Number(total.toFixed(3)) });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
+    next(err);
+  } finally { client.release(); }
+});
+
+
 const IMPORT_COLUMNS = [
   'Full Name', 'CPR', 'Gender (M/F)', 'DOB (YYYY-MM-DD)', 'School',
   'Parent Name', 'Parent Email', 'Parent Phone', 'WhatsApp', 'KCA Member No',

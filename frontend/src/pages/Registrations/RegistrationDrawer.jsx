@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Card';
-import { participantsApi, paymentsApi, teamsApi } from '../../api/client';
+import { participantsApi, paymentsApi, teamsApi, registrationsApi } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 
 const VERIFY_TONE = { pending: 'slate', verified: 'success', issue: 'danger' };
@@ -87,6 +87,12 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [addCodes, setAddCodes] = useState('');
   const [correctionReason, setCorrectionReason] = useState('');
   const [eligibleEvents, setEligibleEvents] = useState([]);
+
+  // Fee waiver / discount
+  const canEditFees = ['SuperAdmin', 'Admin', 'Coordinator', 'Registrar'].includes(user?.role);
+  const [feeEdit, setFeeEdit] = useState(false);
+  const [feeVals, setFeeVals] = useState({});     // registration_id -> string
+  const [feeReason, setFeeReason] = useState('');
 
   const participantId = registration?.participant_id;
   const teamId = registration?.team_id;
@@ -239,6 +245,31 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
       await paymentsApi.updateAmount(token, id, amount);
       setFlash(`Amount updated to BD ${amount.toFixed(3)}.`);
       setAmtFor(null); setAmtVal('');
+      load();
+    } catch (err) { setFlash(err.message); }
+    finally { setBusy(''); }
+  }
+
+  function openFeeEdit() {
+    const active = (data.registrations || []).filter((r) => r.status === 'registered');
+    const vals = {};
+    active.forEach((r) => { vals[r.id] = Number(r.fee_amount || 0).toFixed(3); });
+    setFeeVals(vals); setFeeReason(''); setFeeEdit(true);
+  }
+
+  async function doWaiveFees() {
+    if (!feeReason.trim()) { setFlash('A reason is required for a fee waiver/discount.'); return; }
+    const fees = {};
+    for (const [id, v] of Object.entries(feeVals)) {
+      const n = Number(v);
+      if (!(n >= 0)) { setFlash('Fees must be zero or more.'); return; }
+      fees[id] = n;
+    }
+    setBusy('fees'); setFlash('');
+    try {
+      const r = await registrationsApi.waiveFees(token, participantId, { mode: 'custom', fees, reason: feeReason.trim() });
+      setFlash(`Fees updated — new total BD ${Number(r.new_total).toFixed(3)}.`);
+      setFeeEdit(false);
       load();
     } catch (err) { setFlash(err.message); }
     finally { setBusy(''); }
@@ -659,6 +690,64 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                   </div>
                 )}
               </section>
+
+              {/* ── Fees & waiver ── */}
+              {canEditFees && (data.registrations || []).some((r) => r.status === 'registered') && (
+                <section>
+                  <SectionTitle icon={CreditCard}>Fees &amp; waiver</SectionTitle>
+                  {!feeEdit ? (
+                    <Button variant="outline" size="sm" onClick={openFeeEdit}>Waive / adjust fees</Button>
+                  ) : (
+                    <div className="space-y-2 rounded-lg border border-navy-200 bg-navy-50/50 p-3">
+                      <p className="text-[11px] text-slate-600">
+                        Set the fee for each event — enter 0 to waive. For a full free pass, tap “Make all free”.
+                      </p>
+                      <div className="space-y-1.5">
+                        {(data.registrations || []).filter((r) => r.status === 'registered').map((r) => (
+                          <div key={r.id} className="flex items-center justify-between gap-2">
+                            <span className="text-sm text-slate-700">
+                              <span className="font-mono text-xs text-navy-700">{r.event_code}</span> · {r.event_name}
+                            </span>
+                            <span className="flex items-center gap-1 text-sm text-slate-500">
+                              BD
+                              <input
+                                type="number" step="0.001" min="0"
+                                value={feeVals[r.id] ?? ''}
+                                onChange={(e) => setFeeVals((v) => ({ ...v, [r.id]: e.target.value }))}
+                                className="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm text-right"
+                              />
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex justify-between">
+                        <button type="button" onClick={() => setFeeVals((v) => Object.fromEntries(Object.keys(v).map((k) => [k, '0.000'])))}
+                          className="text-xs font-medium text-navy-700 hover:underline">Make all free</button>
+                        <span className="text-xs text-slate-500">
+                          New total: BD {Object.values(feeVals).reduce((t, x) => t + (Number(x) || 0), 0).toFixed(3)}
+                        </span>
+                      </div>
+                      <textarea
+                        value={feeReason}
+                        onChange={(e) => setFeeReason(e.target.value)}
+                        rows={2}
+                        placeholder="Reason (required — e.g. 'Sponsor waiver, approved by Chairman'). Recorded in the audit trail."
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      />
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setFeeEdit(false)}>Cancel</Button>
+                        <Button variant="primary" size="sm" loading={busy === 'fees'}
+                          disabled={!feeReason.trim()} onClick={doWaiveFees}>
+                          Save fees
+                        </Button>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        After saving, use “Complete” (or record the discounted payment) — the balance will reflect the new fee.
+                      </p>
+                    </div>
+                  )}
+                </section>
+              )}
 
               {/* ── Events (Chairman corrections) ── */}
               <section>
