@@ -669,14 +669,20 @@ router.get('/participant/lookup', authenticate, async (req, res, next) => {
     );
     if (!rows[0]) return res.json({ found: false });
 
-    // Privacy: only reveal the record if it belongs to this parent (or staff).
-    // Otherwise just say a child with this CPR already exists elsewhere, with
-    // no personal details — so a parent can't look up other families by CPR.
+    // Privacy: only reveal a record that belongs to this parent (or staff).
+    // A child this parent did not create (e.g. entered into a team by their
+    // dance teacher) can still be CLAIMED — but only if it has no individual
+    // registrations yet, and only after the parent proves the date of birth
+    // (POST /participant/claim). We reveal no details here.
     const isStaff = PORTAL_STAFF_ROLES.includes(req.user.role);
     if (!isStaff && rows[0].created_by !== req.user.id) {
-      logAccessDenied(req, 'CPR lookup matched a child registered under another account',
-        { targetType: 'participants', targetId: rows[0].id, alert: false });
-      return res.json({ found: true, owned: false });
+      const { rows: cnt } = await pool.query(
+        `SELECT COUNT(*)::int AS c FROM registrations
+         WHERE participant_id = $1 AND status NOT IN ('withdrawn','swapped')`,
+        [rows[0].id]);
+      // Claimable when it is not already registered for individual events by
+      // someone else (team-only / unclaimed record).
+      return res.json({ found: true, owned: false, claimable: cnt[0].c === 0 });
     }
 
     const { rows: regs } = await pool.query(
@@ -689,6 +695,58 @@ router.get('/participant/lookup', authenticate, async (req, res, next) => {
       [rows[0].id],
     );
     res.json({ found: true, owned: true, participant: { ...rows[0], registrations: regs } });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/register/participant/claim ─────────────────────────────────────
+// A parent registers a child who was entered by someone else (e.g. a dance
+// teacher who added them to a team). Allowed only when the child has no
+// individual registrations yet AND the parent proves the date of birth. On
+// success the parent takes ownership of the participant record so they can add
+// individual events. The team entry is untouched.
+router.post('/participant/claim', authenticate, async (req, res, next) => {
+  try {
+    const { cpr_number, dob } = req.body || {};
+    if (!cpr_number || !dob) return res.status(400).json({ error: 'CPR number and date of birth are required.' });
+    const cfg = await getActiveYear();
+    if (!cfg) return res.status(400).json({ error: 'No active year' });
+
+    const { rows } = await pool.query(
+      `SELECT p.*, s.name AS school_name, ag.code AS age_group_code, ag.label AS age_group_label
+       FROM participants p
+       LEFT JOIN schools s ON s.id = p.school_id
+       LEFT JOIN age_groups ag ON ag.id = p.age_group_id
+       WHERE p.cpr_number = $1 AND p.year_id = $2 LIMIT 1`,
+      [String(cpr_number).trim(), cfg.id]);
+    const p = rows[0];
+    if (!p) return res.status(404).json({ error: 'No participant found with this CPR.' });
+
+    if (p.created_by === req.user.id) {
+      return res.json({ claimed: true, participant: p });   // already theirs
+    }
+
+    const { rows: cnt } = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM registrations
+       WHERE participant_id = $1 AND status NOT IN ('withdrawn','swapped')`, [p.id]);
+    if (cnt[0].c > 0) {
+      return res.status(409).json({
+        error: 'This child is already registered for individual events under another account. Please contact the KCA office.' });
+    }
+
+    const storedDob = p.dob ? new Date(p.dob).toISOString().slice(0, 10) : null;
+    const givenDob = String(dob).trim().slice(0, 10);
+    if (!storedDob || storedDob !== givenDob) {
+      return res.status(403).json({ error: 'The date of birth does not match our records for this CPR.' });
+    }
+
+    await pool.query(`UPDATE participants SET created_by = $1, updated_at = NOW() WHERE id = $2`,
+      [req.user.id, p.id]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'CLAIM_PARTICIPANT', entity: 'participants', entityId: p.id,
+      details: { cpr_number: p.cpr_number },
+      reason: 'Parent claimed a team-entered child to register individual events' });
+
+    res.json({ claimed: true, participant: { ...p, created_by: req.user.id } });
   } catch (err) { next(err); }
 });
 

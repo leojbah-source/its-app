@@ -21,6 +21,9 @@ export default function ParticipantAdd() {
   const [found, setFound] = useState(null); // null=not searched, object=found, false=not found
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState('');
+  const [claimCpr, setClaimCpr] = useState(null);  // CPR pending DOB verification
+  const [claimDob, setClaimDob] = useState('');
+  const [claimBusy, setClaimBusy] = useState(false);
 
   // ── Step 2: Creation form ────────────────────────────────────────────────
   const [schools, setSchools] = useState([]);
@@ -99,6 +102,19 @@ export default function ParticipantAdd() {
     portalApi.schools().then(setSchools).catch(() => null);
   }, []);
 
+  async function doClaim() {
+    if (!claimDob) { setLookupError('Please enter the date of birth.'); return; }
+    setClaimBusy(true); setLookupError('');
+    try {
+      const data = await portalApi.participantClaim(token, claimCpr, claimDob);
+      if (data.claimed && data.participant) {
+        navigate(`/register/participant/${data.participant.id}`);
+      }
+    } catch (err) {
+      setLookupError(err.message || 'Could not verify. Please check the date of birth.');
+    } finally { setClaimBusy(false); }
+  }
+
   async function handleLookup(e) {
     e.preventDefault();
     const trimmed = cpr.trim();
@@ -111,10 +127,19 @@ export default function ParticipantAdd() {
 
     try {
       const data = await portalApi.participantLookup(token, trimmed);
+      setClaimCpr(null);
       if (data.found && data.owned === false) {
-        // A child with this CPR exists under another account — do not reveal it.
-        setFound(null);
-        setLookupError('A child with this CPR is already registered under another account. If this is your child, please contact the KCA office.');
+        if (data.claimable) {
+          // Entered by someone else (e.g. a team teacher) and not yet
+          // individually registered — the parent can claim it by proving DOB.
+          setFound(null);
+          setClaimCpr(trimmed);
+          setClaimDob('');
+          setLookupError('');
+        } else {
+          setFound(null);
+          setLookupError('This child is already registered for individual events under another account. If this is your child, please contact the KCA office.');
+        }
       } else if (data.found) {
         setFound(data.participant);
       } else {
@@ -222,6 +247,32 @@ export default function ParticipantAdd() {
               className="w-full rounded-xl bg-emerald-600 py-4 text-white font-semibold hover:bg-emerald-700 active:bg-emerald-800 transition-colors"
             >
               Continue with this participant →
+            </button>
+          </div>
+        )}
+
+        {/* ── Claim: child entered by a team/teacher — verify DOB ──────────── */}
+        {claimCpr && (
+          <div className="rounded-2xl bg-amber-50 border border-amber-200 p-5 space-y-3">
+            <div className="flex items-center gap-2 text-amber-700 font-semibold">
+              <UserCheck size={20} /> This child was entered via a team
+            </div>
+            <p className="text-sm text-slate-600">
+              A child with this CPR was already entered (for example, into a team by their teacher).
+              To register them for individual events, please confirm their date of birth.
+            </p>
+            <input
+              type="date"
+              value={claimDob}
+              onChange={(e) => setClaimDob(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm focus:border-navy-500 focus:outline-none"
+            />
+            <button
+              onClick={doClaim}
+              disabled={claimBusy || !claimDob}
+              className="w-full rounded-xl bg-emerald-600 py-4 text-white font-semibold hover:bg-emerald-700 active:bg-emerald-800 transition-colors disabled:opacity-50"
+            >
+              {claimBusy ? 'Verifying…' : 'Verify & continue →'}
             </button>
           </div>
         )}

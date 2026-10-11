@@ -69,6 +69,10 @@ export const portalApi = {
   participantLookup: (token, cprNumber) =>
     req(`/api/register/participant/lookup?cpr_number=${encodeURIComponent(cprNumber.trim())}`, { token }),
 
+  /** Claim a child entered by someone else (e.g. a team teacher) by proving DOB. */
+  participantClaim: (token, cpr_number, dob) =>
+    req('/api/register/participant/claim', { method: 'POST', token, body: { cpr_number, dob } }),
+
   /** Full participant profile + registrations. */
   participantGet: (token, id) =>
     req(`/api/register/participant/${id}`, { token }),
