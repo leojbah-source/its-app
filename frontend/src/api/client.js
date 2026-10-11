@@ -313,6 +313,11 @@ export const participantsApi = {
   updateContact: (token, id, body) => request(`/api/admin/participants/${id}/contact`, { method: 'PUT', token, body }),
   updateParentEmail: (token, id, body) => request(`/api/admin/participants/${id}/parent-email`, { method: 'PUT', token, body }),
   updateIdentity: (token, id, body) => request(`/api/admin/participants/${id}/identity`, { method: 'PUT', token, body }),
+  /** Staff upload/replace a participant's photo or CPR scan (kind: photo|cpr_front|cpr_back). */
+  uploadImage: (token, id, kind, file) => {
+    const fd = new FormData(); fd.append('kind', kind); fd.append('file', file);
+    return request(`/api/admin/participants/${id}/upload`, { method: 'POST', token, body: fd, isFormData: true });
+  },
 };
 
 // ── Teams (admin) ────────────────────────────────────────────────────────────

@@ -10,7 +10,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import {
-  X, User, CreditCard, Tag, ScrollText, CheckCircle2, AlertTriangle, ExternalLink, MessageSquare,
+  X, User, CreditCard, Tag, ScrollText, CheckCircle2, AlertTriangle, ExternalLink, MessageSquare, Upload,
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Card';
@@ -284,6 +284,17 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
     finally { setBusy(''); }
   }
 
+  async function doUploadImage(kind, file) {
+    if (!file) return;
+    setBusy(`img-${kind}`); setFlash('');
+    try {
+      await participantsApi.uploadImage(token, participantId, kind, file);
+      setFlash('Image updated.');
+      load();
+    } catch (err) { setFlash(err.message || 'Upload failed.'); }
+    finally { setBusy(''); }
+  }
+
   async function openEventEdit() {
     setEditEvents(true);
     setRemoveIds(new Set());
@@ -539,11 +550,28 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 mb-3">
+                <div className="flex flex-wrap items-center gap-3 mb-2">
                   <DocLink url={p.cpr_scan_url} label="CPR front" />
                   <DocLink url={p.cpr_scan_back_url} label="CPR back" />
                   <DocLink url={p.photo_url} label="Photo" />
                 </div>
+                {canEditFees && (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      {[['cpr_front', 'CPR front', p.cpr_scan_url],
+                        ['cpr_back', 'CPR back', p.cpr_scan_back_url],
+                        ['photo', 'Photo', p.photo_url]].map(([kind, label, url]) => (
+                        <label key={kind}
+                          className={`inline-flex cursor-pointer items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-navy-700 hover:bg-slate-50 ${busy === `img-${kind}` ? 'opacity-50 pointer-events-none' : ''}`}>
+                          <Upload size={12} /> {busy === `img-${kind}` ? 'Uploading…' : `${url ? 'Replace' : 'Upload'} ${label}`}
+                          <input type="file" accept="image/*" className="hidden"
+                            onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; doUploadImage(kind, file); }} />
+                        </label>
+                      ))}
+                    </div>
+                    <p className="mb-3 text-[11px] text-slate-400">Upload on a parent's behalf when they can't redo it. PNG/JPG; recorded in the audit trail.</p>
+                  </>
+                )}
                 {p.cpr_scan_url && (
                   <a href={p.cpr_scan_url} target="_blank" rel="noreferrer">
                     <img src={p.cpr_scan_url} alt="CPR scan"

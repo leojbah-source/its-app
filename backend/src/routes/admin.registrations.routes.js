@@ -35,6 +35,26 @@ const xlsxUpload = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
+const path = require('path');
+const { uploadDir } = require('../utils/uploads');
+
+// Disk upload for a participant's CPR scans / photo, when staff upload on the
+// parent's behalf. Saved to the persistent uploads dir, served at /uploads/<f>.
+const imageUpload = multer({
+  storage: multer.diskStorage({
+    destination: uploadDir,
+    filename: (req, file, cb) =>
+      cb(null, `p${req.params.id || 'x'}-${Date.now()}${path.extname(file.originalname || '.jpg')}`),
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) =>
+    cb(null, /^image\/(png|jpe?g|webp|heic|heif)$/i.test(file.mimetype)),
+});
+
+const PARTICIPANT_IMAGE_COLUMN = {
+  photo: 'photo_url', cpr_front: 'cpr_scan_url', cpr_back: 'cpr_scan_back_url',
+};
+
 const router = express.Router();
 router.use(authenticate);
 
@@ -1249,6 +1269,28 @@ router.put('/participants/:id/identity', requireRole(...editRoles), async (req, 
       return res.status(400).json({ error: 'That date of birth does not fall in any configured age group for this year.' });
     next(err);
   }
+});
+
+// POST /participants/:id/upload — staff upload or replace a participant's CPR
+// scan (front/back) or photo on the parent's behalf (some parents can't redo
+// it and send the images to the office). Field: file; kind: photo|cpr_front|cpr_back.
+router.post('/participants/:id/upload', requireRole(...editRoles),
+  imageUpload.single('file'), async (req, res, next) => {
+  try {
+    const kind = String(req.body.kind || req.query.kind || '').trim();
+    const col = PARTICIPANT_IMAGE_COLUMN[kind];
+    if (!col) return res.status(400).json({ error: "kind must be 'photo', 'cpr_front' or 'cpr_back'." });
+    if (!req.file) return res.status(400).json({ error: 'Please attach an image (PNG or JPG).' });
+    const url = `/uploads/${req.file.filename}`;
+    const { rows } = await pool.query(
+      `UPDATE participants SET ${col} = $1, updated_at = NOW() WHERE id = $2 RETURNING id`,
+      [url, req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Participant not found' });
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'UPLOAD_PARTICIPANT_IMAGE', entity: 'participants', entityId: Number(req.params.id),
+      details: { kind, url }, reason: `Staff uploaded ${kind.replace('_', ' ')} on the parent's behalf` });
+    res.json({ url, kind });
+  } catch (err) { next(err); }
 });
 
 
