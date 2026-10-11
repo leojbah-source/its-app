@@ -8,7 +8,6 @@ import { LogIn, UserPlus, CalendarDays, Sparkles, FileText } from 'lucide-react'
 import { useParentAuth } from '../../context/ParentAuthContext';
 import { portalApi, API_BASE } from './registerApi';
 import BrandMark from '../../components/ui/BrandMark';
-import rpLogo from '../../assets/research-point-logo.png';
 
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
 
@@ -31,21 +30,26 @@ export default function Landing() {
   const isOpen = daysLeft === null || daysLeft > 0;
 
   const kcaLogo = asset(config?.kca_logo_url);
+  const sponsorLogo = asset(config?.sponsor_logo_url);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-navy-800 via-navy-900 to-slate-900 flex flex-col text-white">
-      {/* Top brand band — KCA (presenter) + Research Point (developer) */}
-      <header className="flex items-center justify-center gap-4 px-6 pt-6 pb-3 sm:gap-6">
-        {kcaLogo && (
-          <div className="flex items-center justify-center rounded-lg bg-white p-1.5 shadow-md">
-            <img src={kcaLogo} alt="Kerala Catholic Association Bahrain" className="h-10 w-auto object-contain sm:h-12" />
-          </div>
-        )}
-        {kcaLogo && <span className="h-8 w-px bg-white/20" aria-hidden="true" />}
-        <div className="flex items-center justify-center rounded-lg bg-white p-1.5 shadow-md">
-          <img src={rpLogo} alt="Research Point WLL" className="h-10 w-auto object-contain sm:h-12" />
-        </div>
-      </header>
+      {/* Top brand band — KCA + title sponsor */}
+      {(kcaLogo || sponsorLogo) && (
+        <header className="flex items-center justify-center gap-4 px-6 pt-6 pb-3 sm:gap-6">
+          {kcaLogo && (
+            <div className="flex items-center justify-center rounded-lg bg-white p-1.5 shadow-md">
+              <img src={kcaLogo} alt="Kerala Catholic Association Bahrain" className="h-10 w-auto object-contain sm:h-12" />
+            </div>
+          )}
+          {kcaLogo && sponsorLogo && <span className="h-8 w-px bg-white/20" aria-hidden="true" />}
+          {sponsorLogo && (
+            <div className="flex items-center justify-center rounded-lg bg-white p-1.5 shadow-md">
+              <img src={sponsorLogo} alt={config?.sponsor_name || 'Title sponsor'} className="h-10 w-auto object-contain sm:h-12" />
+            </div>
+          )}
+        </header>
+      )}
 
       <main className="flex flex-1 flex-col items-center justify-center px-6 pb-12 pt-4">
       {/* Logo block */}
