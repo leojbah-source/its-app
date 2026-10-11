@@ -146,15 +146,24 @@ export default function Registrations() {
   // "Registrations" = distinct participants (and teams); "Event Registrations"
   // = active event rows (excludes withdrawn/swapped). Reflects the current view.
   const activeRegs = visibleRegs.filter((r) => r.status !== 'withdrawn' && r.status !== 'swapped');
-  const participantCount = new Set(
-    activeRegs.map((r) => (r.participant_id ? `p${r.participant_id}` : `t${r.team_id}`)),
+  // Counts split by kind: individual participants vs teams.
+  const individualCount = new Set(
+    activeRegs.filter((r) => r.participant_id).map((r) => `p${r.participant_id}`),
   ).size;
-  const eventRegCount = activeRegs.filter((r) => !r.no_events).length;
+  const teamCount = new Set(
+    activeRegs.filter((r) => r.team_id).map((r) => `t${r.team_id}`),
+  ).size;
+  const participantCount = individualCount + teamCount;
+  const indivEventRegCount = activeRegs.filter((r) => r.participant_id && !r.no_events).length;
+  const teamEventRegCount = activeRegs.filter((r) => r.team_id && !r.no_events).length;
+  const eventRegCount = indivEventRegCount + teamEventRegCount;
   const attendedCount = visibleRegs.filter((r) => r.status === 'attended').length;
   const absentCount = visibleRegs.filter((r) => r.status === 'absent').length;
   const statCards = [
-    { label: 'Registrations', value: participantCount, tone: 'navy', chip: 'participants' },
-    { label: 'Event Registrations', value: eventRegCount, tone: 'navy', chip: 'events' },
+    { label: 'Registrations', value: participantCount, tone: 'navy', chip: 'participants',
+      sub: `${individualCount} individual · ${teamCount} team` },
+    { label: 'Event Registrations', value: eventRegCount, tone: 'navy', chip: 'events',
+      sub: `${indivEventRegCount} individual · ${teamEventRegCount} team` },
     { label: 'Attended', value: attendedCount, tone: 'success', chip: 'attended' },
     { label: 'Absent', value: absentCount, tone: 'danger', chip: 'absent' },
   ];
@@ -168,7 +177,7 @@ export default function Registrations() {
           <h1 className="text-2xl font-bold text-slate-900">Registrations</h1>
           <p className="text-sm text-slate-500 mt-0.5">
             {registrations.length > 0
-              ? `${participantCount} participant${participantCount === 1 ? '' : 's'} · ${eventRegCount} event registration${eventRegCount === 1 ? '' : 's'}`
+              ? `${individualCount} individual · ${teamCount} team${teamCount === 1 ? '' : 's'} · ${eventRegCount} event registration${eventRegCount === 1 ? '' : 's'}`
               : 'Loading…'}
           </p>
         </div>
@@ -266,6 +275,7 @@ export default function Registrations() {
                 <span className="text-2xl font-bold text-slate-900">{c.value}</span>
                 <Badge tone={c.tone}>{c.chip}</Badge>
               </div>
+              {c.sub && <p className="mt-1 text-[11px] text-slate-400">{c.sub}</p>}
             </div>
           ))}
         </div>
