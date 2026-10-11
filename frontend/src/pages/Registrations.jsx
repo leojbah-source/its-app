@@ -45,6 +45,7 @@ export default function Registrations() {
   const [partLoading,   setPartLoading]   = useState(false);
   const [partError,     setPartError]     = useState('');
   const [partFetched,   setPartFetched]   = useState(false);
+  const [partScope,     setPartScope]     = useState('completed'); // completed | all
 
   // ── Summary tab state
   const [summary,       setSummary]       = useState([]);
@@ -81,11 +82,11 @@ export default function Registrations() {
     if (activeTab !== 'participants' || partFetched) return;
     setPartLoading(true);
     setPartError('');
-    participantsApi.list(token)
+    participantsApi.list(token, partScope === 'all' ? { include: 'all' } : {})
       .then((data) => { setParticipants(data); setPartFetched(true); })
       .catch((err) => setPartError(err.message || 'Failed to load participants'))
       .finally(() => setPartLoading(false));
-  }, [activeTab, partFetched, token]);
+  }, [activeTab, partFetched, token, partScope]);
 
   // ── Fetch summary (lazy) ──────────────────────────────────────────────────
   useEffect(() => {
@@ -367,7 +368,12 @@ export default function Registrations() {
             description="Participants will appear here once they are registered."
           />
         ) : (
-          <ParticipantsTable participants={participants} />
+          <ParticipantsTable
+            participants={participants}
+            scope={partScope}
+            onScopeChange={(sc) => { setPartScope(sc); setPartFetched(false); }}
+            onView={(p) => setViewReg({ participant_id: p.id, participant_name: p.full_name, team_id: null, confirmed_at: p.confirmed ? 'x' : null })}
+          />
         )
       )}
 
@@ -395,7 +401,7 @@ export default function Registrations() {
         <RegistrationDrawer
           registration={viewReg}
           token={token}
-          onClose={() => setViewReg(null)}
+          onClose={() => { setViewReg(null); setPartFetched(false); }}
           onUpdated={handleRegUpdated}
         />
       )}
@@ -414,7 +420,7 @@ export default function Registrations() {
 }
 
 // ── Participants sub-table ─────────────────────────────────────────────────
-function ParticipantsTable({ participants }) {
+function ParticipantsTable({ participants, scope = 'completed', onScopeChange, onView }) {
   const [search, setSearch] = useState('');
   const filtered = participants.filter((p) => {
     const q = search.trim().toLowerCase();
@@ -428,7 +434,7 @@ function ParticipantsTable({ participants }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="relative w-full max-w-xs">
           <input
             value={search}
@@ -436,6 +442,14 @@ function ParticipantsTable({ participants }) {
             placeholder="Search name or CPR…"
             className="w-full rounded-md border border-slate-300 py-2 pl-9 pr-3 text-sm shadow-sm focus:outline-none"
           />
+        </div>
+        <div className="flex rounded-md border border-slate-300 overflow-hidden text-xs font-medium">
+          {[['completed', 'Completed'], ['all', 'All (incl. team members)']].map(([k, label]) => (
+            <button key={k} onClick={() => onScopeChange && onScopeChange(k)}
+              className={`px-3 py-2 transition-colors ${scope === k ? 'bg-navy-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+              {label}
+            </button>
+          ))}
         </div>
         <p className="ml-auto text-sm text-slate-500">{filtered.length} participants</p>
       </div>
@@ -451,18 +465,27 @@ function ParticipantsTable({ participants }) {
               <th className="px-4 py-3 font-medium">Gender</th>
               <th className="px-4 py-3 font-medium">Membership</th>
               <th className="px-4 py-3 text-right font-medium">Events</th>
+              <th className="px-4 py-3 text-right font-medium">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filtered.map((p) => (
               <tr key={p.id} className="hover:bg-slate-50">
-                <td className="px-4 py-3 font-medium text-slate-800">{p.full_name}</td>
+                <td className="px-4 py-3 font-medium text-slate-800">
+                  {p.full_name}
+                  {p.on_team && Number(p.event_count || 0) === 0 && (
+                    <span className="ml-2 inline-block rounded bg-gold-100 px-1.5 py-0.5 text-[10px] font-semibold text-gold-700">TEAM ONLY</span>
+                  )}
+                  {p.confirmed === false && (
+                    <span className="ml-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">In progress</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 font-mono text-xs text-slate-500">{p.cpr_number}</td>
                 <td className="px-4 py-3 text-xs font-mono">
                   {p.age_group_code || '—'}
                 </td>
                 <td className="px-4 py-3 text-slate-600 text-xs">{p.school_name || '—'}</td>
-                <td className="px-4 py-3 text-slate-600">{p.gender || '—'}</td>
+                <td className={`px-4 py-3 ${p.gender ? 'text-slate-600' : 'text-red-500 font-medium'}`}>{p.gender || 'missing'}</td>
                 <td className="px-4 py-3">
                   {p.membership_status ? (
                     <Badge tone={p.membership_status === 'active' ? 'success' : 'slate'}>
@@ -472,6 +495,11 @@ function ParticipantsTable({ participants }) {
                 </td>
                 <td className="px-4 py-3 text-right">
                   <span className="font-semibold text-navy-700">{p.event_count ?? 0}</span>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  {onView && (
+                    <button onClick={() => onView(p)} className="text-xs font-medium text-navy-600 hover:underline">Open</button>
+                  )}
                 </td>
               </tr>
             ))}

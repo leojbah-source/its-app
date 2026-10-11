@@ -543,16 +543,22 @@ router.post('/participants/:id/send-confirmation',
 // List participants for the active year with registration counts.
 router.get('/participants', requireRole(...staffRoles), async (req, res, next) => {
   try {
-    const { search, school_id, age_group_id } = req.query;
+    const { search, school_id, age_group_id, include } = req.query;
     const { rows: cfg } = await pool.query(
       `SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`,
     );
     const year_id = cfg[0]?.id || null;
+    // include='all' also returns not-yet-completed children, incl. those who
+    // exist only as team members (so staff can find and fix e.g. a missing
+    // gender before the parent registers them for individual events).
+    const includeAll = String(include || '') === 'all';
 
     const { rows } = await pool.query(
       `SELECT
          p.id, p.cpr_number, p.full_name, p.dob, p.gender, p.membership_status,
          p.guardian_name, p.guardian_phone,
+         (p.confirmed_at IS NOT NULL) AS confirmed,
+         EXISTS (SELECT 1 FROM team_members tm WHERE tm.participant_id = p.id) AS on_team,
          s.name AS school_name,
          ag.code AS age_group_code, ag.label AS age_group_label,
          COUNT(r.id) FILTER (WHERE r.status != 'withdrawn') AS event_count
@@ -561,7 +567,7 @@ router.get('/participants', requireRole(...staffRoles), async (req, res, next) =
        LEFT JOIN age_groups ag ON ag.id = p.age_group_id
        LEFT JOIN registrations r ON r.participant_id = p.id
        WHERE ($1::int IS NULL OR p.year_id = $1)
-         AND p.confirmed_at IS NOT NULL   -- completed registrations only
+         AND ($5::bool OR p.confirmed_at IS NOT NULL)  -- completed only unless include=all
          AND ($2::text IS NULL OR p.full_name ILIKE '%' || $2 || '%'
               OR p.cpr_number = $2)
          AND ($3::int IS NULL OR p.school_id = $3)
@@ -571,7 +577,8 @@ router.get('/participants', requireRole(...staffRoles), async (req, res, next) =
       [year_id,
        search || null,
        school_id ? parseInt(school_id, 10) : null,
-       age_group_id ? parseInt(age_group_id, 10) : null],
+       age_group_id ? parseInt(age_group_id, 10) : null,
+       includeAll],
     );
     res.json(rows);
   } catch (err) { next(err); }
