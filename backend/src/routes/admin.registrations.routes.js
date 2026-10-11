@@ -1317,15 +1317,36 @@ router.post('/registrations/participant/:id/waive-fees',
       }
     }
 
+    // Recompute the true balance after the fee changes and cancel any pending
+    // payments that are no longer needed (e.g. a full waiver), so they don't
+    // linger as "pending" or get confirmed by mistake. Internal cleanup — the
+    // parent is not notified here; confirmed payments are never touched.
+    const { rows: dueRows } = await client.query(
+      `SELECT COALESCE(SUM(fee_amount),0) AS due FROM registrations
+       WHERE participant_id = $1 AND status NOT IN ('withdrawn','swapped')`, [req.params.id]);
+    const { rows: paidRows } = await client.query(
+      `SELECT COALESCE(SUM(amount),0) AS paid FROM payments
+       WHERE participant_id = $1 AND status = 'confirmed'`, [req.params.id]);
+    const newTotalDue = Number(dueRows[0].due);
+    const balance = newTotalDue - Number(paidRows[0].paid);
+    let cancelled_pending = 0;
+    if (balance <= 0.0001) {
+      const r2 = await client.query(
+        `UPDATE payments SET status = 'rejected', confirmed_by = $2, confirmed_at = NOW(),
+           notes = COALESCE(notes || E'\n','') || 'Auto-cancelled: fee waived/adjusted — no balance due',
+           updated_at = NOW()
+         WHERE participant_id = $1 AND status = 'pending'`, [req.params.id, req.user.id]);
+      cancelled_pending = r2.rowCount || 0;
+    }
+
     await client.query('COMMIT');
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'ADJUST_FEES', entity: 'participants', entityId: Number(req.params.id),
-      details: { mode: mode === 'free' ? 'waive-free' : 'custom', changes: updated },
+      details: { mode: mode === 'free' ? 'waive-free' : 'custom', changes: updated, cancelled_pending },
       reason: String(reason).trim() });
 
-    const total = updated.reduce((t, u) => t + u.now, 0);
-    res.json({ updated, new_total: Number(total.toFixed(3)) });
+    res.json({ updated, new_total: Number(newTotalDue.toFixed(3)), cancelled_pending });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => null);
     next(err);

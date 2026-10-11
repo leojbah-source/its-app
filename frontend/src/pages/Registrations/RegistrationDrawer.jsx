@@ -94,6 +94,15 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [feeVals, setFeeVals] = useState({});     // registration_id -> string
   const [feeReason, setFeeReason] = useState('');
 
+  // Participant fee balance (due minus confirmed) — drives the Confirm guard.
+  const feesDueTotal = (data?.registrations || [])
+    .filter((r) => r.status !== 'withdrawn' && r.status !== 'swapped')
+    .reduce((t, r) => t + Number(r.fee_amount || 0), 0);
+  const feesConfirmedTotal = (data?.payments || [])
+    .filter((p) => p.status === 'confirmed')
+    .reduce((t, p) => t + Number(p.amount || 0), 0);
+  const balanceDue = Math.max(0, feesDueTotal - feesConfirmedTotal);
+
   const participantId = registration?.participant_id;
   const teamId = registration?.team_id;
   const isTeam = !participantId && !!teamId;
@@ -670,18 +679,26 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                               <Button variant="outline" size="sm" onClick={() => { setAmtFor(null); setAmtVal(''); }}>Cancel</Button>
                             </div>
                           ) : (
-                            <div className="flex flex-wrap gap-2">
-                              <Button variant="primary" size="sm" loading={busy === `pay${pay.id}`}
-                                onClick={() => doPayment(pay.id, 'confirm')}>
-                                Confirm payment
-                              </Button>
-                              <Button variant="outline" size="sm"
-                                onClick={() => { setAmtFor(pay.id); setAmtVal(Number(pay.amount).toFixed(3)); }}>
-                                Adjust amount…
-                              </Button>
-                              <Button variant="outline" size="sm" onClick={() => { setRejectFor(pay.id); setRejectReason(''); }}>
-                                Reject…
-                              </Button>
+                            <div className="space-y-1.5">
+                              <div className="flex flex-wrap gap-2">
+                                <Button variant="primary" size="sm" loading={busy === `pay${pay.id}`}
+                                  disabled={balanceDue <= 0}
+                                  onClick={() => doPayment(pay.id, 'confirm')}>
+                                  Confirm payment
+                                </Button>
+                                <Button variant="outline" size="sm"
+                                  onClick={() => { setAmtFor(pay.id); setAmtVal(Number(pay.amount).toFixed(3)); }}>
+                                  Adjust amount…
+                                </Button>
+                                <Button variant="outline" size="sm" onClick={() => { setRejectFor(pay.id); setRejectReason(''); }}>
+                                  Reject…
+                                </Button>
+                              </div>
+                              {balanceDue <= 0 && (
+                                <p className="text-[11px] text-slate-400">
+                                  No balance due — nothing to confirm. Use “Reject…” if this payment isn’t required.
+                                </p>
+                              )}
                             </div>
                           )
                         )}

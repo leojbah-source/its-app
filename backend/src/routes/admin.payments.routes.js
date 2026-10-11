@@ -63,6 +63,23 @@ router.get('/payments', requireRole(...staffRoles), async (req, res, next) => {
 router.post('/payments/:id/confirm', requireRole(...paymentActionRoles), async (req, res, next) => {
   try {
     const cashOnly = req.user.role === 'Registrar';   // Registrars: cash payments only
+
+    // Guard: do not confirm a payment for a participant who owes nothing (e.g.
+    // the fee was waived to zero). Confirming would record income that was
+    // never due. The pending row should be rejected instead.
+    const { rows: fd } = await pool.query(
+      `SELECT pay.participant_id,
+              COALESCE((SELECT SUM(r.fee_amount) FROM registrations r
+                        WHERE r.participant_id = pay.participant_id
+                          AND r.status NOT IN ('withdrawn','swapped')), 0) AS due
+       FROM payments pay WHERE pay.id = $1 AND pay.status = 'pending'`,
+      [req.params.id]);
+    if (fd[0] && fd[0].participant_id && Number(fd[0].due) === 0) {
+      return res.status(400).json({
+        error: 'No fee is due for this participant (fee waived) — this payment is not required. Use Reject to clear it.',
+      });
+    }
+
     const { rows } = await pool.query(
       `UPDATE payments SET status = 'confirmed', confirmed_by = $1,
               confirmed_at = NOW(), updated_at = NOW()
