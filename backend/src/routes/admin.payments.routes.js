@@ -18,6 +18,22 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { sendWhatsApp, sendWhatsAppMany } = require('../utils/notify');
 const { sendEmail } = require('../utils/email');
+const multer = require('multer');
+const path = require('path');
+const { uploadDir } = require('../utils/uploads');
+
+// Disk upload for a payment proof screenshot (image or PDF), when the parent
+// switches payment method and sends the proof to the office.
+const proofUpload = multer({
+  storage: multer.diskStorage({
+    destination: uploadDir,
+    filename: (req, file, cb) =>
+      cb(null, `payproof-${req.params.id || 'x'}-${Date.now()}${path.extname(file.originalname || '.jpg')}`),
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) =>
+    cb(null, /^(image\/(png|jpe?g|webp|heic|heif)|application\/pdf)$/i.test(file.mimetype)),
+});
 
 const router = express.Router();
 router.use(authenticate);
@@ -144,6 +160,54 @@ router.put('/payments/:id/amount', requireRole(...paymentActionRoles), async (re
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'ADJUST_PAYMENT_AMOUNT', entity: 'payments', entityId: rows[0].id,
       before: { amount: before[0].amount }, details: { amount }, reason: reason || null });
+
+    res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/payments/:id/method ──────────────────────────────────────
+// Change a PENDING payment's method / reference and/or attach a proof
+// screenshot — e.g. a parent first marked KCA-office (cash) but later paid by
+// BenefitPay and sent the screenshot. Pending only; fully audited.
+router.post('/payments/:id/method', requireRole(...paymentActionRoles),
+  proofUpload.single('file'), async (req, res, next) => {
+  try {
+    const cashOnly = req.user.role === 'Registrar';
+    const { rows: pre } = await pool.query(
+      `SELECT id, method, status, reference, proof_url FROM payments WHERE id = $1`, [req.params.id]);
+    const pay = pre[0];
+    if (!pay) return res.status(404).json({ error: 'Payment not found' });
+    if (pay.status !== 'pending') return res.status(400).json({ error: 'Only a pending payment can be changed.' });
+    if (cashOnly && pay.method !== 'cash')
+      return res.status(403).json({ error: 'Registrars can only change KCA-office (cash) payments.' });
+
+    const method = req.body.method ? String(req.body.method).trim() : null;
+    if (method && !['cash', 'benefitpay', 'bank_transfer'].includes(method))
+      return res.status(400).json({ error: "method must be 'cash', 'benefitpay' or 'bank_transfer'." });
+    const reference = req.body.reference !== undefined ? String(req.body.reference).trim() : null;
+    const proofUrl = req.file ? `/uploads/${req.file.filename}` : null;
+
+    if (!method && reference === null && !proofUrl)
+      return res.status(400).json({ error: 'Nothing to change — set a method, reference or proof.' });
+
+    const sets = ['updated_at = NOW()'];
+    const vals = [];
+    if (method)   { vals.push(method);   sets.push(`method = $${vals.length}`); }
+    if (reference !== null) { vals.push(reference || null); sets.push(`reference = $${vals.length}`); }
+    if (proofUrl) { vals.push(proofUrl); sets.push(`proof_url = $${vals.length}`); }
+    const note = `Method/proof updated by ${req.user.role}` +
+      (method ? ` → ${method}` : '') + (proofUrl ? ' (proof attached)' : '');
+    vals.push(note);
+    sets.push(`notes = COALESCE(notes || E'\n','') || $${vals.length}`);
+    vals.push(req.params.id);
+
+    const { rows } = await pool.query(
+      `UPDATE payments SET ${sets.join(', ')} WHERE id = $${vals.length} AND status = 'pending' RETURNING *`, vals);
+    if (!rows[0]) return res.status(409).json({ error: 'Payment is no longer pending.' });
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'CHANGE_PAYMENT_METHOD', entity: 'payments', entityId: Number(req.params.id),
+      before: { method: pay.method }, details: { method, reference, proof: !!proofUrl } });
 
     res.json(rows[0]);
   } catch (err) { next(err); }

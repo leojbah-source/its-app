@@ -489,6 +489,55 @@ router.post('/registrations/participant/:id/complete',
   } finally { client.release(); }
 });
 
+// POST /participants/:id/send-confirmation — (re)send the registration-complete
+// acknowledgement (email + WhatsApp) to the parent on demand. Useful after a
+// walk-in import once photos/CPR are added, after an email change, etc.
+router.post('/participants/:id/send-confirmation',
+  requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const r = await registrationReadiness(pool, req.params.id);
+    if (r.notFound) return res.status(404).json({ error: 'Participant not found' });
+    if (!r.items.length) return res.status(400).json({ error: 'No events on record — nothing to confirm.' });
+    const p = r.p;
+
+    const { rows: yl } = await pool.query(
+      `SELECT event_year_label, rules_pdf_url, its_logo_url FROM year_config WHERE id = $1`, [p.year_id]);
+
+    let email_sent = false;
+    if (p.parent_email) {
+      try {
+        const result = await sendEmail({
+          to: p.parent_email,
+          subject: `${yl[0]?.event_year_label || 'KCA ITS'} — Registration confirmed for ${p.full_name}`,
+          html: registrationConfirmationHtml({
+            yearLabel: yl[0]?.event_year_label, rulesUrl: yl[0]?.rules_pdf_url, logoUrl: yl[0]?.its_logo_url,
+            parent: { full_name: p.parent_name, email: p.parent_email, phone: p.parent_phone,
+                      whatsapp_number: p.parent_whatsapp, kca_member_no: p.kca_member_no },
+            participant: p, items: r.items, payments: r.pays,
+            summary: { fees_total: r.feesTotal, paid_confirmed: r.paidConfirmed,
+                       balance_due: Math.max(0, r.feesTotal - r.paidConfirmed) },
+          }),
+        });
+        email_sent = !!result.sent;
+      } catch (e) { console.error('send-confirmation email failed:', e.message); }
+    }
+
+    let whatsapp_sent = false;
+    if (p.guardian_phone) {
+      sendWhatsApp(p.guardian_phone,
+        `KCA ITS: Registration for ${p.full_name} is confirmed — ${r.items.length} event(s). Thank you!`)
+        .catch(() => null);
+      whatsapp_sent = true;
+    }
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'SEND_CONFIRMATION', entity: 'participants', entityId: Number(req.params.id),
+      details: { email_sent, whatsapp_sent } });
+
+    res.json({ email_sent, whatsapp_sent, parent_email: p.parent_email || null });
+  } catch (err) { next(err); }
+});
+
 
 // ── GET /api/admin/participants ───────────────────────────────────────────────
 // List participants for the active year with registration counts.

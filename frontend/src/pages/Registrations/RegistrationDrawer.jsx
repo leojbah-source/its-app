@@ -63,6 +63,10 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [rejectReason, setRejectReason] = useState('');
   const [amtFor, setAmtFor] = useState(null);        // payment id being amount-adjusted
   const [amtVal, setAmtVal] = useState('');
+  const [methodFor, setMethodFor] = useState(null);  // payment id changing method/proof
+  const [methodVal, setMethodVal] = useState('cash');
+  const [methodRef, setMethodRef] = useState('');
+  const [methodFile, setMethodFile] = useState(null);
   const [flash, setFlash] = useState('');
   const [msgOpen, setMsgOpen] = useState(false);
   const [msgText, setMsgText] = useState('');
@@ -256,6 +260,28 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
       setAmtFor(null); setAmtVal('');
       load();
     } catch (err) { setFlash(err.message); }
+    finally { setBusy(''); }
+  }
+
+  async function doChangeMethod(id) {
+    setBusy(`pay${id}`); setFlash('');
+    try {
+      await paymentsApi.changeMethod(token, id, { method: methodVal, reference: methodRef, file: methodFile });
+      setFlash('Payment method updated.');
+      setMethodFor(null); setMethodRef(''); setMethodFile(null);
+      load();
+    } catch (err) { setFlash(err.message || 'Could not update the payment.'); }
+    finally { setBusy(''); }
+  }
+
+  async function doSendConfirmation() {
+    setBusy('sendconf'); setFlash('');
+    try {
+      const r = await participantsApi.sendConfirmation(token, participantId);
+      setFlash(r.email_sent
+        ? `Confirmation sent to ${r.parent_email}${r.whatsapp_sent ? ' + WhatsApp' : ''}.`
+        : r.whatsapp_sent ? 'Confirmation sent on WhatsApp.' : 'No email/phone on file to send to.');
+    } catch (err) { setFlash(err.message || 'Could not send the confirmation.'); }
     finally { setBusy(''); }
   }
 
@@ -706,6 +732,31 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                                 onClick={() => doAdjustAmount(pay.id)}>Save</Button>
                               <Button variant="outline" size="sm" onClick={() => { setAmtFor(null); setAmtVal(''); }}>Cancel</Button>
                             </div>
+                          ) : methodFor === pay.id ? (
+                            <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/60 p-2.5">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <select value={methodVal} onChange={(e) => setMethodVal(e.target.value)}
+                                  className="rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                                  <option value="cash">Cash (KCA office)</option>
+                                  <option value="benefitpay">BenefitPay</option>
+                                  <option value="bank_transfer">Bank transfer</option>
+                                </select>
+                                <input value={methodRef} onChange={(e) => setMethodRef(e.target.value)}
+                                  placeholder="reference (optional)"
+                                  className="w-40 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                              </div>
+                              <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-navy-700 hover:bg-slate-50">
+                                <Upload size={12} /> {methodFile ? methodFile.name : 'Attach screenshot (optional)'}
+                                <input type="file" accept="image/*,application/pdf" className="hidden"
+                                  onChange={(e) => setMethodFile(e.target.files?.[0] || null)} />
+                              </label>
+                              <div className="flex gap-2">
+                                <Button variant="primary" size="sm" loading={busy === `pay${pay.id}`}
+                                  onClick={() => doChangeMethod(pay.id)}>Save</Button>
+                                <Button variant="outline" size="sm"
+                                  onClick={() => { setMethodFor(null); setMethodRef(''); setMethodFile(null); }}>Cancel</Button>
+                              </div>
+                            </div>
                           ) : (
                             <div className="space-y-1.5">
                               <div className="flex flex-wrap gap-2">
@@ -717,6 +768,10 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                                 <Button variant="outline" size="sm"
                                   onClick={() => { setAmtFor(pay.id); setAmtVal(Number(pay.amount).toFixed(3)); }}>
                                   Adjust amount…
+                                </Button>
+                                <Button variant="outline" size="sm"
+                                  onClick={() => { setMethodFor(pay.id); setMethodVal(pay.method || 'cash'); setMethodRef(pay.reference || ''); setMethodFile(null); }}>
+                                  Change method…
                                 </Button>
                                 <Button variant="outline" size="sm" onClick={() => { setRejectFor(pay.id); setRejectReason(''); }}>
                                   Reject…
@@ -878,6 +933,11 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
         </div>
 
         <div className="border-t border-slate-200 px-6 py-4 flex justify-end gap-2">
+          {p && canEditFees && (
+            <Button variant="outline" size="sm" icon={CheckCircle2} loading={busy === 'sendconf'} onClick={doSendConfirmation}>
+              Send confirmation
+            </Button>
+          )}
           {p && <Button variant="outline" size="sm" icon={MessageSquare} onClick={openMessage}>Message parent</Button>}
           <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
         </div>

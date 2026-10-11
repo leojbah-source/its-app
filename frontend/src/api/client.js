@@ -150,6 +150,13 @@ export const paymentsApi = {
   confirm: (token, id) => request(`/api/admin/payments/${id}/confirm`, { method: 'POST', token, body: {} }),
   reject: (token, id, reason) => request(`/api/admin/payments/${id}/reject`, { method: 'POST', token, body: { reason } }),
   updateAmount: (token, id, amount, reason) => request(`/api/admin/payments/${id}/amount`, { method: 'PUT', token, body: { amount, reason } }),
+  changeMethod: (token, id, { method, reference, file }) => {
+    const fd = new FormData();
+    if (method) fd.append('method', method);
+    if (reference !== undefined && reference !== null) fd.append('reference', reference);
+    if (file) fd.append('file', file);
+    return request(`/api/admin/payments/${id}/method`, { method: 'POST', token, body: fd, isFormData: true });
+  },
   refunds: (token, { yearId, status } = {}) => request(`/api/admin/refunds${qs({ year_id: yearId, status })}`, { token }),
   refundConfirm: (token, id, body) => request(`/api/admin/refunds/${id}/confirm`, { method: 'POST', token, body }),
   refundReject: (token, id) => request(`/api/admin/refunds/${id}/reject`, { method: 'POST', token, body: {} }),
@@ -318,6 +325,9 @@ export const participantsApi = {
     const fd = new FormData(); fd.append('kind', kind); fd.append('file', file);
     return request(`/api/admin/participants/${id}/upload`, { method: 'POST', token, body: fd, isFormData: true });
   },
+  /** (Re)send the registration-complete confirmation (email + WhatsApp) to the parent. */
+  sendConfirmation: (token, id) =>
+    request(`/api/admin/participants/${id}/send-confirmation`, { method: 'POST', token, body: {} }),
 };
 
 // ── Teams (admin) ────────────────────────────────────────────────────────────
