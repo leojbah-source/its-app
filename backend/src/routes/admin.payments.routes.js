@@ -38,7 +38,7 @@ const proofUpload = multer({
 const router = express.Router();
 router.use(authenticate);
 
-const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Accountant'];
+const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Accountant'];
 const editRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Accountant'];
 // A Registrar may confirm/reject CASH ("KCA office") payments only — they chase
 // those in person. Electronic payments (BenefitPay / bank) are the Accountant's.

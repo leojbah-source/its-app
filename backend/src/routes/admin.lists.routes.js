@@ -20,7 +20,7 @@ const { logAudit } = require('../utils/audit');
 const router = express.Router();
 router.use(authenticate);
 
-const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
+const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 
 async function activeYear() {
   const { rows } = await pool.query(

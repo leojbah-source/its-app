@@ -12,7 +12,7 @@ const { sendWhatsApp, sendWhatsAppChat, sendWhatsAppMany, groupChatId } = requir
 
 const router = express.Router();
 router.use(authenticate);
-const viewRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
+const viewRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 const editRoles = ['SuperAdmin', 'Admin', 'Chairman'];
 
 // Notice attachment upload — PDF or JPEG/PNG, written to the persistent upload

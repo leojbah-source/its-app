@@ -17,7 +17,7 @@ const markRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 // The videographer (Media) plus supervising staff may tick "recorded".
 const recordRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Media'];
 // Who may view the opted-in lists (videographer + staff).
-const viewRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Media', 'Accountant'];
+const viewRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Media', 'Accountant'];
 
 const METHODS = ['cash', 'benefitpay'];
 const toInt = (v) => (v === '' || v === undefined || v === null ? null : Number(v));

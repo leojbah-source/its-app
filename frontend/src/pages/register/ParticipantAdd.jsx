@@ -111,7 +111,11 @@ export default function ParticipantAdd() {
 
     try {
       const data = await portalApi.participantLookup(token, trimmed);
-      if (data.found) {
+      if (data.found && data.owned === false) {
+        // A child with this CPR exists under another account — do not reveal it.
+        setFound(null);
+        setLookupError('A child with this CPR is already registered under another account. If this is your child, please contact the KCA office.');
+      } else if (data.found) {
         setFound(data.participant);
       } else {
         setFound(false);

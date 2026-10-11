@@ -58,7 +58,7 @@ const PARTICIPANT_IMAGE_COLUMN = {
 const router = express.Router();
 router.use(authenticate);
 
-const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Registrar'];
+const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Registrar'];
 const editRoles  = ['SuperAdmin', 'Admin', 'Coordinator', 'Registrar'];
 
 // ── IMPORTANT: static paths must come before /:id ────────────────────────────

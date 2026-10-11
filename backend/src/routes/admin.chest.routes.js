@@ -10,7 +10,7 @@ const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 router.use(authenticate);
-const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
+const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 const markRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 
 function shuffle(arr) {

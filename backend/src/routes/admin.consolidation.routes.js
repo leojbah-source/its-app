@@ -27,7 +27,7 @@ const { sendEmail } = require('../utils/email');
 const router = express.Router();
 router.use(authenticate);
 
-const VIEW_ROLES  = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
+const VIEW_ROLES  = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 const ACT_ROLES   = ['SuperAdmin', 'Admin', 'Chairman'];
 const SPLIT_ROLES = ['SuperAdmin', 'Chairman'];
 

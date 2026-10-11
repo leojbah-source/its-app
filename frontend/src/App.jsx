@@ -56,7 +56,7 @@ import MyPortal from './pages/pwa/MyPortal';
 
 // Organiser roles (everyone except the scoped Registrar/Accountant and the
 // day-of MC/Timer roles).
-const ORG = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
+const ORG = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 
 /** Sends each staff role to its home screen (scoped roles skip Year Setup). */
 function AdminIndex() {

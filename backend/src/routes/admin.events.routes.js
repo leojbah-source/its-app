@@ -8,7 +8,7 @@ const { sendWhatsApp } = require('../utils/notify');
 const router = express.Router();
 router.use(authenticate);
 
-const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
+const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 const editRoles  = ['SuperAdmin', 'Admin', 'Coordinator'];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
