@@ -52,4 +52,35 @@ async function startBrandedPdf(res, { yearId, title, filename }) {
   return doc;
 }
 
-module.exports = { startBrandedPdf, getYearLogos, fetchImageBuffer };
+
+// pdfkit embeds only clean PNG/JPEG (not WebP/SVG, and not interlaced/CMYK/16-bit
+// PNGs). Normalise any fetched logo to a baseline PNG via sharp when available;
+// if sharp is missing or conversion fails, return the original buffer so a
+// compatible image still embeds and PDF generation never breaks.
+let _sharp; let _sharpTried = false;
+function getSharp() {
+  if (_sharpTried) return _sharp;
+  _sharpTried = true;
+  try { _sharp = require('sharp'); } catch { _sharp = null; }
+  return _sharp;
+}
+async function ensureEmbeddable(buf) {
+  if (!buf || !buf.length) return null;
+  const s = getSharp();
+  if (!s) return buf;
+  try { return await s(buf).flatten({ background: '#ffffff' }).png().toBuffer(); }
+  catch { return buf; }
+}
+/** Resolve an app-served (relative) asset path to an absolute URL pdfkit can fetch. */
+function resolveAppUrl(u) {
+  if (!u) return null;
+  if (/^https?:\/\//i.test(u)) return u;
+  const base = (process.env.APP_URL || 'https://talentscan.kcabah.com').replace(/\/+$/, '');
+  return `${base}${u.startsWith('/') ? '' : '/'}${u}`;
+}
+/** Fetch a logo URL (relative or absolute) and return an embeddable PNG buffer, or null. */
+async function prepLogo(url) {
+  return ensureEmbeddable(await fetchImageBuffer(resolveAppUrl(url)));
+}
+
+module.exports = { startBrandedPdf, getYearLogos, fetchImageBuffer, ensureEmbeddable, resolveAppUrl, prepLogo };

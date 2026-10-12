@@ -17,57 +17,41 @@ const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const PDFDocument = require('pdfkit');
-const archiver = require('archiver');
-const { fetchImageBuffer } = require('../utils/pdf');
+const { prepLogo } = require('../utils/pdf');
 
-/** Absolute URL for an app-served (relative) logo path, so pdfkit can fetch it. */
-function absUrl(u) {
-  if (!u) return null;
-  if (/^https?:\/\//i.test(u)) return u;
-  const base = (process.env.APP_URL || 'https://talentscan.kcabah.com').replace(/\/+$/, '');
-  return `${base}${u.startsWith('/') ? '' : '/'}${u}`;
+const INK = '#1e3a5f', MUTE = '#64748b', BODY = '#1e293b', RED = '#b91c1c';
+
+/** Full branded header + age-group banner at the top of a group's first page. */
+function drawGroupHeader(doc, logos, year, group) {
+  const M = doc.page.margins.left;
+  const W = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const topY = doc.page.margins.top;
+  const logoH = 46;
+  if (logos.kca)     { try { doc.image(logos.kca, M, topY, { fit: [72, logoH], align: 'left', valign: 'top' }); } catch { /* */ } }
+  if (logos.sponsor) { try { doc.image(logos.sponsor, doc.page.width - doc.page.margins.right - 72, topY, { fit: [72, logoH], align: 'right', valign: 'top' }); } catch { /* */ } }
+  if (logos.its)     { try { doc.image(logos.its, (doc.page.width / 2) - 26, topY - 2, { fit: [52, logoH + 4] }); } catch { /* */ } }
+  doc.fillColor(INK).font('Helvetica-Bold').fontSize(15)
+     .text(year.event_year_label || 'KCA Indian Talent Scan', M, topY + logoH + 4, { width: W, align: 'center' });
+  doc.font('Helvetica').fontSize(9.5).fillColor(MUTE)
+     .text(`Initial List (as registered) · printed ${new Date().toLocaleString('en-GB')}`, { width: W, align: 'center' });
+  const by = doc.y + 8;
+  doc.roundedRect(M, by, W, 23, 4).fill(INK);
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(12)
+     .text(`AGE GROUP — ${group.label ? group.label + ' (' + group.code + ')' : group.code}`, M + 10, by + 6, { width: W - 20 });
+  doc.font('Helvetica').fillColor(BODY);
+  doc.x = M; doc.y = by + 33;
 }
 
-/** Render ONE age-group's initial list to a PDF Buffer (events A-Z, names A-Z). */
-function renderGroupPdf({ kcaLogo, sponsorLogo, year, group }) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 40, size: 'A4' });
-    const chunks = [];
-    doc.on('data', (c) => chunks.push(c));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', reject);
-
-    const top = doc.y;
-    if (kcaLogo) { try { doc.image(kcaLogo, 40, top, { width: 64 }); } catch { /* ignore */ } }
-    if (sponsorLogo) { try { doc.image(sponsorLogo, doc.page.width - 104, top, { width: 64 }); } catch { /* ignore */ } }
-    doc.fontSize(15).fillColor('#1e3a5f').text(year?.event_year_label || 'KCA Indian Talent Scan', 0, top, { align: 'center' });
-    doc.moveDown(0.3).fontSize(13).fillColor('#1e3a5f')
-      .text(`Initial List — ${group.label ? group.label + ' (' + group.code + ')' : group.code}`, { align: 'center' });
-    doc.moveDown(0.1).fontSize(9).fillColor('#64748b')
-      .text(`As registered · printed ${new Date().toLocaleString('en-GB')}`, { align: 'center' });
-    doc.moveDown(1);
-
-    const eventNames = [...group.events.keys()].sort((a, b) => a.localeCompare(b));
-    if (eventNames.length === 0) {
-      doc.fontSize(11).fillColor('#64748b').text('No entries in this age group.');
-    }
-    for (const evName of eventNames) {
-      const ev = group.events.get(evName);
-      const names = [...ev.names].sort((a, b) => a.localeCompare(b));
-      if (doc.y > doc.page.height - 120) doc.addPage();
-      doc.moveDown(0.6);
-      doc.fontSize(12).fillColor('#1e3a5f').text(evName, { continued: true })
-        .fontSize(9).fillColor('#64748b')
-        .text(`   (${ev.code}) · ${names.length} entr${names.length === 1 ? 'y' : 'ies'}`);
-      doc.moveDown(0.2);
-      doc.fontSize(10.5).fillColor('#1e293b');
-      names.forEach((n, i) => {
-        if (doc.y > doc.page.height - 50) doc.addPage();
-        doc.text(`${i + 1}.  ${n}`, { indent: 12 });
-      });
-    }
-    doc.end();
-  });
+/** Slim running header stamped on continuation pages within a group. */
+function drawRunningHeader(doc, group) {
+  const M = doc.page.margins.left;
+  const W = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const topY = doc.page.margins.top;
+  doc.font('Helvetica-Bold').fontSize(9.5).fillColor(INK)
+     .text(`AGE GROUP ${group.code}${group.label ? ' — ' + group.label : ''}  (continued)`, M, topY, { width: W });
+  doc.moveTo(M, topY + 15).lineTo(doc.page.width - doc.page.margins.right, topY + 15).strokeColor('#cbd5e1').lineWidth(0.7).stroke();
+  doc.font('Helvetica').fillColor(BODY);
+  doc.x = M; doc.y = topY + 22;
 }
 
 const router = express.Router();
@@ -78,6 +62,7 @@ const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 async function activeYear() {
   const { rows } = await pool.query(
     `SELECT id, event_year_label, kca_logo_url, its_logo_url, sponsor_logo_url, sponsor_name,
+            COALESCE(min_entries_threshold, 5) AS min_threshold,
             initial_list_published, initial_list_published_at
      FROM year_config WHERE is_active = TRUE LIMIT 1`);
   return rows[0] || null;
@@ -229,13 +214,15 @@ router.post('/publish-initial', requireRole('SuperAdmin', 'Admin'), async (req, 
 });
 
 // ── GET /api/admin/lists/initial-pdf ──────────────────────────────────────────
-// Streams a ZIP containing one PDF per age group — the INITIAL list exactly AS
-// REGISTERED (no merge/split/cancel applied): events alphabetical, participant
-// names alphabetical. Read-only; generates nothing in the database.
+// Streams ONE combined PDF — the INITIAL list exactly AS REGISTERED (no merge /
+// split / cancel applied). Each age group starts on a new page with a branded
+// header and banner; events are alphabetical, names alphabetical, and events
+// with fewer than the minimum entries are shown in red. Read-only.
 router.get('/initial-pdf', requireRole(...staffRoles), async (req, res, next) => {
   try {
     const yc = await activeYear();
     if (!yc) return res.status(400).json({ error: 'No active year' });
+    const minTh = Number(yc.min_threshold || 5);
 
     const { rows } = await pool.query(
       `SELECT ag.id AS ag_id, ag.code AS age_group_code, ag.label AS age_group_label,
@@ -254,8 +241,7 @@ router.get('/initial-pdf', requireRole(...staffRoles), async (req, res, next) =>
         ORDER BY ag.sort_order NULLS LAST, e.event_name, p.full_name`,
       [yc.id]);
 
-    // group by age-group → event name → names[]
-    const groups = new Map(); // ag_id → { code, label, sort, events: Map(name → {code, names[]}) }
+    const groups = new Map();
     for (const r of rows) {
       const gid = r.ag_id ?? 0;
       if (!groups.has(gid))
@@ -267,35 +253,64 @@ router.get('/initial-pdf', requireRole(...staffRoles), async (req, res, next) =>
     const ordered = [...groups.values()].sort((a, b) => (a.sort - b.sort) || a.code.localeCompare(b.code));
     if (ordered.length === 0) return res.status(400).json({ error: 'No registrations to list yet.' });
 
-    const [kcaLogo, sponsorLogo] = await Promise.all([
-      fetchImageBuffer(absUrl(yc.kca_logo_url)),
-      fetchImageBuffer(absUrl(yc.sponsor_logo_url)),
-    ]);
+    const logos = {
+      kca: await prepLogo(yc.kca_logo_url),
+      its: await prepLogo(yc.its_logo_url),
+      sponsor: await prepLogo(yc.sponsor_logo_url),
+    };
 
     const safe = (x) => String(x || '').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 40);
-    const label = safe(yc.event_year_label) || 'ITS';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="initial-list-${safe(yc.event_year_label) || 'ITS'}.pdf"`);
 
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="initial-lists-${label}.zip"`);
-    const archive = archiver('zip', { zlib: { level: 9 } });
-    archive.on('error', (err) => { console.error('initial-pdf zip error:', err.message); try { res.status(500).end(); } catch { /* noop */ } });
-    archive.pipe(res);
+    const doc = new PDFDocument({ margin: 45, size: 'A4', bufferPages: true });
+    doc.pipe(res);
 
-    const used = new Set();
-    for (const g of ordered) {
-      const buf = await renderGroupPdf({ kcaLogo, sponsorLogo, year: yc, group: g });
-      let name = `${label}_${safe(g.code)}${g.label ? '_' + safe(g.label) : ''}.pdf`;
-      let n = 1;
-      while (used.has(name)) name = name.replace(/\.pdf$/, `_${++n}.pdf`);
-      used.add(name);
-      archive.append(buf, { name });
+    let curGroup = null, suppressAuto = false;
+    doc.on('pageAdded', () => { if (!suppressAuto && curGroup) drawRunningHeader(doc, curGroup); });
+
+    const bottomLimit = () => doc.page.height - doc.page.margins.bottom - 24;
+
+    ordered.forEach((g, gi) => {
+      curGroup = g;
+      if (gi > 0) { suppressAuto = true; doc.addPage(); suppressAuto = false; }
+      drawGroupHeader(doc, logos, yc, g);
+
+      const eventNames = [...g.events.keys()].sort((a, b) => a.localeCompare(b));
+      if (eventNames.length === 0) doc.font('Helvetica').fontSize(11).fillColor(MUTE).text('No entries in this age group.');
+
+      for (const evName of eventNames) {
+        const ev = g.events.get(evName);
+        const names = [...ev.names].sort((a, b) => a.localeCompare(b));
+        const under = names.length < minTh;
+        if (doc.y > bottomLimit() - 40) { suppressAuto = false; doc.addPage(); }
+        doc.moveDown(0.55);
+        doc.font('Helvetica-Bold').fontSize(12).fillColor(under ? RED : INK).text(evName, { continued: true })
+           .font('Helvetica').fontSize(9).fillColor(under ? RED : MUTE)
+           .text(`   (${ev.code}) · ${names.length} entr${names.length === 1 ? 'y' : 'ies'}${under ? `  — fewer than ${minTh}` : ''}`);
+        doc.moveDown(0.15);
+        doc.font('Helvetica').fontSize(10.5).fillColor(BODY);
+        names.forEach((n, i) => {
+          if (doc.y > bottomLimit()) doc.addPage();
+          doc.text(`${i + 1}.  ${n}`, { indent: 14 });
+        });
+      }
+    });
+
+    // Page numbers (buffered).
+    const range = doc.bufferedPageRange();
+    const W = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    for (let i = 0; i < range.count; i++) {
+      doc.switchToPage(range.start + i);
+      doc.font('Helvetica').fontSize(8).fillColor('#94a3b8')
+         .text(`Page ${i + 1} of ${range.count}`, doc.page.margins.left, doc.page.height - doc.page.margins.bottom + 6, { width: W, align: 'center', lineBreak: false });
     }
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'EXPORT_INITIAL_LIST_PDF', entity: 'year_config', entityId: yc.id,
       details: { age_groups: ordered.length } });
 
-    await archive.finalize();
+    doc.end();
   } catch (err) { next(err); }
 });
 

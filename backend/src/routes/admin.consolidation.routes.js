@@ -24,7 +24,7 @@ const { logAudit } = require('../utils/audit');
 const { sendWhatsAppImage } = require('../utils/notify');
 const { sendEmail } = require('../utils/email');
 const PDFDocument = require('pdfkit');
-const { fetchImageBuffer } = require('../utils/pdf');
+const { fetchImageBuffer, prepLogo } = require('../utils/pdf');
 
 const router = express.Router();
 router.use(authenticate);
@@ -878,79 +878,128 @@ router.post('/affected/:regId/refund', requireRole(...ACT_ROLES), async (req, re
 });
 
 // ── GET /changes-pdf ──────────────────────────────────────────────────────────
-// A standalone "Changes & Cancellations" sheet (branded PDF): the cancelled
-// events (with how many entries are affected) and the events being combined
-// (merged). Distributed alongside the as-registered initial lists. Read-only.
+// A standalone, branded "Changes & Cancellations" sheet listing EVERY event that
+// will be cancelled (fewer than the minimum entries), combined (merged) or split
+// — computed from the live counts, plus any already-confirmed actions — to hand
+// to parents alongside the initial list. Read-only.
 router.get('/changes-pdf', requireRole(...VIEW_ROLES), async (req, res, next) => {
   try {
     const y = await activeYear();
     if (!y) return res.status(400).json({ error: 'No active year' });
+    const min = Number(y.min_threshold || 5), split = Number(y.split_threshold || 25);
+
     const { rows: yr } = await pool.query(
-      `SELECT event_year_label, kca_logo_url, sponsor_logo_url FROM year_config WHERE id = $1`, [y.id]);
+      `SELECT event_year_label, kca_logo_url, its_logo_url, sponsor_logo_url FROM year_config WHERE id = $1`, [y.id]);
     const yc = yr[0] || {};
+    const logos = { kca: await prepLogo(yc.kca_logo_url), its: await prepLogo(yc.its_logo_url), sponsor: await prepLogo(yc.sponsor_logo_url) };
+
+    // Live counts per event × age-group (as the review screen computes them).
+    const { rows: cells } = await pool.query(
+      `SELECT e.id AS event_id, e.event_code, e.event_name, e.gender_split, e.is_stage_event, e.category_id,
+              ag.id AS ag_id, ag.code AS ag_code, ag.label AS ag_label, ag.sort_order AS ag_sort,
+              COUNT(r.id)::int AS count
+         FROM registrations r
+         JOIN events e ON e.id = r.event_id AND e.is_cancelled = FALSE AND e.is_generated = FALSE
+         LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+         LEFT JOIN participants p ON p.id = r.participant_id
+        WHERE r.year_id = $1 AND r.status NOT IN ('withdrawn','swapped')
+          AND (p.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
+        GROUP BY e.id, e.event_code, e.event_name, e.gender_split, e.is_stage_event, e.category_id,
+                 ag.id, ag.code, ag.label, ag.sort_order`, [y.id]);
 
     const { rows: cons } = await pool.query(
-      `SELECT ec.id, ec.kind, ec.source_event_ids, ec.target_event_ids, ec.moved, ec.note,
+      `SELECT ec.kind, ec.source_event_ids, ec.target_event_ids, ec.moved, ec.age_group_id,
               ag.code AS ag_code, ag.label AS ag_label, ag.sort_order AS ag_sort
-         FROM event_consolidations ec
-         LEFT JOIN age_groups ag ON ag.id = ec.age_group_id
-        WHERE ec.year_id = $1 AND ec.reverted_at IS NULL AND ec.kind IN ('cancel','merge')
-        ORDER BY ec.kind, ag.sort_order NULLS LAST`, [y.id]);
+         FROM event_consolidations ec LEFT JOIN age_groups ag ON ag.id = ec.age_group_id
+        WHERE ec.year_id = $1 AND ec.reverted_at IS NULL AND ec.kind IN ('cancel','merge','split')`, [y.id]);
 
-    // Resolve event names for every referenced event id.
     const ids = new Set();
-    for (const c of cons) { (c.source_event_ids||[]).forEach((i)=>ids.add(i)); (c.target_event_ids||[]).forEach((i)=>ids.add(i)); }
+    cons.forEach((c) => { (c.source_event_ids||[]).forEach((i)=>ids.add(i)); (c.target_event_ids||[]).forEach((i)=>ids.add(i)); });
     const nameById = new Map();
-    if (ids.size) {
-      const { rows: evs } = await pool.query(`SELECT id, event_code, event_name FROM events WHERE id = ANY($1)`, [[...ids]]);
-      for (const e of evs) nameById.set(e.id, e);
-    }
+    if (ids.size) { const { rows: evs } = await pool.query(`SELECT id, event_code, event_name FROM events WHERE id = ANY($1)`, [[...ids]]); evs.forEach((e)=>nameById.set(e.id, e)); }
     const nm = (id) => { const e = nameById.get(id); return e ? `${e.event_name} (${e.event_code})` : `#${id}`; };
     const cnt = (c) => Array.isArray(c.moved) ? c.moved.length : 0;
 
-    const cancels = cons.filter((c) => c.kind === 'cancel');
-    const merges  = cons.filter((c) => c.kind === 'merge');
+    const byKey = new Map();
+    for (const c of cells) { c.base = baseName(c.event_name); const k = `${c.base.toLowerCase()}|${c.category_id}|${c.ag_id}`; if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(c); }
 
-    const base = (process.env.APP_URL || 'https://talentscan.kcabah.com').replace(/\/+$/, '');
-    const abs = (u) => !u ? null : (/^https?:\/\//i.test(u) ? u : `${base}${u.startsWith('/') ? '' : '/'}${u}`);
-    const [kcaLogo, sponsorLogo] = await Promise.all([ fetchImageBuffer(abs(yc.kca_logo_url)), fetchImageBuffer(abs(yc.sponsor_logo_url)) ]);
+    const cancelled = [], merged = [], splits = [];
+    const executedCancel = new Set(), executedMerge = new Set();
+    for (const c of cons) {
+      if (c.kind === 'cancel') { executedCancel.add(`${c.source_event_ids[0]}:${c.age_group_id}`);
+        cancelled.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, label: nm(c.source_event_ids[0]), count: cnt(c), done: true }); }
+      else if (c.kind === 'merge') { (c.source_event_ids||[]).forEach((i)=>executedMerge.add(`${i}:${c.age_group_id}`));
+        merged.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, src: (c.source_event_ids||[]).map(nm).join(' + '), tgt: (c.target_event_ids&&c.target_event_ids[0]) ? nm(c.target_event_ids[0]) : '(combined)', count: cnt(c), done: true }); }
+      else if (c.kind === 'split') { splits.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, src: nm(c.source_event_ids[0]), tgt: (c.target_event_ids||[]).map(nm).join(' + '), done: true }); }
+    }
+    const seenPair = new Set();
+    for (const c of cells) {
+      const key = `${c.event_id}:${c.ag_id}`;
+      if (executedCancel.has(key) || executedMerge.has(key)) continue;
+      if (c.is_stage_event && c.count > split) { splits.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, src: `${c.event_name} (${c.event_code})`, tgt: 'two groups', count: c.count, done: false }); continue; }
+      if (c.count < min) {
+        let partner = null;
+        if (c.gender_split === 'boys' || c.gender_split === 'girls') {
+          const k = `${c.base.toLowerCase()}|${c.category_id}|${c.ag_id}`;
+          partner = (byKey.get(k)||[]).find((o)=>o.event_id!==c.event_id && (o.gender_split==='boys'||o.gender_split==='girls') && o.gender_split!==c.gender_split);
+        }
+        if (partner && (c.count + partner.count) >= min) {
+          const pk = [c.event_id, partner.event_id].sort((a,b)=>a-b).join('-') + ':' + c.ag_id;
+          if (seenPair.has(pk)) continue; seenPair.add(pk);
+          merged.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, src: `${c.event_name} (${c.event_code}) + ${partner.event_name} (${partner.event_code})`, tgt: `${c.base} (Common)`, count: c.count + partner.count, done: false });
+        } else {
+          cancelled.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, label: `${c.event_name} (${c.event_code})`, count: c.count, done: false });
+        }
+      }
+    }
+    const byAg = (a, b) => (a.ag_sort ?? 99) - (b.ag_sort ?? 99) || String(a.label || a.src).localeCompare(String(b.label || b.src));
+    cancelled.sort(byAg); merged.sort(byAg); splits.sort(byAg);
 
-    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    const doc = new PDFDocument({ margin: 45, size: 'A4', bufferPages: true });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="changes-and-cancellations.pdf"');
     doc.pipe(res);
 
-    const top = doc.y;
-    if (kcaLogo) { try { doc.image(kcaLogo, 40, top, { width: 64 }); } catch { /* */ } }
-    if (sponsorLogo) { try { doc.image(sponsorLogo, doc.page.width - 104, top, { width: 64 }); } catch { /* */ } }
-    doc.fontSize(15).fillColor('#1e3a5f').text(yc.event_year_label || 'KCA Indian Talent Scan', 0, top, { align: 'center' });
-    doc.moveDown(0.3).fontSize(13).text('Changes & Cancellations', { align: 'center' });
-    doc.moveDown(0.1).fontSize(9).fillColor('#64748b').text(`Prepared ${new Date().toLocaleString('en-GB')}`, { align: 'center' });
-    doc.moveDown(1.2);
+    const M = doc.page.margins.left, W = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const topY = doc.page.margins.top, logoH = 46;
+    if (logos.kca)     { try { doc.image(logos.kca, M, topY, { fit: [72, logoH] }); } catch { /* */ } }
+    if (logos.sponsor) { try { doc.image(logos.sponsor, doc.page.width - doc.page.margins.right - 72, topY, { fit: [72, logoH] }); } catch { /* */ } }
+    if (logos.its)     { try { doc.image(logos.its, (doc.page.width/2) - 26, topY - 2, { fit: [52, logoH + 4] }); } catch { /* */ } }
+    doc.fillColor('#1e3a5f').font('Helvetica-Bold').fontSize(15).text(yc.event_year_label || 'KCA Indian Talent Scan', M, topY + logoH + 4, { width: W, align: 'center' });
+    doc.font('Helvetica-Bold').fontSize(13).fillColor('#1e3a5f').text('Changes & Cancellations', { width: W, align: 'center' });
+    doc.font('Helvetica').fontSize(9.5).fillColor('#64748b').text(`Prepared ${new Date().toLocaleString('en-GB')}`, { width: W, align: 'center' });
+    doc.moveDown(1);
 
-    doc.fontSize(12).fillColor('#b91c1c').text(`Cancelled events (fewer than the minimum ${y.min_threshold} entries)`);
-    doc.moveDown(0.3).fontSize(10).fillColor('#334155');
-    if (cancels.length === 0) doc.text('None.', { indent: 10 });
-    else cancels.forEach((c, i) => {
-      doc.text(`${i + 1}.  ${nm(c.source_event_ids[0])}  —  ${c.ag_label || c.ag_code || ''}   ·   ${cnt(c)} entr${cnt(c)===1?'y':'ies'} affected`, { indent: 10 });
-    });
-    doc.moveDown(0.4).fontSize(9).fillColor('#64748b')
-      .text('Parents of the above entries may choose another eligible event or request a refund of the entry fee. Please contact the KCA office.', { indent: 10 });
+    const H = doc.page.height;
+    const sectionTitle = (t, color) => { if (doc.y > H - 120) doc.addPage(); doc.moveDown(0.5); doc.font('Helvetica-Bold').fontSize(12.5).fillColor(color).text(t, M, doc.y, { width: W }); doc.moveDown(0.25); };
+    const line = (txt) => { if (doc.y > H - 70) doc.addPage(); doc.font('Helvetica').fontSize(10).fillColor('#334155').text(txt, { indent: 10, width: W - 10 }); };
+    const note = (txt) => { doc.moveDown(0.2); doc.font('Helvetica-Oblique').fontSize(9).fillColor('#64748b').text(txt, { indent: 10, width: W - 10 }); };
 
-    doc.moveDown(1.2);
-    doc.fontSize(12).fillColor('#1e3a5f').text('Events being combined (Boys + Girls merged)');
-    doc.moveDown(0.3).fontSize(10).fillColor('#334155');
-    if (merges.length === 0) doc.text('None.', { indent: 10 });
-    else merges.forEach((c, i) => {
-      const src = (c.source_event_ids || []).map(nm).join('  +  ');
-      const tgt = c.target_event_ids && c.target_event_ids[0] ? nm(c.target_event_ids[0]) : '(combined)';
-      doc.text(`${i + 1}.  ${src}  →  ${tgt}   —   ${c.ag_label || c.ag_code || ''}   ·   ${cnt(c)} entries`, { indent: 10 });
-    });
-    doc.moveDown(0.4).fontSize(9).fillColor('#64748b')
-      .text('No action is needed for combined events — entries have been moved automatically and will appear in the schedule.', { indent: 10 });
+    sectionTitle(`Cancelled events (fewer than ${min} entries)`, '#b91c1c');
+    if (cancelled.length === 0) line('None.');
+    else cancelled.forEach((c, i) => line(`${i + 1}.  [${c.ag_code}] ${c.label}  \u00b7  ${c.count} entr${c.count === 1 ? 'y' : 'ies'}${c.done ? '  (confirmed)' : ''}`));
+    note('Parents of the above entries may choose another eligible event, or request a refund of the entry fee. Please contact the KCA office.');
+
+    sectionTitle('Events being combined (Boys + Girls merged)', '#1e3a5f');
+    if (merged.length === 0) line('None.');
+    else merged.forEach((c, i) => line(`${i + 1}.  [${c.ag_code}] ${c.src}  \u2192  ${c.tgt}  \u00b7  ${c.count} entries${c.done ? '  (confirmed)' : ''}`));
+    note('No action is needed for combined events \u2014 entries move automatically and will appear in the schedule.');
+
+    if (splits.length) {
+      sectionTitle('Events being split (large entries)', '#7c3aed');
+      splits.forEach((c, i) => line(`${i + 1}.  [${c.ag_code}] ${c.src}  \u2192  ${c.tgt}${c.count ? `  \u00b7  ${c.count} entries` : ''}${c.done ? '  (confirmed)' : ''}`));
+      note('No action is needed \u2014 these are divided into two groups for judging.');
+    }
+
+    const range = doc.bufferedPageRange();
+    for (let i = 0; i < range.count; i++) {
+      doc.switchToPage(range.start + i);
+      doc.font('Helvetica').fontSize(8).fillColor('#94a3b8')
+         .text(`Page ${i + 1} of ${range.count}`, doc.page.margins.left, doc.page.height - doc.page.margins.bottom + 6, { width: W, align: 'center', lineBreak: false });
+    }
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_CHANGES_PDF',
-      entity: 'event_consolidations', entityId: null, details: { cancels: cancels.length, merges: merges.length } });
+      entity: 'event_consolidations', entityId: null, details: { cancelled: cancelled.length, merged: merged.length, splits: splits.length } });
 
     doc.end();
   } catch (err) { next(err); }
