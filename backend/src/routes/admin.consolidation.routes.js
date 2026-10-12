@@ -203,7 +203,8 @@ router.get('/review', requireRole(...VIEW_ROLES), async (req, res, next) => {
          LEFT JOIN participants p ON p.id = r.participant_id
         WHERE r.year_id = $1
           AND r.status NOT IN ('withdrawn','swapped')
-          AND (p.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
+          AND r.team_id IS NULL AND e.event_kind = 'individual'
+          AND p.confirmed_at IS NOT NULL
         GROUP BY e.id, e.event_code, e.event_name, e.gender_split, e.is_stage_event,
                  e.is_generated, e.category_id, c.name, c.sort_order,
                  ag.id, ag.code, ag.label, ag.sort_order`,
@@ -903,7 +904,8 @@ router.get('/changes-pdf', requireRole(...VIEW_ROLES), async (req, res, next) =>
          LEFT JOIN age_groups ag ON ag.id = r.age_group_id
          LEFT JOIN participants p ON p.id = r.participant_id
         WHERE r.year_id = $1 AND r.status NOT IN ('withdrawn','swapped')
-          AND (p.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
+          AND r.team_id IS NULL AND e.event_kind = 'individual'
+          AND p.confirmed_at IS NOT NULL
         GROUP BY e.id, e.event_code, e.event_name, e.gender_split, e.is_stage_event, e.category_id,
                  ag.id, ag.code, ag.label, ag.sort_order`, [y.id]);
 

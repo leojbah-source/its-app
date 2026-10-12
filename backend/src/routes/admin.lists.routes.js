@@ -17,6 +17,7 @@ const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const PDFDocument = require('pdfkit');
+const archiver = require('archiver');
 const { prepLogo } = require('../utils/pdf');
 
 const INK = '#1e3a5f', MUTE = '#64748b', BODY = '#1e293b', RED = '#b91c1c';
@@ -52,6 +53,51 @@ function drawRunningHeader(doc, group) {
   doc.moveTo(M, topY + 15).lineTo(doc.page.width - doc.page.margins.right, topY + 15).strokeColor('#cbd5e1').lineWidth(0.7).stroke();
   doc.font('Helvetica').fillColor(BODY);
   doc.x = M; doc.y = topY + 22;
+}
+
+/** Render ONE age group to a PDF Buffer: events A-Z, names A-Z, under-strength
+ *  events in red, branded header + banner, running header, page numbers. */
+function renderGroupPdf(logos, year, group, minTh) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 45, size: 'A4', bufferPages: true });
+    const chunks = [];
+    doc.on('data', (c) => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+    doc.on('pageAdded', () => drawRunningHeader(doc, group));
+
+    drawGroupHeader(doc, logos, year, group);
+    const bottom = () => doc.page.height - doc.page.margins.bottom - 20;
+
+    const eventNames = [...group.events.keys()].sort((a, b) => a.localeCompare(b));
+    if (eventNames.length === 0) doc.font('Helvetica').fontSize(11).fillColor(MUTE).text('No individual entries in this age group.');
+
+    for (const evName of eventNames) {
+      const ev = group.events.get(evName);
+      const names = [...ev.names].sort((a, b) => a.localeCompare(b));
+      const under = names.length < minTh;
+      if (doc.y > bottom() - 36) doc.addPage();
+      doc.moveDown(0.55);
+      doc.font('Helvetica-Bold').fontSize(12).fillColor(under ? RED : INK).text(evName, { continued: true })
+         .font('Helvetica').fontSize(9).fillColor(under ? RED : MUTE)
+         .text(`   (${ev.code}) · ${names.length} entr${names.length === 1 ? 'y' : 'ies'}${under ? `  — fewer than ${minTh}` : ''}`);
+      doc.moveDown(0.15);
+      doc.font('Helvetica').fontSize(10.5).fillColor(BODY);
+      names.forEach((n, i) => {
+        if (doc.y > bottom()) doc.addPage();
+        doc.text(`${i + 1}.  ${n}`, { indent: 14 });
+      });
+    }
+
+    const range = doc.bufferedPageRange();
+    const W = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    for (let i = 0; i < range.count; i++) {
+      doc.switchToPage(range.start + i);
+      doc.font('Helvetica').fontSize(8).fillColor('#94a3b8')
+         .text(`Page ${i + 1} of ${range.count}`, doc.page.margins.left, doc.page.height - doc.page.margins.bottom + 8, { width: W, align: 'center', lineBreak: false });
+    }
+    doc.end();
+  });
 }
 
 const router = express.Router();
@@ -214,10 +260,10 @@ router.post('/publish-initial', requireRole('SuperAdmin', 'Admin'), async (req, 
 });
 
 // ── GET /api/admin/lists/initial-pdf ──────────────────────────────────────────
-// Streams ONE combined PDF — the INITIAL list exactly AS REGISTERED (no merge /
-// split / cancel applied). Each age group starts on a new page with a branded
-// header and banner; events are alphabetical, names alphabetical, and events
-// with fewer than the minimum entries are shown in red. Read-only.
+// Streams a ZIP with one PDF per age group — the INITIAL list exactly AS
+// REGISTERED (no merge/split/cancel). INDIVIDUAL events only (team events are
+// excluded; their registration is still open). Events A-Z, names A-Z, events
+// with fewer than the minimum entries shown in red. Read-only.
 router.get('/initial-pdf', requireRole(...staffRoles), async (req, res, next) => {
   try {
     const yc = await activeYear();
@@ -226,18 +272,17 @@ router.get('/initial-pdf', requireRole(...staffRoles), async (req, res, next) =>
 
     const { rows } = await pool.query(
       `SELECT ag.id AS ag_id, ag.code AS age_group_code, ag.label AS age_group_label,
-              ag.sort_order AS ag_sort,
-              e.event_name, e.event_code,
-              p.full_name, t.team_name
+              ag.sort_order AS ag_sort, e.event_name, e.event_code, p.full_name
          FROM registrations r
          JOIN events e ON e.id = r.event_id
          LEFT JOIN age_groups ag ON ag.id = r.age_group_id
-         LEFT JOIN participants p ON p.id = r.participant_id
-         LEFT JOIN teams t ON t.id = r.team_id
+         JOIN participants p ON p.id = r.participant_id
         WHERE r.year_id = $1
           AND r.status NOT IN ('withdrawn','swapped')
+          AND r.team_id IS NULL
+          AND e.event_kind = 'individual'
           AND e.is_generated = FALSE
-          AND (p.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
+          AND p.confirmed_at IS NOT NULL
         ORDER BY ag.sort_order NULLS LAST, e.event_name, p.full_name`,
       [yc.id]);
 
@@ -248,10 +293,10 @@ router.get('/initial-pdf', requireRole(...staffRoles), async (req, res, next) =>
         groups.set(gid, { code: r.age_group_code || '—', label: r.age_group_label || '', sort: r.ag_sort ?? 99, events: new Map() });
       const g = groups.get(gid);
       if (!g.events.has(r.event_name)) g.events.set(r.event_name, { code: r.event_code, names: [] });
-      g.events.get(r.event_name).names.push(r.full_name || `${r.team_name} (team)`);
+      g.events.get(r.event_name).names.push(r.full_name);
     }
     const ordered = [...groups.values()].sort((a, b) => (a.sort - b.sort) || a.code.localeCompare(b.code));
-    if (ordered.length === 0) return res.status(400).json({ error: 'No registrations to list yet.' });
+    if (ordered.length === 0) return res.status(400).json({ error: 'No individual registrations to list yet.' });
 
     const logos = {
       kca: await prepLogo(yc.kca_logo_url),
@@ -260,57 +305,28 @@ router.get('/initial-pdf', requireRole(...staffRoles), async (req, res, next) =>
     };
 
     const safe = (x) => String(x || '').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 40);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="initial-list-${safe(yc.event_year_label) || 'ITS'}.pdf"`);
+    const label = safe(yc.event_year_label) || 'ITS';
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="initial-lists-${label}.zip"`);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => { console.error('initial-pdf zip error:', err.message); try { res.status(500).end(); } catch { /* noop */ } });
+    archive.pipe(res);
 
-    const doc = new PDFDocument({ margin: 45, size: 'A4', bufferPages: true });
-    doc.pipe(res);
-
-    let curGroup = null, suppressAuto = false;
-    doc.on('pageAdded', () => { if (!suppressAuto && curGroup) drawRunningHeader(doc, curGroup); });
-
-    const bottomLimit = () => doc.page.height - doc.page.margins.bottom - 24;
-
-    ordered.forEach((g, gi) => {
-      curGroup = g;
-      if (gi > 0) { suppressAuto = true; doc.addPage(); suppressAuto = false; }
-      drawGroupHeader(doc, logos, yc, g);
-
-      const eventNames = [...g.events.keys()].sort((a, b) => a.localeCompare(b));
-      if (eventNames.length === 0) doc.font('Helvetica').fontSize(11).fillColor(MUTE).text('No entries in this age group.');
-
-      for (const evName of eventNames) {
-        const ev = g.events.get(evName);
-        const names = [...ev.names].sort((a, b) => a.localeCompare(b));
-        const under = names.length < minTh;
-        if (doc.y > bottomLimit() - 40) { suppressAuto = false; doc.addPage(); }
-        doc.moveDown(0.55);
-        doc.font('Helvetica-Bold').fontSize(12).fillColor(under ? RED : INK).text(evName, { continued: true })
-           .font('Helvetica').fontSize(9).fillColor(under ? RED : MUTE)
-           .text(`   (${ev.code}) · ${names.length} entr${names.length === 1 ? 'y' : 'ies'}${under ? `  — fewer than ${minTh}` : ''}`);
-        doc.moveDown(0.15);
-        doc.font('Helvetica').fontSize(10.5).fillColor(BODY);
-        names.forEach((n, i) => {
-          if (doc.y > bottomLimit()) doc.addPage();
-          doc.text(`${i + 1}.  ${n}`, { indent: 14 });
-        });
-      }
-    });
-
-    // Page numbers (buffered).
-    const range = doc.bufferedPageRange();
-    const W = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-    for (let i = 0; i < range.count; i++) {
-      doc.switchToPage(range.start + i);
-      doc.font('Helvetica').fontSize(8).fillColor('#94a3b8')
-         .text(`Page ${i + 1} of ${range.count}`, doc.page.margins.left, doc.page.height - doc.page.margins.bottom + 6, { width: W, align: 'center', lineBreak: false });
+    const used = new Set();
+    for (const g of ordered) {
+      const buf = await renderGroupPdf(logos, yc, g, minTh);
+      let name = `${label}_${safe(g.code)}${g.label ? '_' + safe(g.label) : ''}.pdf`;
+      let n = 1;
+      while (used.has(name)) name = name.replace(/\.pdf$/, `_${++n}.pdf`);
+      used.add(name);
+      archive.append(buf, { name });
     }
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'EXPORT_INITIAL_LIST_PDF', entity: 'year_config', entityId: yc.id,
       details: { age_groups: ordered.length } });
 
-    doc.end();
+    await archive.finalize();
   } catch (err) { next(err); }
 });
 

@@ -155,7 +155,7 @@ export default function Lists() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `initial-list-${(year?.event_year_label || 'ITS').replace(/[^a-z0-9]+/gi, '_')}.pdf`;
+      a.download = `initial-lists-${(year?.event_year_label || 'ITS').replace(/[^a-z0-9]+/gi, '_')}.zip`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
     } catch (err) { setFlash(err.message || 'Could not generate the PDF files.'); }
@@ -190,7 +190,7 @@ export default function Lists() {
             {year?.initial_list_published ? 'Re-publish initial list' : 'Publish initial list'}
           </Button>
           <Button variant="outline" icon={Download} onClick={downloadInitialZip} loading={dlZip} disabled={loading || !!error}>
-            Download initial list (PDF)
+            Download initial lists (PDF per age group)
           </Button>
           <Button
             variant="gold"
