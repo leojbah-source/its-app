@@ -10,6 +10,16 @@ router.use(authenticate);
 
 const SECURITY_ROLES = ['SuperAdmin', 'Admin', 'Chairman'];
 
+// Actions a parent ('Viewer') legitimately performs through the registration
+// portal. These are NOT admin misuse, so they are excluded from the
+// "parent actions in admin" list/metric — only genuinely admin-only actions
+// done by a Viewer account should surface there.
+const PARENT_PORTAL_ACTIONS = [
+  'ACCESS_DENIED', 'CONFIRM_REGISTRATION', 'SUBMIT_PAYMENT', 'SUBMIT_TEAM_PAYMENT',
+  'UPDATE_REGISTRATIONS', 'SWAP_REGISTRATION', 'CREATE_TEAM', 'ADD_TEAM_MEMBERS',
+  'UPLOAD_TEAM_DOCUMENT', 'PARENT_CORRECT_PARTICIPANT', 'CLAIM_PARTICIPANT', 'PASSWORD_RESET',
+];
+
 // GET /api/admin/security/audit
 router.get('/security/audit', requireRole(...SECURITY_ROLES), async (req, res, next) => {
   try {
@@ -30,16 +40,16 @@ router.get('/security/audit', requireRole(...SECURITY_ROLES), async (req, res, n
               u.full_name, u.email, a.changed_by
        FROM audit_log a
        LEFT JOIN users u ON u.id = a.changed_by
-       WHERE a.new_value->>'actor_role' = 'Viewer' AND a.action <> 'ACCESS_DENIED'
+       WHERE a.new_value->>'actor_role' = 'Viewer' AND a.action <> ALL($1::text[])
        ORDER BY a.changed_at DESC
-       LIMIT 300`);
+       LIMIT 300`, [PARENT_PORTAL_ACTIONS]);
 
     const { rows: sum } = await pool.query(
       `SELECT
          (SELECT COUNT(*) FROM audit_log WHERE action = 'ACCESS_DENIED') AS denied_total,
          (SELECT COUNT(DISTINCT changed_by) FROM audit_log WHERE action = 'ACCESS_DENIED' AND changed_by IS NOT NULL) AS denied_actors,
          (SELECT COUNT(*) FROM audit_log WHERE action = 'ACCESS_DENIED' AND changed_at > NOW() - INTERVAL '24 hours') AS denied_24h,
-         (SELECT COUNT(*) FROM audit_log WHERE new_value->>'actor_role' = 'Viewer' AND action <> 'ACCESS_DENIED') AS viewer_actions_total`);
+         (SELECT COUNT(*) FROM audit_log WHERE new_value->>'actor_role' = 'Viewer' AND action <> ALL($1::text[])) AS viewer_actions_total`, [PARENT_PORTAL_ACTIONS]);
 
     res.json({ denied, viewer_actions: viewerActions, summary: sum[0] });
   } catch (err) { next(err); }

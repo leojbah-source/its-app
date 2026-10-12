@@ -54,7 +54,7 @@ export default function Security() {
                 ['Blocked attempts', s?.denied_total ?? 0, 'total'],
                 ['In last 24h', s?.denied_24h ?? 0, 'recent'],
                 ['Distinct accounts', s?.denied_actors ?? 0, 'who'],
-                ['Parent admin actions', s?.viewer_actions_total ?? 0, 'if any'],
+                ['Admin-only acts by a parent', s?.viewer_actions_total ?? 0, 'should be 0'],
               ].map(([label, val, chip]) => (
                 <div key={label} className="rounded-lg border border-slate-200 bg-white p-4">
                   <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">{label}</p>
@@ -110,9 +110,10 @@ export default function Security() {
 
             {/* Parent-account admin actions */}
             <section>
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
-                <UserX size={16} className="text-red-600" /> Actions taken by a parent account
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-1">
+                <UserX size={16} className="text-red-600" /> Admin-only actions by a parent account
               </h2>
+              <p className="text-[11px] text-slate-400 mb-2">Normal registration activity (registering, paying, confirming) is excluded — only staff-only actions done by a parent account would appear here.</p>
               {(!data.viewer_actions || data.viewer_actions.length === 0) ? (
                 <EmptyState title="None found" description="No parent ('Viewer') account performed any recorded admin action — any past misuse was view-only." />
               ) : (
