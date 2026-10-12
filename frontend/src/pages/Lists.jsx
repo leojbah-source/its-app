@@ -4,7 +4,7 @@
 // Printing opens a clean window with the year header + logos and calls print().
 
 import { useEffect, useState, useCallback } from 'react';
-import { Printer, RefreshCw, Megaphone } from 'lucide-react';
+import { Printer, RefreshCw, Megaphone, Download } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -59,6 +59,7 @@ export default function Lists() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [publishing, setPublishing] = useState(false);
+  const [dlZip, setDlZip] = useState(false);
   const [flash, setFlash] = useState('');
 
   const load = useCallback(async () => {
@@ -146,6 +147,21 @@ export default function Lists() {
     openPrint(year, 'FINAL LIST of Participants', body);
   }
 
+  async function downloadInitialZip() {
+    setDlZip(true);
+    setFlash('');
+    try {
+      const blob = await listsApi.initialPdf(token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `initial-lists-${(year?.event_year_label || 'ITS').replace(/[^a-z0-9]+/gi, '_')}.zip`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (err) { setFlash(err.message || 'Could not generate the PDF files.'); }
+    finally { setDlZip(false); }
+  }
+
   async function publishInitial() {
     setPublishing(true);
     setFlash('');
@@ -172,6 +188,9 @@ export default function Lists() {
           <Button variant="outline" icon={RefreshCw} onClick={load}>Refresh</Button>
           <Button variant="outline" icon={Megaphone} onClick={publishInitial} loading={publishing}>
             {year?.initial_list_published ? 'Re-publish initial list' : 'Publish initial list'}
+          </Button>
+          <Button variant="outline" icon={Download} onClick={downloadInitialZip} loading={dlZip} disabled={loading || !!error}>
+            Download PDFs (per age group)
           </Button>
           <Button
             variant="gold"

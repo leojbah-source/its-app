@@ -23,6 +23,8 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { sendWhatsAppImage } = require('../utils/notify');
 const { sendEmail } = require('../utils/email');
+const PDFDocument = require('pdfkit');
+const { fetchImageBuffer } = require('../utils/pdf');
 
 const router = express.Router();
 router.use(authenticate);
@@ -636,5 +638,84 @@ router.post('/notifications/send', requireRole(...ACT_ROLES), async (req, res, n
   } catch (err) { next(err); }
 });
 
+
+// ── GET /changes-pdf ──────────────────────────────────────────────────────────
+// A standalone "Changes & Cancellations" sheet (branded PDF): the cancelled
+// events (with how many entries are affected) and the events being combined
+// (merged). Distributed alongside the as-registered initial lists. Read-only.
+router.get('/changes-pdf', requireRole(...VIEW_ROLES), async (req, res, next) => {
+  try {
+    const y = await activeYear();
+    if (!y) return res.status(400).json({ error: 'No active year' });
+    const { rows: yr } = await pool.query(
+      `SELECT event_year_label, kca_logo_url, sponsor_logo_url FROM year_config WHERE id = $1`, [y.id]);
+    const yc = yr[0] || {};
+
+    const { rows: cons } = await pool.query(
+      `SELECT ec.id, ec.kind, ec.source_event_ids, ec.target_event_ids, ec.moved, ec.note,
+              ag.code AS ag_code, ag.label AS ag_label, ag.sort_order AS ag_sort
+         FROM event_consolidations ec
+         LEFT JOIN age_groups ag ON ag.id = ec.age_group_id
+        WHERE ec.year_id = $1 AND ec.reverted_at IS NULL AND ec.kind IN ('cancel','merge')
+        ORDER BY ec.kind, ag.sort_order NULLS LAST`, [y.id]);
+
+    // Resolve event names for every referenced event id.
+    const ids = new Set();
+    for (const c of cons) { (c.source_event_ids||[]).forEach((i)=>ids.add(i)); (c.target_event_ids||[]).forEach((i)=>ids.add(i)); }
+    const nameById = new Map();
+    if (ids.size) {
+      const { rows: evs } = await pool.query(`SELECT id, event_code, event_name FROM events WHERE id = ANY($1)`, [[...ids]]);
+      for (const e of evs) nameById.set(e.id, e);
+    }
+    const nm = (id) => { const e = nameById.get(id); return e ? `${e.event_name} (${e.event_code})` : `#${id}`; };
+    const cnt = (c) => Array.isArray(c.moved) ? c.moved.length : 0;
+
+    const cancels = cons.filter((c) => c.kind === 'cancel');
+    const merges  = cons.filter((c) => c.kind === 'merge');
+
+    const base = (process.env.APP_URL || 'https://talentscan.kcabah.com').replace(/\/+$/, '');
+    const abs = (u) => !u ? null : (/^https?:\/\//i.test(u) ? u : `${base}${u.startsWith('/') ? '' : '/'}${u}`);
+    const [kcaLogo, sponsorLogo] = await Promise.all([ fetchImageBuffer(abs(yc.kca_logo_url)), fetchImageBuffer(abs(yc.sponsor_logo_url)) ]);
+
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="changes-and-cancellations.pdf"');
+    doc.pipe(res);
+
+    const top = doc.y;
+    if (kcaLogo) { try { doc.image(kcaLogo, 40, top, { width: 64 }); } catch { /* */ } }
+    if (sponsorLogo) { try { doc.image(sponsorLogo, doc.page.width - 104, top, { width: 64 }); } catch { /* */ } }
+    doc.fontSize(15).fillColor('#1e3a5f').text(yc.event_year_label || 'KCA Indian Talent Scan', 0, top, { align: 'center' });
+    doc.moveDown(0.3).fontSize(13).text('Changes & Cancellations', { align: 'center' });
+    doc.moveDown(0.1).fontSize(9).fillColor('#64748b').text(`Prepared ${new Date().toLocaleString('en-GB')}`, { align: 'center' });
+    doc.moveDown(1.2);
+
+    doc.fontSize(12).fillColor('#b91c1c').text(`Cancelled events (fewer than the minimum ${y.min_threshold} entries)`);
+    doc.moveDown(0.3).fontSize(10).fillColor('#334155');
+    if (cancels.length === 0) doc.text('None.', { indent: 10 });
+    else cancels.forEach((c, i) => {
+      doc.text(`${i + 1}.  ${nm(c.source_event_ids[0])}  —  ${c.ag_label || c.ag_code || ''}   ·   ${cnt(c)} entr${cnt(c)===1?'y':'ies'} affected`, { indent: 10 });
+    });
+    doc.moveDown(0.4).fontSize(9).fillColor('#64748b')
+      .text('Parents of the above entries may choose another eligible event or request a refund of the entry fee. Please contact the KCA office.', { indent: 10 });
+
+    doc.moveDown(1.2);
+    doc.fontSize(12).fillColor('#1e3a5f').text('Events being combined (Boys + Girls merged)');
+    doc.moveDown(0.3).fontSize(10).fillColor('#334155');
+    if (merges.length === 0) doc.text('None.', { indent: 10 });
+    else merges.forEach((c, i) => {
+      const src = (c.source_event_ids || []).map(nm).join('  +  ');
+      const tgt = c.target_event_ids && c.target_event_ids[0] ? nm(c.target_event_ids[0]) : '(combined)';
+      doc.text(`${i + 1}.  ${src}  →  ${tgt}   —   ${c.ag_label || c.ag_code || ''}   ·   ${cnt(c)} entries`, { indent: 10 });
+    });
+    doc.moveDown(0.4).fontSize(9).fillColor('#64748b')
+      .text('No action is needed for combined events — entries have been moved automatically and will appear in the schedule.', { indent: 10 });
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_CHANGES_PDF',
+      entity: 'event_consolidations', entityId: null, details: { cancels: cancels.length, merges: merges.length } });
+
+    doc.end();
+  } catch (err) { next(err); }
+});
 
 module.exports = router;

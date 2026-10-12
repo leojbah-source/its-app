@@ -353,6 +353,12 @@ export const listsApi = {
   byParticipant: (token) => request('/api/admin/lists/by-participant', { token }),
   final: (token) => request('/api/admin/lists/final', { token }),
   publishInitial: (token) => request('/api/admin/lists/publish-initial', { method: 'POST', token, body: {} }),
+  /** ZIP of one initial-list PDF per age group (as registered). Returns a Blob. */
+  initialPdf: async (token) => {
+    const res = await fetch(`${API_BASE}/api/admin/lists/initial-pdf`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
+    return res.blob();
+  },
 };
 
 export const consolidationApi = {
@@ -365,6 +371,12 @@ export const consolidationApi = {
   publishFinal: (token) => request('/api/admin/consolidation/publish-final', { method: 'POST', token, body: {} }),
   notificationsPending: (token) => request('/api/admin/consolidation/notifications/pending', { token }),
   notificationsSend: (token) => request('/api/admin/consolidation/notifications/send', { method: 'POST', token, body: {} }),
+  /** Standalone 'Changes & Cancellations' sheet (PDF). Returns a Blob. */
+  changesPdf: async (token) => {
+    const res = await fetch(`${API_BASE}/api/admin/consolidation/changes-pdf`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
+    return res.blob();
+  },
 };
 
 export const venuesApi = {

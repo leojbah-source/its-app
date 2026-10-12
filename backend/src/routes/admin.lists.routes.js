@@ -16,6 +16,59 @@ const express = require('express');
 const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const PDFDocument = require('pdfkit');
+const archiver = require('archiver');
+const { fetchImageBuffer } = require('../utils/pdf');
+
+/** Absolute URL for an app-served (relative) logo path, so pdfkit can fetch it. */
+function absUrl(u) {
+  if (!u) return null;
+  if (/^https?:\/\//i.test(u)) return u;
+  const base = (process.env.APP_URL || 'https://talentscan.kcabah.com').replace(/\/+$/, '');
+  return `${base}${u.startsWith('/') ? '' : '/'}${u}`;
+}
+
+/** Render ONE age-group's initial list to a PDF Buffer (events A-Z, names A-Z). */
+function renderGroupPdf({ kcaLogo, sponsorLogo, year, group }) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    const chunks = [];
+    doc.on('data', (c) => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const top = doc.y;
+    if (kcaLogo) { try { doc.image(kcaLogo, 40, top, { width: 64 }); } catch { /* ignore */ } }
+    if (sponsorLogo) { try { doc.image(sponsorLogo, doc.page.width - 104, top, { width: 64 }); } catch { /* ignore */ } }
+    doc.fontSize(15).fillColor('#1e3a5f').text(year?.event_year_label || 'KCA Indian Talent Scan', 0, top, { align: 'center' });
+    doc.moveDown(0.3).fontSize(13).fillColor('#1e3a5f')
+      .text(`Initial List — ${group.label ? group.label + ' (' + group.code + ')' : group.code}`, { align: 'center' });
+    doc.moveDown(0.1).fontSize(9).fillColor('#64748b')
+      .text(`As registered · printed ${new Date().toLocaleString('en-GB')}`, { align: 'center' });
+    doc.moveDown(1);
+
+    const eventNames = [...group.events.keys()].sort((a, b) => a.localeCompare(b));
+    if (eventNames.length === 0) {
+      doc.fontSize(11).fillColor('#64748b').text('No entries in this age group.');
+    }
+    for (const evName of eventNames) {
+      const ev = group.events.get(evName);
+      const names = [...ev.names].sort((a, b) => a.localeCompare(b));
+      if (doc.y > doc.page.height - 120) doc.addPage();
+      doc.moveDown(0.6);
+      doc.fontSize(12).fillColor('#1e3a5f').text(evName, { continued: true })
+        .fontSize(9).fillColor('#64748b')
+        .text(`   (${ev.code}) · ${names.length} entr${names.length === 1 ? 'y' : 'ies'}`);
+      doc.moveDown(0.2);
+      doc.fontSize(10.5).fillColor('#1e293b');
+      names.forEach((n, i) => {
+        if (doc.y > doc.page.height - 50) doc.addPage();
+        doc.text(`${i + 1}.  ${n}`, { indent: 12 });
+      });
+    }
+    doc.end();
+  });
+}
 
 const router = express.Router();
 router.use(authenticate);
@@ -172,6 +225,77 @@ router.post('/publish-initial', requireRole('SuperAdmin', 'Admin'), async (req, 
       action: 'PUBLISH_INITIAL_LIST', entity: 'year_config', entityId: rows[0].id,
       reason: 'Initial registration lists published for distribution' });
     res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/admin/lists/initial-pdf ──────────────────────────────────────────
+// Streams a ZIP containing one PDF per age group — the INITIAL list exactly AS
+// REGISTERED (no merge/split/cancel applied): events alphabetical, participant
+// names alphabetical. Read-only; generates nothing in the database.
+router.get('/initial-pdf', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+
+    const { rows } = await pool.query(
+      `SELECT ag.id AS ag_id, ag.code AS age_group_code, ag.label AS age_group_label,
+              ag.sort_order AS ag_sort,
+              e.event_name, e.event_code,
+              p.full_name, t.team_name
+         FROM registrations r
+         JOIN events e ON e.id = r.event_id
+         LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+         LEFT JOIN participants p ON p.id = r.participant_id
+         LEFT JOIN teams t ON t.id = r.team_id
+        WHERE r.year_id = $1
+          AND r.status NOT IN ('withdrawn','swapped')
+          AND e.is_generated = FALSE
+          AND (p.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
+        ORDER BY ag.sort_order NULLS LAST, e.event_name, p.full_name`,
+      [yc.id]);
+
+    // group by age-group → event name → names[]
+    const groups = new Map(); // ag_id → { code, label, sort, events: Map(name → {code, names[]}) }
+    for (const r of rows) {
+      const gid = r.ag_id ?? 0;
+      if (!groups.has(gid))
+        groups.set(gid, { code: r.age_group_code || '—', label: r.age_group_label || '', sort: r.ag_sort ?? 99, events: new Map() });
+      const g = groups.get(gid);
+      if (!g.events.has(r.event_name)) g.events.set(r.event_name, { code: r.event_code, names: [] });
+      g.events.get(r.event_name).names.push(r.full_name || `${r.team_name} (team)`);
+    }
+    const ordered = [...groups.values()].sort((a, b) => (a.sort - b.sort) || a.code.localeCompare(b.code));
+    if (ordered.length === 0) return res.status(400).json({ error: 'No registrations to list yet.' });
+
+    const [kcaLogo, sponsorLogo] = await Promise.all([
+      fetchImageBuffer(absUrl(yc.kca_logo_url)),
+      fetchImageBuffer(absUrl(yc.sponsor_logo_url)),
+    ]);
+
+    const safe = (x) => String(x || '').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+    const label = safe(yc.event_year_label) || 'ITS';
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="initial-lists-${label}.zip"`);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => { console.error('initial-pdf zip error:', err.message); try { res.status(500).end(); } catch { /* noop */ } });
+    archive.pipe(res);
+
+    const used = new Set();
+    for (const g of ordered) {
+      const buf = await renderGroupPdf({ kcaLogo, sponsorLogo, year: yc, group: g });
+      let name = `${label}_${safe(g.code)}${g.label ? '_' + safe(g.label) : ''}.pdf`;
+      let n = 1;
+      while (used.has(name)) name = name.replace(/\.pdf$/, `_${++n}.pdf`);
+      used.add(name);
+      archive.append(buf, { name });
+    }
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'EXPORT_INITIAL_LIST_PDF', entity: 'year_config', entityId: yc.id,
+      details: { age_groups: ordered.length } });
+
+    await archive.finalize();
   } catch (err) { next(err); }
 });
 

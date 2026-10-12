@@ -7,7 +7,7 @@
 // parents (WhatsApp + email) and can be reverted from the history below.
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { RefreshCw, Combine, Scissors, Ban, Undo2, CheckCircle2, TriangleAlert, Send } from 'lucide-react';
+import { RefreshCw, Combine, Scissors, Ban, Undo2, CheckCircle2, TriangleAlert, Send, Download } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -34,6 +34,7 @@ export default function Consolidation() {
   const [ageFilter, setAgeFilter] = useState('all');
   const [pending, setPending] = useState(null);
   const [notifyModal, setNotifyModal] = useState(false);
+  const [dlChanges, setDlChanges] = useState(false);
   const historyRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -99,6 +100,19 @@ export default function Consolidation() {
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
+  async function downloadChangesPdf() {
+    setDlChanges(true);
+    try {
+      const blob = await consolidationApi.changesPdf(token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'changes-and-cancellations.pdf';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (err) { setError(err.message || 'Could not generate the sheet.'); }
+    finally { setDlChanges(false); }
+  }
+
   async function publishFinal() {
     if (!window.confirm('Publish the Final list? This stamps the final event & participant lists as published.')) return;
     setBusy(true);
@@ -142,6 +156,9 @@ export default function Consolidation() {
               Send notifications{pending?.change_count > 0 ? ` (${pending.parent_count})` : ''}
             </Button>
           )}
+          <Button variant="outline" size="sm" icon={Download} onClick={downloadChangesPdf} loading={dlChanges} disabled={busy}>
+            Changes &amp; Cancellations PDF
+          </Button>
           {['SuperAdmin', 'Admin'].includes(role) && (
             <Button variant="gold" size="sm" onClick={publishFinal} disabled={busy}>Publish Final list</Button>
           )}
