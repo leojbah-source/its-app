@@ -996,15 +996,15 @@ router.get('/changes-pdf', requireRole(...VIEW_ROLES), async (req, res, next) =>
 
     sectionTitle(`Events with fewer than ${min} entries — at risk of cancellation`, '#b91c1c');
     renderByGroup(cancelled, (c) => `${c.label}  ·  ${c.count} entr${c.count === 1 ? 'y' : 'ies'}${c.done ? '  (cancelled)' : ''}`);
-    note(`Listed smallest first within each age group. Parents may move a child into another eligible event (which can lift a nearby event to ${min} and save it) or request a refund of the entry fee. Please contact the KCA office.`);
+    note(`Listed smallest first within each age group. A child entered in any of these events may switch to ANY other event they are eligible for — not only the events in this list. Choosing an event that is just short of the minimum (for example one with ${min - 2} or ${min - 1} entries) can lift it to ${min} and keep it running. Alternatively, the entry fee can be refunded. To make a change, please contact the KCA office.`);
 
     sectionTitle('Events being combined (Boys + Girls merged)', '#1e3a5f');
-    renderByGroup(merged, (c) => `${c.src}  →  ${c.tgt}  ·  ${c.count} entries${c.done ? '  (confirmed)' : ''}`);
+    renderByGroup(merged, (c) => `${c.src}  ->  ${c.tgt}  ·  ${c.count} entries${c.done ? '  (confirmed)' : ''}`);
     note('No action is needed for combined events — entries move automatically and will appear in the schedule.');
 
     if (splits.length) {
       sectionTitle('Events being split (large entries)', '#7c3aed');
-      renderByGroup(splits, (c) => `${c.src}  →  ${c.tgt}${c.count ? `  ·  ${c.count} entries` : ''}${c.done ? '  (confirmed)' : ''}`);
+      renderByGroup(splits, (c) => `${c.src}  ->  ${c.tgt}${c.count ? `  ·  ${c.count} entries` : ''}${c.done ? '  (confirmed)' : ''}`);
       note('No action is needed — these are divided into two groups for judging.');
     }
 
@@ -1024,6 +1024,80 @@ router.get('/changes-pdf', requireRole(...VIEW_ROLES), async (req, res, next) =>
       entity: 'event_consolidations', entityId: null, details: { cancelled: cancelled.length, merged: merged.length, splits: splits.length } });
 
     doc.end();
+  } catch (err) { next(err); }
+});
+
+// ── GET /affected-xlsx ────────────────────────────────────────────────────────
+// Excel for office follow-up: every under-strength (fewer than the minimum)
+// INDIVIDUAL event, with each affected participant and their contact details
+// (parent name, phone, WhatsApp, email). One row per participant. Read-only.
+router.get('/affected-xlsx', requireRole(...VIEW_ROLES), async (req, res, next) => {
+  try {
+    const y = await activeYear();
+    if (!y) return res.status(400).json({ error: 'No active year' });
+    const min = Number(y.min_threshold || 5);
+
+    const { rows } = await pool.query(
+      `WITH cell AS (
+         SELECT r.event_id, r.age_group_id, COUNT(*)::int AS cnt
+           FROM registrations r
+           JOIN events e ON e.id = r.event_id AND e.event_kind = 'individual' AND e.is_cancelled = FALSE AND e.is_generated = FALSE
+           JOIN participants p ON p.id = r.participant_id
+          WHERE r.year_id = $1 AND r.status NOT IN ('withdrawn','swapped') AND r.team_id IS NULL AND p.confirmed_at IS NOT NULL
+          GROUP BY r.event_id, r.age_group_id
+       )
+       SELECT ag.code AS ag_code, ag.label AS ag_label, ag.sort_order AS ag_sort,
+              e.event_name, e.event_code, c.cnt,
+              p.full_name, p.cpr_number, p.gender, p.guardian_phone,
+              u.full_name AS parent_name, u.email AS parent_email, u.phone AS parent_phone,
+              u.whatsapp_number, u.whatsapp_number_2
+         FROM cell c
+         JOIN registrations r ON r.event_id = c.event_id AND r.age_group_id = c.age_group_id
+              AND r.status NOT IN ('withdrawn','swapped') AND r.team_id IS NULL
+         JOIN participants p ON p.id = r.participant_id AND p.confirmed_at IS NOT NULL
+         JOIN events e ON e.id = c.event_id
+         LEFT JOIN age_groups ag ON ag.id = c.age_group_id
+         LEFT JOIN users u ON u.id = p.created_by
+        WHERE c.cnt < $2
+        ORDER BY ag.sort_order NULLS LAST, c.cnt, e.event_name, p.full_name`,
+      [y.id, min]);
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'KCA ITS'; wb.created = new Date();
+    const ws = wb.addWorksheet('Under-strength events');
+    ws.columns = [
+      { header: 'Age Group', key: 'ag', width: 18 },
+      { header: 'Event', key: 'event', width: 34 },
+      { header: 'Code', key: 'code', width: 8 },
+      { header: 'Entries in event', key: 'cnt', width: 14 },
+      { header: 'Participant', key: 'name', width: 26 },
+      { header: 'CPR', key: 'cpr', width: 14 },
+      { header: 'Gender', key: 'gender', width: 8 },
+      { header: 'Parent', key: 'parent', width: 24 },
+      { header: 'Phone', key: 'phone', width: 16 },
+      { header: 'WhatsApp', key: 'wa', width: 16 },
+      { header: 'WhatsApp 2', key: 'wa2', width: 16 },
+      { header: 'Email', key: 'email', width: 28 },
+    ];
+    for (const r of rows) {
+      ws.addRow({
+        ag: r.ag_label ? `${r.ag_label} (${r.ag_code})` : r.ag_code,
+        event: r.event_name, code: r.event_code, cnt: r.cnt,
+        name: r.full_name, cpr: r.cpr_number, gender: r.gender || '',
+        parent: r.parent_name || '', phone: r.guardian_phone || r.parent_phone || '',
+        wa: r.whatsapp_number || '', wa2: r.whatsapp_number_2 || '', email: r.parent_email || '',
+      });
+    }
+    const h = ws.getRow(1); h.font = { bold: true }; ws.views = [{ state: 'frozen', ySplit: 1 }];
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_AFFECTED_XLSX',
+      entity: 'event_consolidations', entityId: null, details: { rows: rows.length, min } });
+
+    const buf = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="cancelled-events-followup.xlsx"');
+    res.send(Buffer.from(buf));
   } catch (err) { next(err); }
 });
 

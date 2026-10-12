@@ -375,6 +375,12 @@ export const consolidationApi = {
   affectedOptions: (token, regId) => request(`/api/admin/consolidation/affected/${regId}/options`, { token }),
   affectedSwitch: (token, regId, newEventId) => request(`/api/admin/consolidation/affected/${regId}/switch`, { method: 'POST', token, body: { new_event_id: newEventId } }),
   affectedRefund: (token, regId, reason) => request(`/api/admin/consolidation/affected/${regId}/refund`, { method: 'POST', token, body: { reason } }),
+  /** Follow-up Excel of under-strength events + affected participants. Blob. */
+  affectedXlsx: async (token) => {
+    const res = await fetch(`${API_BASE}/api/admin/consolidation/affected-xlsx`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
+    return res.blob();
+  },
   /** Standalone 'Changes & Cancellations' sheet (PDF). Returns a Blob. */
   changesPdf: async (token) => {
     const res = await fetch(`${API_BASE}/api/admin/consolidation/changes-pdf`, { headers: { Authorization: `Bearer ${token}` } });

@@ -35,6 +35,7 @@ export default function Consolidation() {
   const [pending, setPending] = useState(null);
   const [notifyModal, setNotifyModal] = useState(false);
   const [dlChanges, setDlChanges] = useState(false);
+  const [dlXlsx, setDlXlsx] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
   const historyRef = useRef(null);
 
@@ -115,6 +116,19 @@ export default function Consolidation() {
     finally { setDlChanges(false); }
   }
 
+  async function downloadAffectedXlsx() {
+    setDlXlsx(true);
+    try {
+      const blob = await consolidationApi.affectedXlsx(token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'cancelled-events-followup.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (err) { setError(err.message || 'Could not generate the Excel.'); }
+    finally { setDlXlsx(false); }
+  }
+
   async function publishFinal() {
     if (!window.confirm('Publish the Final list? This stamps the final event & participant lists as published.')) return;
     setBusy(true);
@@ -160,6 +174,9 @@ export default function Consolidation() {
           )}
           <Button variant="outline" size="sm" icon={Download} onClick={downloadChangesPdf} loading={dlChanges} disabled={busy}>
             Changes &amp; Cancellations PDF
+          </Button>
+          <Button variant="outline" size="sm" icon={Download} onClick={downloadAffectedXlsx} loading={dlXlsx} disabled={busy}>
+            Follow-up Excel
           </Button>
           {['SuperAdmin', 'Admin'].includes(role) && (
             <Button variant="gold" size="sm" onClick={publishFinal} disabled={busy}>Publish Final list</Button>
