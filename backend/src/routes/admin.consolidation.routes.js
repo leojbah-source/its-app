@@ -252,7 +252,7 @@ router.get('/review', requireRole(...VIEW_ROLES), async (req, res, next) => {
         base: c.base, gender_split: c.gender_split, is_stage_event: c.is_stage_event,
         is_generated: c.is_generated, category_name: c.category_name, cat_sort: c.cat_sort,
         age_group_id: c.age_group_id, age_group_code: c.age_group_code,
-        age_group_label: c.age_group_label, ag_sort: c.ag_sort,
+        age_group_label: c.age_group_label, ag_sort: c.ag_sort, ag_label: c.ag_label,
         count: c.cnt, boys_count: c.boys_cnt, girls_count: c.girls_cnt, status, suggestion, partner,
       };
     }).sort((a, b) =>
@@ -929,16 +929,16 @@ router.get('/changes-pdf', requireRole(...VIEW_ROLES), async (req, res, next) =>
     const executedCancel = new Set(), executedMerge = new Set();
     for (const c of cons) {
       if (c.kind === 'cancel') { executedCancel.add(`${c.source_event_ids[0]}:${c.age_group_id}`);
-        cancelled.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, label: nm(c.source_event_ids[0]), count: cnt(c), done: true }); }
+        cancelled.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, ag_label: c.ag_label, label: nm(c.source_event_ids[0]), count: cnt(c), done: true }); }
       else if (c.kind === 'merge') { (c.source_event_ids||[]).forEach((i)=>executedMerge.add(`${i}:${c.age_group_id}`));
-        merged.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, src: (c.source_event_ids||[]).map(nm).join(' + '), tgt: (c.target_event_ids&&c.target_event_ids[0]) ? nm(c.target_event_ids[0]) : '(combined)', count: cnt(c), done: true }); }
-      else if (c.kind === 'split') { splits.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, src: nm(c.source_event_ids[0]), tgt: (c.target_event_ids||[]).map(nm).join(' + '), done: true }); }
+        merged.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, ag_label: c.ag_label, src: (c.source_event_ids||[]).map(nm).join(' + '), tgt: (c.target_event_ids&&c.target_event_ids[0]) ? nm(c.target_event_ids[0]) : '(combined)', count: cnt(c), done: true }); }
+      else if (c.kind === 'split') { splits.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, ag_label: c.ag_label, src: nm(c.source_event_ids[0]), tgt: (c.target_event_ids||[]).map(nm).join(' + '), done: true }); }
     }
     const seenPair = new Set();
     for (const c of cells) {
       const key = `${c.event_id}:${c.ag_id}`;
       if (executedCancel.has(key) || executedMerge.has(key)) continue;
-      if (c.is_stage_event && c.count > split) { splits.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, src: `${c.event_name} (${c.event_code})`, tgt: 'two groups', count: c.count, done: false }); continue; }
+      if (c.is_stage_event && c.count > split) { splits.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, ag_label: c.ag_label, src: `${c.event_name} (${c.event_code})`, tgt: 'two groups', count: c.count, done: false }); continue; }
       if (c.count < min) {
         let partner = null;
         if (c.gender_split === 'boys' || c.gender_split === 'girls') {
@@ -948,14 +948,16 @@ router.get('/changes-pdf', requireRole(...VIEW_ROLES), async (req, res, next) =>
         if (partner && (c.count + partner.count) >= min) {
           const pk = [c.event_id, partner.event_id].sort((a,b)=>a-b).join('-') + ':' + c.ag_id;
           if (seenPair.has(pk)) continue; seenPair.add(pk);
-          merged.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, src: `${c.event_name} (${c.event_code}) + ${partner.event_name} (${partner.event_code})`, tgt: `${c.base} (Common)`, count: c.count + partner.count, done: false });
+          merged.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, ag_label: c.ag_label, src: `${c.event_name} (${c.event_code}) + ${partner.event_name} (${partner.event_code})`, tgt: `${c.base} (Common)`, count: c.count + partner.count, done: false });
         } else {
-          cancelled.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, label: `${c.event_name} (${c.event_code})`, count: c.count, done: false });
+          cancelled.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, ag_label: c.ag_label, label: `${c.event_name} (${c.event_code})`, count: c.count, done: false });
         }
       }
     }
-    const byAg = (a, b) => (a.ag_sort ?? 99) - (b.ag_sort ?? 99) || String(a.label || a.src).localeCompare(String(b.label || b.src));
-    cancelled.sort(byAg); merged.sort(byAg); splits.sort(byAg);
+    // Within each age group, order by entry count ascending (1-entry first) so the
+    // office can offer the smallest events a move first and lift near-threshold ones.
+    const byCount = (a, b) => (a.ag_sort ?? 99) - (b.ag_sort ?? 99) || (a.count ?? 0) - (b.count ?? 0) || String(a.label || a.src).localeCompare(String(b.label || b.src));
+    cancelled.sort(byCount); merged.sort(byCount); splits.sort(byCount);
 
     const doc = new PDFDocument({ margin: 45, size: 'A4', bufferPages: true });
     res.setHeader('Content-Type', 'application/pdf');
@@ -973,31 +975,49 @@ router.get('/changes-pdf', requireRole(...VIEW_ROLES), async (req, res, next) =>
     doc.moveDown(1);
 
     const H = doc.page.height;
-    const sectionTitle = (t, color) => { if (doc.y > H - 120) doc.addPage(); doc.moveDown(0.5); doc.font('Helvetica-Bold').fontSize(12.5).fillColor(color).text(t, M, doc.y, { width: W }); doc.moveDown(0.25); };
-    const line = (txt) => { if (doc.y > H - 70) doc.addPage(); doc.font('Helvetica').fontSize(10).fillColor('#334155').text(txt, { indent: 10, width: W - 10 }); };
-    const note = (txt) => { doc.moveDown(0.2); doc.font('Helvetica-Oblique').fontSize(9).fillColor('#64748b').text(txt, { indent: 10, width: W - 10 }); };
+    const sectionTitle = (t, color) => { if (doc.y > H - 120) doc.addPage(); doc.moveDown(0.6); doc.font('Helvetica-Bold').fontSize(12.5).fillColor(color).text(t, M, doc.y, { width: W }); doc.moveDown(0.3); };
+    const line = (txt, color) => { if (doc.y > H - 70) doc.addPage(); doc.font('Helvetica').fontSize(10).fillColor(color || '#334155').text(txt, { indent: 18, width: W - 18 }); };
+    const note = (txt) => { doc.moveDown(0.25); doc.font('Helvetica-Oblique').fontSize(9).fillColor('#64748b').text(txt, { indent: 10, width: W - 10 }); };
+    const groupLabel = (code, label) => label ? `${label} (${code})` : code;
 
-    sectionTitle(`Cancelled events (fewer than ${min} entries)`, '#b91c1c');
-    if (cancelled.length === 0) line('None.');
-    else cancelled.forEach((c, i) => line(`${i + 1}.  [${c.ag_code}] ${c.label}  \u00b7  ${c.count} entr${c.count === 1 ? 'y' : 'ies'}${c.done ? '  (confirmed)' : ''}`));
-    note('Parents of the above entries may choose another eligible event, or request a refund of the entry fee. Please contact the KCA office.');
+    // Render items grouped by age group, with a sub-heading and spacing between groups.
+    const renderByGroup = (items, fmt) => {
+      if (items.length === 0) { line('None.'); return; }
+      const gm = new Map();
+      for (const it of items) { const k = it.ag_code || '—'; if (!gm.has(k)) gm.set(k, { sort: it.ag_sort ?? 99, code: k, label: it.ag_label || '', items: [] }); gm.get(k).items.push(it); }
+      const ordered = [...gm.values()].sort((a, b) => (a.sort - b.sort) || a.code.localeCompare(b.code));
+      ordered.forEach((g, gi) => {
+        if (doc.y > H - 90) doc.addPage(); else if (gi > 0) doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').fontSize(10.5).fillColor('#0f172a').text(groupLabel(g.code, g.label), M + 4, doc.y, { width: W - 4 });
+        doc.moveDown(0.15);
+        g.items.forEach((it, ix) => line(`${ix + 1}.  ${fmt(it)}`));
+      });
+    };
+
+    sectionTitle(`Events with fewer than ${min} entries — at risk of cancellation`, '#b91c1c');
+    renderByGroup(cancelled, (c) => `${c.label}  ·  ${c.count} entr${c.count === 1 ? 'y' : 'ies'}${c.done ? '  (cancelled)' : ''}`);
+    note(`Listed smallest first within each age group. Parents may move a child into another eligible event (which can lift a nearby event to ${min} and save it) or request a refund of the entry fee. Please contact the KCA office.`);
 
     sectionTitle('Events being combined (Boys + Girls merged)', '#1e3a5f');
-    if (merged.length === 0) line('None.');
-    else merged.forEach((c, i) => line(`${i + 1}.  [${c.ag_code}] ${c.src}  \u2192  ${c.tgt}  \u00b7  ${c.count} entries${c.done ? '  (confirmed)' : ''}`));
-    note('No action is needed for combined events \u2014 entries move automatically and will appear in the schedule.');
+    renderByGroup(merged, (c) => `${c.src}  →  ${c.tgt}  ·  ${c.count} entries${c.done ? '  (confirmed)' : ''}`);
+    note('No action is needed for combined events — entries move automatically and will appear in the schedule.');
 
     if (splits.length) {
       sectionTitle('Events being split (large entries)', '#7c3aed');
-      splits.forEach((c, i) => line(`${i + 1}.  [${c.ag_code}] ${c.src}  \u2192  ${c.tgt}${c.count ? `  \u00b7  ${c.count} entries` : ''}${c.done ? '  (confirmed)' : ''}`));
-      note('No action is needed \u2014 these are divided into two groups for judging.');
+      renderByGroup(splits, (c) => `${c.src}  →  ${c.tgt}${c.count ? `  ·  ${c.count} entries` : ''}${c.done ? '  (confirmed)' : ''}`);
+      note('No action is needed — these are divided into two groups for judging.');
     }
 
+    // Page numbers — zero the bottom margin while writing into it so pdfkit does
+    // not auto-append a blank page per footer.
     const range = doc.bufferedPageRange();
     for (let i = 0; i < range.count; i++) {
       doc.switchToPage(range.start + i);
+      const ob = doc.page.margins.bottom;
+      doc.page.margins.bottom = 0;
       doc.font('Helvetica').fontSize(8).fillColor('#94a3b8')
-         .text(`Page ${i + 1} of ${range.count}`, doc.page.margins.left, doc.page.height - doc.page.margins.bottom + 6, { width: W, align: 'center', lineBreak: false });
+         .text(`Page ${i + 1} of ${range.count}`, doc.page.margins.left, doc.page.height - 30, { width: W, align: 'center', lineBreak: false });
+      doc.page.margins.bottom = ob;
     }
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_CHANGES_PDF',

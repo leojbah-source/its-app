@@ -56,7 +56,9 @@ function drawRunningHeader(doc, group) {
 }
 
 /** Render ONE age group to a PDF Buffer: events A-Z, names A-Z, under-strength
- *  events in red, branded header + banner, running header, page numbers. */
+ *  events in red, branded header + banner, running header, page numbers.
+ *  Manual pagination (no pageAdded reentrancy) + margin-zero footer so no blank
+ *  pages are produced. */
 function renderGroupPdf(logos, year, group, minTh) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 45, size: 'A4', bufferPages: true });
@@ -64,11 +66,11 @@ function renderGroupPdf(logos, year, group, minTh) {
     doc.on('data', (c) => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
-    doc.on('pageAdded', () => drawRunningHeader(doc, group));
+
+    const bottom = () => doc.page.height - doc.page.margins.bottom - 16;
+    const newPage = () => { doc.addPage(); drawRunningHeader(doc, group); };
 
     drawGroupHeader(doc, logos, year, group);
-    const bottom = () => doc.page.height - doc.page.margins.bottom - 20;
-
     const eventNames = [...group.events.keys()].sort((a, b) => a.localeCompare(b));
     if (eventNames.length === 0) doc.font('Helvetica').fontSize(11).fillColor(MUTE).text('No individual entries in this age group.');
 
@@ -76,25 +78,30 @@ function renderGroupPdf(logos, year, group, minTh) {
       const ev = group.events.get(evName);
       const names = [...ev.names].sort((a, b) => a.localeCompare(b));
       const under = names.length < minTh;
-      if (doc.y > bottom() - 36) doc.addPage();
-      doc.moveDown(0.55);
+      if (doc.y + 48 > bottom()) newPage();
+      doc.moveDown(0.45);
       doc.font('Helvetica-Bold').fontSize(12).fillColor(under ? RED : INK).text(evName, { continued: true })
          .font('Helvetica').fontSize(9).fillColor(under ? RED : MUTE)
          .text(`   (${ev.code}) · ${names.length} entr${names.length === 1 ? 'y' : 'ies'}${under ? `  — fewer than ${minTh}` : ''}`);
       doc.moveDown(0.15);
       doc.font('Helvetica').fontSize(10.5).fillColor(BODY);
       names.forEach((n, i) => {
-        if (doc.y > bottom()) doc.addPage();
+        if (doc.y + 15 > bottom()) newPage();
         doc.text(`${i + 1}.  ${n}`, { indent: 14 });
       });
     }
 
+    // Page numbers — zero the bottom margin while writing into it so pdfkit
+    // does not auto-append a blank page per footer (known pdfkit footer bug).
     const range = doc.bufferedPageRange();
     const W = doc.page.width - doc.page.margins.left - doc.page.margins.right;
     for (let i = 0; i < range.count; i++) {
       doc.switchToPage(range.start + i);
+      const ob = doc.page.margins.bottom;
+      doc.page.margins.bottom = 0;
       doc.font('Helvetica').fontSize(8).fillColor('#94a3b8')
-         .text(`Page ${i + 1} of ${range.count}`, doc.page.margins.left, doc.page.height - doc.page.margins.bottom + 8, { width: W, align: 'center', lineBreak: false });
+         .text(`Page ${i + 1} of ${range.count}`, doc.page.margins.left, doc.page.height - 30, { width: W, align: 'center', lineBreak: false });
+      doc.page.margins.bottom = ob;
     }
     doc.end();
   });
