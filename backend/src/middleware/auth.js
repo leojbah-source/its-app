@@ -1,5 +1,6 @@
 // src/middleware/auth.js
 const jwt = require('jsonwebtoken');
+const { logAccessDenied } = require('../utils/audit');
 
 /**
  * Verifies the Bearer JWT and attaches the decoded payload to req.user.
@@ -26,6 +27,7 @@ function authenticate(req, res, next) {
 function requireRole(...allowedRoles) {
   return (req, res, next) => {
     if (!req.user || !allowedRoles.includes(req.user.role)) {
+      logAccessDenied(req, `role '${req.user?.role}' not allowed (needs one of: ${allowedRoles.join(', ')})`);
       return res.status(403).json({ error: 'Forbidden: insufficient role for this action' });
     }
     next();
@@ -36,6 +38,7 @@ function requireRole(...allowedRoles) {
 function requireType(...allowedTypes) {
   return (req, res, next) => {
     if (!req.user || !allowedTypes.includes(req.user.type)) {
+      logAccessDenied(req, `token type '${req.user?.type}' not allowed (needs: ${allowedTypes.join(', ')})`);
       return res.status(403).json({ error: 'Forbidden: wrong token type for this endpoint' });
     }
     next();
