@@ -121,6 +121,9 @@ export default function Dashboard() {
 
   const firstName = user?.full_name?.split(' ')[0] || 'there';
   const regOpen = config?.reg_deadline ? new Date() < new Date(config.reg_deadline) : true;
+  // Team registration has its OWN (later) deadline — it must not be hidden when
+  // individual registration closes. Falls back to open if no team deadline is set.
+  const teamOpen = config?.team_reg_deadline ? new Date() < new Date(config.team_reg_deadline) : true;
 
   return (
     <RegisterLayout title={`Hello, ${firstName}!`} subtitle="Manage your child's registrations">
@@ -143,7 +146,9 @@ export default function Dashboard() {
             <p className="text-sm mt-1.5">
               {regOpen
                 ? 'Tap the button below to add your child.'
-                : 'Registration has closed.'}
+                : teamOpen
+                  ? 'Individual registration has closed. You can still register team events below.'
+                  : 'Registration has closed.'}
             </p>
           </div>
         ) : (
@@ -159,9 +164,8 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Add participant button — only while registration is open */}
+        {/* Add participant — only while INDIVIDUAL registration is open */}
         {regOpen && (
-          <>
           <button
             onClick={() => navigate('/register/add')}
             className="w-full flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-navy-300 py-5 text-navy-700 font-semibold hover:bg-navy-50 active:bg-navy-100 transition-colors"
@@ -169,7 +173,12 @@ export default function Dashboard() {
             <Plus size={20} />
             Add Participant
           </button>
+        )}
 
+        {/* Team Event Entry — follows the SEPARATE team deadline, so it stays
+            available after individual registration has closed. */}
+        {teamOpen && (
+          <>
           <button
             onClick={() => navigate('/register/team')}
             className="w-full rounded-2xl border-2 border-dashed border-navy-300 bg-navy-50 py-4 text-base font-semibold text-navy-700 hover:bg-navy-100 active:bg-navy-200 transition-colors"
@@ -177,7 +186,7 @@ export default function Dashboard() {
             Team Event Entry →
           </button>
           <p className="text-xs text-slate-400 text-center -mt-2">
-            Individual events above · Register or manage teams here (separate deadline)
+            Register or manage teams here{regOpen ? ' · Individual events above' : ' (individual registration has closed)'}
           </p>
           </>
         )}
