@@ -428,7 +428,11 @@ function ParticipantsTable({ participants, scope = 'completed', onScopeChange, o
     return (
       (p.full_name || '').toLowerCase().includes(q) ||
       (p.cpr_number || '').includes(q) ||
-      (p.school_name || '').toLowerCase().includes(q)
+      (p.school_name || '').toLowerCase().includes(q) ||
+      (p.parent_name || '').toLowerCase().includes(q) ||
+      (p.parent_email || '').toLowerCase().includes(q) ||
+      (p.parent_phone || '').toLowerCase().includes(q) ||
+      (p.guardian_name || '').toLowerCase().includes(q)
     );
   });
 
@@ -439,7 +443,7 @@ function ParticipantsTable({ participants, scope = 'completed', onScopeChange, o
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name or CPR…"
+            placeholder="Search participant, parent, CPR, email, phone…"
             className="w-full rounded-md border border-slate-300 py-2 pl-9 pr-3 text-sm shadow-sm focus:outline-none"
           />
         </div>
@@ -455,13 +459,14 @@ function ParticipantsTable({ participants, scope = 'completed', onScopeChange, o
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200">
-        <table className="w-full min-w-[700px] text-sm">
+        <table className="w-full min-w-[820px] text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-4 py-3 font-medium">Name</th>
               <th className="px-4 py-3 font-medium">CPR</th>
               <th className="px-4 py-3 font-medium">Group</th>
               <th className="px-4 py-3 font-medium">School</th>
+              <th className="px-4 py-3 font-medium">Parent</th>
               <th className="px-4 py-3 font-medium">Gender</th>
               <th className="px-4 py-3 font-medium">Membership</th>
               <th className="px-4 py-3 text-right font-medium">Events</th>
@@ -485,6 +490,15 @@ function ParticipantsTable({ participants, scope = 'completed', onScopeChange, o
                   {p.age_group_code || '—'}
                 </td>
                 <td className="px-4 py-3 text-slate-600 text-xs">{p.school_name || '—'}</td>
+                <td className="px-4 py-3 text-xs">
+                  {(p.parent_name || p.guardian_name) ? (
+                    <div className="flex flex-col">
+                      <span className="text-slate-700">{p.parent_name || p.guardian_name}</span>
+                      {p.parent_email && <span className="text-slate-400">{p.parent_email}</span>}
+                      {p.parent_phone && <span className="text-slate-400 font-mono">{p.parent_phone}</span>}
+                    </div>
+                  ) : <span className="text-slate-400">—</span>}
+                </td>
                 <td className={`px-4 py-3 ${p.gender ? 'text-slate-600' : 'text-red-500 font-medium'}`}>{p.gender || 'missing'}</td>
                 <td className="px-4 py-3">
                   {p.membership_status ? (

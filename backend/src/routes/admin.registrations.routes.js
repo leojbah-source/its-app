@@ -557,6 +557,7 @@ router.get('/participants', requireRole(...staffRoles), async (req, res, next) =
       `SELECT
          p.id, p.cpr_number, p.full_name, p.dob, p.gender, p.membership_status,
          p.guardian_name, p.guardian_phone,
+         pu.full_name AS parent_name, pu.email AS parent_email, pu.phone AS parent_phone,
          (p.confirmed_at IS NOT NULL) AS confirmed,
          EXISTS (SELECT 1 FROM team_members tm WHERE tm.participant_id = p.id) AS on_team,
          s.name AS school_name,
@@ -565,14 +566,20 @@ router.get('/participants', requireRole(...staffRoles), async (req, res, next) =
        FROM participants p
        LEFT JOIN schools s ON s.id = p.school_id
        LEFT JOIN age_groups ag ON ag.id = p.age_group_id
+       LEFT JOIN users pu ON pu.id = p.created_by
        LEFT JOIN registrations r ON r.participant_id = p.id
        WHERE ($1::int IS NULL OR p.year_id = $1)
          AND ($5::bool OR p.confirmed_at IS NOT NULL)  -- completed only unless include=all
          AND ($2::text IS NULL OR p.full_name ILIKE '%' || $2 || '%'
-              OR p.cpr_number = $2)
+              OR p.cpr_number = $2
+              OR pu.full_name ILIKE '%' || $2 || '%'
+              OR pu.email ILIKE '%' || $2 || '%'
+              OR pu.phone ILIKE '%' || $2 || '%'
+              OR p.guardian_name ILIKE '%' || $2 || '%')
          AND ($3::int IS NULL OR p.school_id = $3)
          AND ($4::int IS NULL OR p.age_group_id = $4)
-       GROUP BY p.id, s.name, ag.code, ag.label, ag.sort_order
+       GROUP BY p.id, s.name, ag.code, ag.label, ag.sort_order,
+                pu.full_name, pu.email, pu.phone
        ORDER BY p.full_name`,
       [year_id,
        search || null,
