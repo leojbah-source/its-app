@@ -371,6 +371,10 @@ export const consolidationApi = {
   publishFinal: (token) => request('/api/admin/consolidation/publish-final', { method: 'POST', token, body: {} }),
   notificationsPending: (token) => request('/api/admin/consolidation/notifications/pending', { token }),
   notificationsSend: (token) => request('/api/admin/consolidation/notifications/send', { method: 'POST', token, body: {} }),
+  affected: (token) => request('/api/admin/consolidation/affected', { token }),
+  affectedOptions: (token, regId) => request(`/api/admin/consolidation/affected/${regId}/options`, { token }),
+  affectedSwitch: (token, regId, newEventId) => request(`/api/admin/consolidation/affected/${regId}/switch`, { method: 'POST', token, body: { new_event_id: newEventId } }),
+  affectedRefund: (token, regId, reason) => request(`/api/admin/consolidation/affected/${regId}/refund`, { method: 'POST', token, body: { reason } }),
   /** Standalone 'Changes & Cancellations' sheet (PDF). Returns a Blob. */
   changesPdf: async (token) => {
     const res = await fetch(`${API_BASE}/api/admin/consolidation/changes-pdf`, { headers: { Authorization: `Bearer ${token}` } });

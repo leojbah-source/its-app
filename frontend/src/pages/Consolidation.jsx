@@ -35,6 +35,7 @@ export default function Consolidation() {
   const [pending, setPending] = useState(null);
   const [notifyModal, setNotifyModal] = useState(false);
   const [dlChanges, setDlChanges] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
   const historyRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -42,6 +43,7 @@ export default function Consolidation() {
     try {
       const [rev, hist, pend] = await Promise.all([consolidationApi.review(token), consolidationApi.history(token), consolidationApi.notificationsPending(token)]);
       setData(rev); setHistory(hist); setPending(pend);
+      setRefreshTick((n) => n + 1);
     } catch (e) { setError(e.message || 'Failed to load'); }
     finally { setLoading(false); }
   }, [token]);
@@ -273,6 +275,10 @@ export default function Consolidation() {
         )}
       </Card>
 
+      <div className="mt-6">
+        <ResolvePanel token={token} canActNow={canAct(role)} reloadKey={refreshTick} onChanged={load} />
+      </div>
+
       <div className="mt-6" ref={historyRef}>
         <Card title="Recent actions">
           {history.length === 0 ? (
@@ -435,5 +441,165 @@ function ActionModal({ modal, busy, onClose, onMerge, onCancel, onSplit, min }) 
         )}
       </div>
     </div>
+  );
+}
+
+
+// ── Cancelled-entry resolution panel (office-managed: switch or refund) ───────
+function ResolvePanel({ token, canActNow, reloadKey, onChanged }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busyReg, setBusyReg] = useState(null);
+  const [opts, setOpts] = useState({});       // regId -> { loading, options, error }
+  const [choice, setChoice] = useState({});    // regId -> event_id
+  const [refundFor, setRefundFor] = useState(null);
+  const [note, setNote] = useState('');
+  const [msg, setMsg] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true); setErr('');
+    try { setData(await consolidationApi.affected(token)); }
+    catch (e) { setErr(e.message || 'Failed to load'); }
+    finally { setLoading(false); }
+  }, [token]);
+  useEffect(() => { load(); }, [load, reloadKey]);
+
+  async function openSwitch(regId) {
+    setOpts((o) => ({ ...o, [regId]: { loading: true, options: [] } }));
+    try {
+      const r = await consolidationApi.affectedOptions(token, regId);
+      setOpts((o) => ({ ...o, [regId]: { loading: false, options: r.options } }));
+    } catch (e) { setOpts((o) => ({ ...o, [regId]: { loading: false, options: [], error: e.message } })); }
+  }
+  function closeSwitch(regId) { setOpts((o) => { const n = { ...o }; delete n[regId]; return n; }); }
+
+  async function doSwitch(regId) {
+    const evId = choice[regId];
+    if (!evId) { setErr('Choose an event to switch to.'); return; }
+    setBusyReg(regId); setErr(''); setMsg('');
+    try {
+      const r = await consolidationApi.affectedSwitch(token, regId, Number(evId));
+      const extra = r.additional_due > 0 ? ` Additional due BD ${r.additional_due.toFixed(3)}.` : '';
+      const ref = r.refund_due > 0 ? ` Pending refund BD ${r.refund_due.toFixed(3)} raised.` : '';
+      setMsg(`Switched to ${r.new_event.event_name}.${extra}${ref}`);
+      closeSwitch(regId); setChoice((c) => { const n = { ...c }; delete n[regId]; return n; });
+      await load(); onChanged && onChanged();
+    } catch (e) { setErr(e.message || 'Switch failed'); }
+    finally { setBusyReg(null); }
+  }
+  async function doRefund(regId) {
+    setBusyReg(regId); setErr(''); setMsg('');
+    try {
+      const r = await consolidationApi.affectedRefund(token, regId, note.trim());
+      setMsg(`Refund of BD ${Number(r.refund_amount).toFixed(3)} raised (pending — confirm it in Payments / Refunds).`);
+      setRefundFor(null); setNote('');
+      await load(); onChanged && onChanged();
+    } catch (e) { setErr(e.message || 'Refund failed'); }
+    finally { setBusyReg(null); }
+  }
+
+  const items = data?.items || [];
+  const sm = data?.summary;
+
+  return (
+    <Card title="Cancelled entries — parent choices (switch or refund)">
+      {loading ? <PageLoader label="Loading affected entries…" />
+      : items.length === 0 ? (
+        <div className="py-8 text-center text-sm text-slate-400">
+          No cancelled entries to resolve. (Cancel an under-strength cell above and affected children will appear here.)
+        </div>
+      ) : (
+        <>
+          {sm && (
+            <div className="mb-3 flex flex-wrap gap-2 text-xs">
+              <Badge tone="amber">{sm.open} open</Badge>
+              <Badge tone="navy">{sm.switched} switched</Badge>
+              <Badge tone="neutral">{sm.refunded} refunded</Badge>
+            </div>
+          )}
+          {msg && <div className="mb-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{msg}</div>}
+          {err && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-400">
+                  <th className="py-2 pr-3">Participant</th>
+                  <th className="px-3">Age</th>
+                  <th className="px-3">Cancelled event</th>
+                  <th className="px-3">Parent</th>
+                  <th className="px-3">Fee</th>
+                  <th className="px-3">Resolve</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it) => (
+                  <tr key={it.reg_id} className="border-b border-slate-100 align-top">
+                    <td className="py-2 pr-3 font-medium text-slate-800">
+                      {it.full_name}
+                      {!it.gender && <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">no gender</span>}
+                    </td>
+                    <td className="px-3 text-slate-600">{it.age_group_code}</td>
+                    <td className="px-3 text-slate-600">
+                      <span className="font-mono text-xs text-navy-500">{it.cancelled_code}</span> {it.cancelled_name}
+                    </td>
+                    <td className="px-3 text-slate-600">
+                      {it.parent_name || '—'}
+                      {it.parent_contact && <div className="text-[11px] text-slate-400 font-mono">{it.parent_contact}</div>}
+                    </td>
+                    <td className="px-3 text-slate-600 whitespace-nowrap">BD {Number(it.fee_amount).toFixed(3)}</td>
+                    <td className="px-3">
+                      {it.state === 'switched' ? <Badge tone="navy">switched</Badge>
+                      : it.state === 'refunded' ? <Badge tone="neutral">refunded</Badge>
+                      : it.state === 'closed' ? <Badge tone="neutral">closed</Badge>
+                      : !canActNow ? <span className="text-xs text-slate-400">view only</span>
+                      : (
+                        <div className="space-y-2 py-1">
+                          {opts[it.reg_id] ? (
+                            <div className="space-y-1.5">
+                              {opts[it.reg_id].loading ? <span className="text-xs text-slate-400">Loading eligible events…</span>
+                              : opts[it.reg_id].error ? <span className="text-xs text-red-500">{opts[it.reg_id].error}</span>
+                              : opts[it.reg_id].options.length === 0 ? <span className="text-xs text-slate-400">No eligible events to switch into.</span>
+                              : (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <select value={choice[it.reg_id] || ''} onChange={(e) => setChoice((c) => ({ ...c, [it.reg_id]: e.target.value }))}
+                                    className="rounded-md border border-slate-300 px-2 py-1.5 text-xs max-w-[240px]">
+                                    <option value="">Choose event…</option>
+                                    {opts[it.reg_id].options.map((o) => (
+                                      <option key={o.event_id} value={o.event_id}>{o.event_name} ({o.event_code}) · BD {Number(o.fee).toFixed(3)}</option>
+                                    ))}
+                                  </select>
+                                  <Button size="sm" variant="primary" loading={busyReg === it.reg_id} onClick={() => doSwitch(it.reg_id)}>Confirm switch</Button>
+                                  <Button size="sm" variant="ghost" onClick={() => closeSwitch(it.reg_id)}>Cancel</Button>
+                                </div>
+                              )}
+                            </div>
+                          ) : refundFor === it.reg_id ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="refund note (optional)"
+                                className="w-48 rounded-md border border-slate-300 px-2 py-1.5 text-xs" />
+                              <Button size="sm" variant="danger" loading={busyReg === it.reg_id} onClick={() => doRefund(it.reg_id)}>Confirm refund</Button>
+                              <Button size="sm" variant="ghost" onClick={() => { setRefundFor(null); setNote(''); }}>Cancel</Button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-2">
+                              <Button size="sm" variant="outline" icon={Combine} onClick={() => openSwitch(it.reg_id)}>Switch event…</Button>
+                              <Button size="sm" variant="outline" icon={Ban} onClick={() => { setRefundFor(it.reg_id); setNote(''); }}>Refund…</Button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs text-slate-400">
+            Switching moves only this one cancelled entry; the child's other events are untouched. A cheaper event raises a pending refund of the difference; a dearer one shows as extra balance due. Refunds appear in Payments / Refunds for the Accountant to confirm.
+          </p>
+        </>
+      )}
+    </Card>
   );
 }

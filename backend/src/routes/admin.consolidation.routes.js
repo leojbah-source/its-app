@@ -104,6 +104,31 @@ function notifyParents(recipients, { logo, subject, waMessage, html }) {
 }
 
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const round3 = (x) => Math.round(Number(x || 0) * 1000) / 1000;
+function eventFee(ev, memberActive) {
+  const std = Number(ev.fee_amount || 0);
+  if (!memberActive) return round3(std);
+  return round3(ev.member_fee_amount != null ? Number(ev.member_fee_amount) : std);
+}
+function genderEligible(genderSplit, g) {
+  if (genderSplit === 'boys')  return g === 'M';
+  if (genderSplit === 'girls') return g === 'F';
+  return true;
+}
+async function memberActive(db, userId) {
+  if (!userId) return false;
+  const { rows } = await db.query(`SELECT membership_status FROM users WHERE id = $1`, [userId]);
+  return rows[0]?.membership_status === 'active';
+}
+/** True if regId belongs to a non-reverted CANCEL consolidation in this year. */
+async function isAffectedCancelReg(db, yearId, regId) {
+  const { rows } = await db.query(
+    `SELECT 1 FROM event_consolidations ec
+       CROSS JOIN LATERAL jsonb_to_recordset(ec.moved) AS m(reg_id int, from_event_id int, to_event_id int)
+      WHERE ec.year_id = $1 AND ec.kind = 'cancel' AND ec.reverted_at IS NULL AND m.reg_id = $2
+      LIMIT 1`, [yearId, regId]);
+  return !!rows[0];
+}
 function emailShell(inner) {
   return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#0f172a;line-height:1.6">${inner}<p style="margin-top:18px">Warm regards,<br>KCA Indian Talent Scan Team</p></div>`;
 }
@@ -638,6 +663,219 @@ router.post('/notifications/send', requireRole(...ACT_ROLES), async (req, res, n
   } catch (err) { next(err); }
 });
 
+
+// ── GET /affected ─────────────────────────────────────────────────────────────
+// Every registration hit by a (non-reverted) cancellation, with its resolution
+// state, so the office can switch the entry to another event or record a refund.
+router.get('/affected', requireRole(...VIEW_ROLES), async (req, res, next) => {
+  try {
+    const y = await activeYear();
+    if (!y) return res.status(400).json({ error: 'No active year' });
+    const { rows } = await pool.query(
+      `SELECT m.reg_id, ec.age_group_id, ec.source_event_ids[1] AS cancelled_event_id,
+              r.status AS reg_status, r.event_id AS reg_event_id, r.fee_amount,
+              p.id AS participant_id, p.full_name, p.gender,
+              ag.code AS ag_code, ag.label AS ag_label,
+              ce.event_code AS cancelled_code, ce.event_name AS cancelled_name,
+              u.full_name AS parent_name, COALESCE(u.whatsapp_number, u.phone) AS parent_contact,
+              (SELECT COUNT(*)::int FROM refunds rf WHERE rf.registration_id = m.reg_id) AS refund_count
+         FROM event_consolidations ec
+         CROSS JOIN LATERAL jsonb_to_recordset(ec.moved) AS m(reg_id int, from_event_id int, to_event_id int)
+         JOIN registrations r ON r.id = m.reg_id
+         JOIN participants p ON p.id = r.participant_id
+         LEFT JOIN age_groups ag ON ag.id = ec.age_group_id
+         LEFT JOIN events ce ON ce.id = ec.source_event_ids[1]
+         LEFT JOIN users u ON u.id = p.created_by
+        WHERE ec.year_id = $1 AND ec.kind = 'cancel' AND ec.reverted_at IS NULL
+        ORDER BY ag.sort_order NULLS LAST, p.full_name`, [y.id]);
+
+    const items = rows.map((r) => {
+      let state = 'open';
+      if (r.reg_status === 'withdrawn' && r.refund_count > 0) state = 'refunded';
+      else if (r.reg_status === 'swapped') state = 'switched';
+      else if (r.reg_status !== 'registered') state = 'closed';
+      return {
+        reg_id: r.reg_id, participant_id: r.participant_id, full_name: r.full_name, gender: r.gender,
+        age_group_id: r.age_group_id, age_group_code: r.ag_code, age_group_label: r.ag_label,
+        cancelled_event_id: r.cancelled_event_id, cancelled_code: r.cancelled_code, cancelled_name: r.cancelled_name,
+        fee_amount: Number(r.fee_amount || 0),
+        parent_name: r.parent_name, parent_contact: r.parent_contact, state,
+      };
+    });
+    const summary = { total: items.length, open: items.filter((i) => i.state === 'open').length,
+      switched: items.filter((i) => i.state === 'switched').length,
+      refunded: items.filter((i) => i.state === 'refunded').length };
+    res.json({ summary, items });
+  } catch (err) { next(err); }
+});
+
+// ── GET /affected/:regId/options ──────────────────────────────────────────────
+// Eligible events this child could be switched into (same age group, individual,
+// not cancelled, gender-eligible, not already entered), with the net fee.
+router.get('/affected/:regId/options', requireRole(...VIEW_ROLES), async (req, res, next) => {
+  try {
+    const y = await activeYear();
+    if (!y) return res.status(400).json({ error: 'No active year' });
+    const regId = Number(req.params.regId);
+    const { rows: rr } = await pool.query(
+      `SELECT r.id, r.age_group_id, r.event_id, p.id AS participant_id, p.gender, p.created_by
+         FROM registrations r JOIN participants p ON p.id = r.participant_id WHERE r.id = $1`, [regId]);
+    const info = rr[0];
+    if (!info) return res.status(404).json({ error: 'Registration not found' });
+    const mem = await memberActive(pool, info.created_by);
+
+    const { rows: evs } = await pool.query(
+      `SELECT e.id, e.event_code, e.event_name, e.fee_amount, e.member_fee_amount, e.gender_split,
+              c.name AS category_name
+         FROM events e
+         JOIN event_age_groups eag ON eag.event_id = e.id AND eag.age_group_id = $2
+         LEFT JOIN categories c ON c.id = e.category_id
+        WHERE e.year_id = $1 AND e.event_kind = 'individual'
+          AND e.is_cancelled = FALSE AND e.is_generated = FALSE
+          AND e.id <> $3
+          AND NOT EXISTS (SELECT 1 FROM event_consolidations x WHERE x.kind='cancel' AND x.reverted_at IS NULL
+                           AND x.source_event_ids[1] = e.id AND x.age_group_id = $2)
+          AND NOT EXISTS (SELECT 1 FROM registrations r2 WHERE r2.participant_id = $4
+                           AND r2.event_id = e.id AND r2.status NOT IN ('withdrawn','swapped'))
+        ORDER BY c.sort_order NULLS LAST, e.event_name`,
+      [y.id, info.age_group_id, info.event_id, info.participant_id]);
+
+    const options = evs
+      .filter((e) => genderEligible(e.gender_split, info.gender))
+      .map((e) => ({ event_id: e.id, event_code: e.event_code, event_name: e.event_name,
+        category_name: e.category_name, fee: eventFee(e, mem) }));
+    res.json({ options, member_active: mem });
+  } catch (err) { next(err); }
+});
+
+// ── POST /affected/:regId/switch  { new_event_id } ────────────────────────────
+// Move ONLY this cancelled entry to another eligible event. Fee difference is
+// auto-handled: more → extra shows in the balance; less → a pending refund of
+// the difference. All other events of the child are untouched.
+router.post('/affected/:regId/switch', requireRole(...ACT_ROLES), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const regId = Number(req.params.regId);
+    const newEventId = Number(req.body.new_event_id);
+    if (!regId || !newEventId) return res.status(400).json({ error: 'new_event_id is required' });
+
+    await client.query('BEGIN');
+    const y = await activeYear(client);
+    if (!(await isAffectedCancelReg(client, y.id, regId))) {
+      await client.query('ROLLBACK'); return res.status(400).json({ error: 'This entry is not part of a cancelled event.' });
+    }
+    const { rows: rr } = await client.query(
+      `SELECT r.*, p.gender, p.created_by, p.full_name, p.age_group_id AS p_age
+         FROM registrations r JOIN participants p ON p.id = r.participant_id
+        WHERE r.id = $1 FOR UPDATE OF r`, [regId]);
+    const reg = rr[0];
+    if (!reg) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Registration not found' }); }
+    if (reg.status !== 'registered') { await client.query('ROLLBACK'); return res.status(409).json({ error: 'This entry has already been resolved.' }); }
+
+    const { rows: ne } = await client.query(
+      `SELECT e.id, e.category_id, e.event_code, e.event_name, e.fee_amount, e.member_fee_amount, e.gender_split
+         FROM events e JOIN event_age_groups eag ON eag.event_id = e.id AND eag.age_group_id = $2
+        WHERE e.id = $1 AND e.event_kind = 'individual' AND e.is_cancelled = FALSE`,
+      [newEventId, reg.age_group_id]);
+    const nev = ne[0];
+    if (!nev) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Chosen event is not available for this age group.' }); }
+    if (!genderEligible(nev.gender_split, reg.gender)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: reg.gender ? 'Chosen event is restricted to the other gender.' : `We don't have ${reg.full_name}'s gender on record — set it first, then switch.` });
+    }
+    const { rows: dupe } = await client.query(
+      `SELECT id, status FROM registrations WHERE participant_id = $1 AND event_id = $2`, [reg.participant_id, newEventId]);
+    if (dupe[0] && dupe[0].status !== 'withdrawn') { await client.query('ROLLBACK'); return res.status(409).json({ error: 'The child is already entered in that event.' }); }
+
+    const mem = await memberActive(client, reg.created_by);
+    const oldFee = Number(reg.fee_amount || 0);
+    const newFee = eventFee(nev, mem);
+    const diff = round3(newFee - oldFee);
+
+    // Retire the cancelled entry.
+    await client.query(`UPDATE registrations SET status = 'swapped', updated_at = NOW() WHERE id = $1`, [regId]);
+
+    // Create / reactivate the new entry.
+    let newReg;
+    if (dupe[0]) {
+      ({ rows: [newReg] } = await client.query(
+        `UPDATE registrations SET status='registered', fee_amount=$1, age_group_id=$2, category_id=$3,
+            registered_by=$4, updated_at=NOW() WHERE id=$5 RETURNING *`,
+        [newFee, reg.age_group_id, nev.category_id, req.user.id, dupe[0].id]));
+    } else {
+      ({ rows: [newReg] } = await client.query(
+        `INSERT INTO registrations (year_id, participant_id, event_id, age_group_id, category_id,
+            fee_amount, status, registered_by, registered_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,'registered',$7,NOW(),NOW()) RETURNING *`,
+        [reg.year_id, reg.participant_id, newEventId, reg.age_group_id, nev.category_id, newFee, req.user.id]));
+    }
+
+    // Auto refund the difference when the new event is cheaper.
+    let refundDue = 0;
+    if (diff < 0) {
+      refundDue = round3(-diff);
+      await client.query(
+        `INSERT INTO refunds (year_id, participant_id, registration_id, events_withdrawn, reason,
+            original_amount, refund_amount, status, requested_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8)`,
+        [reg.year_id, reg.participant_id, regId,
+         `${reg.event_code || ''}`.trim() || `event #${reg.event_id}`,
+         `Fee difference after switching cancelled event to ${nev.event_code} — ${nev.event_name}`,
+         oldFee, refundDue, req.user.id]);
+    }
+
+    await client.query('COMMIT');
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'CONSOLIDATE_SWITCH',
+      entity: 'registrations', entityId: regId,
+      details: { participant_id: reg.participant_id, from_event_id: reg.event_id, to_event_id: newEventId,
+                 old_fee: oldFee, new_fee: newFee, additional_due: diff > 0 ? diff : 0, refund_due: refundDue } });
+
+    res.json({ ok: true, new_event: { id: nev.id, event_code: nev.event_code, event_name: nev.event_name },
+      additional_due: diff > 0 ? diff : 0, refund_due: refundDue });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
+    next(err);
+  } finally { client.release(); }
+});
+
+// ── POST /affected/:regId/refund  { reason? } ─────────────────────────────────
+// Withdraw ONLY this cancelled entry and raise a pending refund of its fee.
+router.post('/affected/:regId/refund', requireRole(...ACT_ROLES), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const regId = Number(req.params.regId);
+    const reason = (req.body.reason || '').trim() || 'Event cancelled — refund requested';
+    await client.query('BEGIN');
+    const y = await activeYear(client);
+    if (!(await isAffectedCancelReg(client, y.id, regId))) {
+      await client.query('ROLLBACK'); return res.status(400).json({ error: 'This entry is not part of a cancelled event.' }); }
+    const { rows: rr } = await client.query(
+      `SELECT r.*, e.event_code, e.event_name FROM registrations r
+         LEFT JOIN events e ON e.id = r.event_id WHERE r.id = $1 FOR UPDATE OF r`, [regId]);
+    const reg = rr[0];
+    if (!reg) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Registration not found' }); }
+    if (reg.status !== 'registered') { await client.query('ROLLBACK'); return res.status(409).json({ error: 'This entry has already been resolved.' }); }
+
+    await client.query(`UPDATE registrations SET status = 'withdrawn', updated_at = NOW() WHERE id = $1`, [regId]);
+    await client.query(
+      `INSERT INTO refunds (year_id, participant_id, registration_id, events_withdrawn, reason,
+          original_amount, refund_amount, status, requested_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8)`,
+      [reg.year_id, reg.participant_id, regId,
+       `${reg.event_code || ''} — ${reg.event_name || ''}`.trim(), reason,
+       Number(reg.fee_amount || 0), Number(reg.fee_amount || 0), req.user.id]);
+
+    await client.query('COMMIT');
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'CONSOLIDATE_REFUND',
+      entity: 'registrations', entityId: regId,
+      details: { participant_id: reg.participant_id, event_id: reg.event_id, refund_amount: Number(reg.fee_amount || 0) }, reason });
+
+    res.json({ ok: true, refund_amount: Number(reg.fee_amount || 0) });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
+    next(err);
+  } finally { client.release(); }
+});
 
 // ── GET /changes-pdf ──────────────────────────────────────────────────────────
 // A standalone "Changes & Cancellations" sheet (branded PDF): the cancelled
