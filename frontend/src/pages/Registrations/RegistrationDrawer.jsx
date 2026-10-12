@@ -52,6 +52,7 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const isChairman = ['Chairman', 'SuperAdmin'].includes(user?.role);
   const canEditParent = ['SuperAdmin', 'Admin', 'Coordinator', 'Registrar'].includes(user?.role);
   const isRegistrar = user?.role === 'Registrar'; // may action cash payments only
+  const canRecordPayment = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Accountant', 'Registrar'].includes(user?.role);
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -67,6 +68,11 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [methodVal, setMethodVal] = useState('cash');
   const [methodRef, setMethodRef] = useState('');
   const [methodFile, setMethodFile] = useState(null);
+  const [recordOpen, setRecordOpen] = useState(false); // record a new payment at office
+  const [recMethod, setRecMethod] = useState('benefitpay');
+  const [recAmount, setRecAmount] = useState('');
+  const [recRef, setRecRef] = useState('');
+  const [recFile, setRecFile] = useState(null);
   const [flash, setFlash] = useState('');
   const [msgOpen, setMsgOpen] = useState(false);
   const [msgText, setMsgText] = useState('');
@@ -271,6 +277,20 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
       setMethodFor(null); setMethodRef(''); setMethodFile(null);
       load();
     } catch (err) { setFlash(err.message || 'Could not update the payment.'); }
+    finally { setBusy(''); }
+  }
+
+  async function doRecordPayment() {
+    const amount = Number(recAmount);
+    if (!(amount > 0)) { setFlash('Enter a valid amount.'); return; }
+    setBusy('record'); setFlash('');
+    try {
+      await paymentsApi.recordPayment(token, participantId, {
+        method: recMethod, amount: recAmount, reference: recRef, file: recFile });
+      setFlash('Payment recorded — review and Confirm it below.');
+      setRecordOpen(false); setRecAmount(''); setRecRef(''); setRecFile(null);
+      load();
+    } catch (err) { setFlash(err.message || 'Could not record the payment.'); }
     finally { setBusy(''); }
   }
 
@@ -787,6 +807,54 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                         )}
                       </div>
                     ))}
+                  </div>
+                )}
+                {canRecordPayment && (
+                  <div className="mt-3 border-t border-slate-100 pt-3">
+                    {!recordOpen ? (
+                      <Button variant="outline" size="sm" onClick={() => {
+                        setRecordOpen(true);
+                        setRecMethod(isRegistrar ? 'cash' : 'benefitpay');
+                        setRecAmount(balanceDue > 0 ? balanceDue.toFixed(3) : '');
+                        setRecRef(''); setRecFile(null);
+                      }}>
+                        + Record payment…
+                      </Button>
+                    ) : (
+                      <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/60 p-3">
+                        <p className="text-xs font-medium text-slate-600">
+                          Record a payment received at the office (e.g. BenefitPay / cash the parent forwarded). It is saved as pending — Confirm it above to apply.
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select value={recMethod} onChange={(e) => setRecMethod(e.target.value)}
+                            className="rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                            <option value="cash">Cash (KCA office)</option>
+                            {!isRegistrar && <option value="benefitpay">BenefitPay</option>}
+                            {!isRegistrar && <option value="bank_transfer">Bank transfer</option>}
+                          </select>
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-slate-500">BD</span>
+                            <input type="number" step="0.001" min="0" value={recAmount}
+                              onChange={(e) => setRecAmount(e.target.value)} placeholder="amount"
+                              className="w-28 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                          </div>
+                          <input value={recRef} onChange={(e) => setRecRef(e.target.value)}
+                            placeholder="reference (optional)"
+                            className="w-40 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                        </div>
+                        <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-navy-700 hover:bg-slate-50">
+                          <Upload size={12} /> {recFile ? recFile.name : 'Attach screenshot (optional)'}
+                          <input type="file" accept="image/*,application/pdf" className="hidden"
+                            onChange={(e) => setRecFile(e.target.files?.[0] || null)} />
+                        </label>
+                        <div className="flex gap-2">
+                          <Button variant="primary" size="sm" loading={busy === 'record'}
+                            onClick={doRecordPayment}>Save payment</Button>
+                          <Button variant="outline" size="sm"
+                            onClick={() => { setRecordOpen(false); setRecAmount(''); setRecRef(''); setRecFile(null); }}>Cancel</Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </section>

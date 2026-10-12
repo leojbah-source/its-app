@@ -157,6 +157,14 @@ export const paymentsApi = {
     if (file) fd.append('file', file);
     return request(`/api/admin/payments/${id}/method`, { method: 'POST', token, body: fd, isFormData: true });
   },
+  recordPayment: (token, participantId, { method, amount, reference, file }) => {
+    const fd = new FormData();
+    fd.append('method', method);
+    fd.append('amount', amount);
+    if (reference) fd.append('reference', reference);
+    if (file) fd.append('file', file);
+    return request(`/api/admin/payments/participant/${participantId}`, { method: 'POST', token, body: fd, isFormData: true });
+  },
   refunds: (token, { yearId, status } = {}) => request(`/api/admin/refunds${qs({ year_id: yearId, status })}`, { token }),
   refundConfirm: (token, id, body) => request(`/api/admin/refunds/${id}/confirm`, { method: 'POST', token, body }),
   refundReject: (token, id) => request(`/api/admin/refunds/${id}/reject`, { method: 'POST', token, body: {} }),

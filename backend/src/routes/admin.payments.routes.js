@@ -213,6 +213,50 @@ router.post('/payments/:id/method', requireRole(...paymentActionRoles),
   } catch (err) { next(err); }
 });
 
+// ── POST /api/admin/payments/participant/:id ─────────────────────────────────
+// Record a payment on a participant's behalf (admin/office entry). Used when a
+// parent pays at the KCA office or by BenefitPay and forwards the confirmation
+// after the portal cut-off, or simply hasn't submitted it themselves. Creates a
+// PENDING payment row (optionally with a proof screenshot) which staff then
+// Confirm with the normal flow. Does NOT touch the parent's portal access.
+router.post('/payments/participant/:id', requireRole(...paymentActionRoles),
+  proofUpload.single('file'), async (req, res, next) => {
+  try {
+    const amount = Number(req.body?.amount);
+    if (!(amount > 0)) return res.status(400).json({ error: 'A positive amount is required' });
+    const method = req.body?.method ? String(req.body.method).trim() : null;
+    if (!['cash', 'benefitpay', 'bank_transfer'].includes(method))
+      return res.status(400).json({ error: "method must be 'cash', 'benefitpay' or 'bank_transfer'." });
+    if (req.user.role === 'Registrar' && method !== 'cash')
+      return res.status(403).json({ error: 'Registrars can only record KCA-office (cash) payments.' });
+    const reference = req.body?.reference ? String(req.body.reference).trim() : null;
+    const proofUrl = req.file ? `/uploads/${req.file.filename}` : null;
+
+    const { rows: pRows } = await pool.query(
+      `SELECT p.id, p.year_id, p.full_name, p.created_by,
+              p.guardian_phone, u.whatsapp_number_2
+       FROM participants p LEFT JOIN users u ON u.id = p.created_by
+       WHERE p.id = $1`, [req.params.id]);
+    const p = pRows[0];
+    if (!p) return res.status(404).json({ error: 'Participant not found' });
+
+    const note = `Recorded at office by ${req.user.role}` + (proofUrl ? ' (proof attached)' : '');
+    const { rows } = await pool.query(
+      `INSERT INTO payments
+         (year_id, parent_user_id, participant_id, amount, method, status,
+          reference, proof_url, notes)
+       VALUES ($1,$2,$3,$4,$5,'pending',$6,$7,$8)
+       RETURNING *`,
+      [p.year_id, p.created_by, p.id, amount, method, reference, proofUrl, note]);
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'RECORD_PAYMENT', entity: 'payments', entityId: rows[0].id,
+      details: { participant_id: p.id, amount, method, proof: !!proofUrl } });
+
+    res.status(201).json(rows[0]);
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/admin/payments/:id/reject ──────────────────────────────────────
 router.post('/payments/:id/reject', requireRole(...paymentActionRoles), async (req, res, next) => {
   try {
