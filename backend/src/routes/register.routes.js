@@ -170,10 +170,23 @@ async function resolveAgeGroup(dob, yearId) {
 // parent from reaching another family's child by changing the id (or CPR).
 const PORTAL_STAFF_ROLES = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
 async function assertOwnsParticipant(participantId, user, req) {
+  // A parent owns a participant if they CREATED the record, or if they have
+  // registered any of that child's INDIVIDUAL events (registrations.registered_by).
+  // The second case covers children first created by someone else (e.g. a dance
+  // teacher's team entry) whose individual events the parent registered — these
+  // are exactly the children shown on the parent's dashboard. Team registrations
+  // carry team_id (participant_id IS NULL), so they never match here. Not an
+  // IDOR: a registered_by row can only exist where this parent already acted on
+  // the child through an ownership-gated endpoint.
   const { rows } = await pool.query(
-    `SELECT id, created_by FROM participants WHERE id = $1`, [participantId]);
+    `SELECT p.id, p.created_by,
+            EXISTS (SELECT 1 FROM registrations r
+                     WHERE r.participant_id = p.id AND r.registered_by = $2) AS registered_by_me
+       FROM participants p WHERE p.id = $1`,
+    [participantId, user.id]);
   if (!rows[0]) return { status: 404, error: 'Participant not found' };
-  if (!PORTAL_STAFF_ROLES.includes(user.role) && rows[0].created_by !== user.id) {
+  const owns = rows[0].created_by === user.id || rows[0].registered_by_me === true;
+  if (!PORTAL_STAFF_ROLES.includes(user.role) && !owns) {
     if (req) logAccessDenied(req, 'Tried to access a participant belonging to another account',
       { targetType: 'participants', targetId: Number(participantId), alert: true });
     return { status: 403, error: 'This participant belongs to another account' };
@@ -675,7 +688,14 @@ router.get('/participant/lookup', authenticate, async (req, res, next) => {
     // registrations yet, and only after the parent proves the date of birth
     // (POST /participant/claim). We reveal no details here.
     const isStaff = PORTAL_STAFF_ROLES.includes(req.user.role);
-    if (!isStaff && rows[0].created_by !== req.user.id) {
+    // Owned if this parent created the record OR registered any of the child's
+    // individual events (same rule as assertOwnsParticipant / the dashboard).
+    const { rows: mine } = await pool.query(
+      `SELECT EXISTS (SELECT 1 FROM registrations r
+                       WHERE r.participant_id = $1 AND r.registered_by = $2) AS registered_by_me`,
+      [rows[0].id, req.user.id]);
+    const ownsIt = rows[0].created_by === req.user.id || mine[0].registered_by_me === true;
+    if (!isStaff && !ownsIt) {
       const { rows: cnt } = await pool.query(
         `SELECT COUNT(*)::int AS c FROM registrations
          WHERE participant_id = $1 AND status NOT IN ('withdrawn','swapped')`,
