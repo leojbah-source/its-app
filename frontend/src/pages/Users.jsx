@@ -31,8 +31,8 @@ export default function Users() {
   const isSuper = user?.role === 'SuperAdmin';
   // Admin can assign Coordinator/Chairman; only SuperAdmin can assign Admin.
   const assignableRoles = isSuper
-    ? ['Admin', 'Coordinator', 'Chairman', 'Registrar', 'Accountant', 'Media']
-    : ['Coordinator', 'Chairman', 'Registrar', 'Accountant', 'Media'];
+    ? ['Admin', 'Coordinator', 'Chairman', 'Registrar', 'Accountant', 'Media', 'EventStaff']
+    : ['Coordinator', 'Chairman', 'Registrar', 'Accountant', 'Media', 'EventStaff'];
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);

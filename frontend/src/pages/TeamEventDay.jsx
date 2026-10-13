@@ -15,7 +15,7 @@ import { PageLoader } from '../components/ui/States';
 import { useAuth } from '../context/AuthContext';
 import { scheduleApi, chestApi } from '../api/client';
 
-const MARK_ROLES = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
+const MARK_ROLES = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'EventStaff'];
 const MANUAL_ROLES = ['SuperAdmin', 'Chairman'];
 const today = () => new Date().toISOString().slice(0, 10);
 

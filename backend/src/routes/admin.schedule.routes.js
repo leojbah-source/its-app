@@ -24,7 +24,7 @@ const { generateScheduleDraft } = require('../services/scheduler');
 const router = express.Router();
 router.use(authenticate);
 
-const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
+const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'EventStaff'];
 const editRoles = ['SuperAdmin', 'Admin', 'Coordinator'];
 
 async function activeYear() {

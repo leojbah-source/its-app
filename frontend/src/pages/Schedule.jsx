@@ -58,7 +58,8 @@ function RowEditor({ row, token, onSaved }) {
 }
 
 export default function Schedule() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const canEdit = user?.role !== 'EventStaff';
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -142,12 +143,16 @@ export default function Schedule() {
       actions={
         <>
           <Button variant="outline" icon={RefreshCw} onClick={load}>Refresh</Button>
-          <Button variant="outline" icon={Wand2} onClick={() => setShowGen((x) => !x)}>
-            Generate draft…
-          </Button>
-          <Button variant="gold" icon={CheckCircle2} onClick={publish} disabled={draftCount === 0}>
-            Publish schedule ({draftCount} draft)
-          </Button>
+          {canEdit && (
+            <>
+              <Button variant="outline" icon={Wand2} onClick={() => setShowGen((x) => !x)}>
+                Generate draft…
+              </Button>
+              <Button variant="gold" icon={CheckCircle2} onClick={publish} disabled={draftCount === 0}>
+                Publish schedule ({draftCount} draft)
+              </Button>
+            </>
+          )}
         </>
       }
     >
@@ -333,7 +338,7 @@ export default function Schedule() {
                               </Badge>
                             </td>
                             <td className="px-3 py-2 text-right">
-                              <RowEditor row={r} token={token} onSaved={load} />
+                              {canEdit ? <RowEditor row={r} token={token} onSaved={load} /> : null}
                             </td>
                           </tr>
                         ))}

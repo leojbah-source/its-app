@@ -21,7 +21,7 @@ router.use(authenticate);
 
 const MANAGE_ROLES = ['SuperAdmin', 'Admin'];          // who can open this screen
 const STAFF_ROLES  = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Registrar', 'Accountant', 'Media']; // shown here
-const ASSIGNABLE   = ['Admin', 'Coordinator', 'Chairman', 'Registrar', 'Accountant', 'Media'];               // pickable in UI
+const ASSIGNABLE   = ['Admin', 'Coordinator', 'Chairman', 'Registrar', 'Accountant', 'Media', 'EventStaff'];  // pickable in UI
 
 const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || ''));
 

@@ -12,7 +12,7 @@ import { PageLoader } from '../components/ui/States';
 import { useAuth } from '../context/AuthContext';
 import { scheduleApi, chestApi, videoApi } from '../api/client';
 
-const MARK_ROLES = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
+const MARK_ROLES = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'EventStaff'];
 const MANUAL_ROLES = ['SuperAdmin', 'Chairman'];
 const today = () => new Date().toLocaleDateString('en-CA');
 const fmtDay = (d) => (d ? new Date(d + 'T00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : d);

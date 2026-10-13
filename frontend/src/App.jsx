@@ -65,6 +65,7 @@ function AdminIndex() {
   const home = user?.role === 'Registrar' ? '/admin/registrations'
     : user?.role === 'Accountant' ? '/admin/payments'
     : user?.role === 'Media' ? '/admin/media'
+    : user?.role === 'EventStaff' ? '/admin/event-day'
     : '/admin/config/year';
   return <Navigate to={home} replace />;
 }
@@ -129,15 +130,15 @@ export default function App() {
               />
               <Route
                 path="/admin/schedule"
-                element={<ProtectedRoute allowedRoles={ORG}><Schedule /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={[...ORG, 'EventStaff']}><Schedule /></ProtectedRoute>}
               />
               <Route
                 path="/admin/event-day"
-                element={<ProtectedRoute allowedRoles={ORG}><EventDay /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={[...ORG, 'EventStaff']}><EventDay /></ProtectedRoute>}
               />
               <Route
                 path="/admin/team-event-day"
-                element={<ProtectedRoute allowedRoles={ORG}><TeamEventDay /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={[...ORG, 'EventStaff']}><TeamEventDay /></ProtectedRoute>}
               />
               <Route
                 path="/admin/judging/judges"

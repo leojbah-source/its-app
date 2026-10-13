@@ -993,6 +993,7 @@ CREATE TRIGGER trg_audit_registrations      AFTER INSERT OR UPDATE OR DELETE ON 
 -- be used by other statements in that same transaction.
 -- -----------------------------------------------------------------------
 ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'Timer';
+ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'EventStaff';
 
 -- -----------------------------------------------------------------------
 -- 14.2 New columns on events: per-event timing configuration
