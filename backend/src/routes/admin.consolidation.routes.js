@@ -1046,8 +1046,8 @@ router.get('/affected-xlsx', requireRole(...VIEW_ROLES), async (req, res, next) 
           WHERE r.year_id = $1 AND r.status NOT IN ('withdrawn','swapped') AND r.team_id IS NULL AND p.confirmed_at IS NOT NULL
           GROUP BY r.event_id, r.age_group_id
        )
-       SELECT ag.code AS ag_code, ag.label AS ag_label, ag.sort_order AS ag_sort,
-              e.event_name, e.event_code, c.cnt,
+       SELECT c.event_id, c.age_group_id, ag.code AS ag_code, ag.label AS ag_label, ag.sort_order AS ag_sort,
+              e.event_name, e.event_code, e.gender_split, e.category_id, c.cnt,
               p.full_name, p.cpr_number, p.gender, p.guardian_phone,
               u.full_name AS parent_name, u.email AS parent_email, u.phone AS parent_phone,
               u.whatsapp_number, u.whatsapp_number_2
@@ -1061,6 +1061,41 @@ router.get('/affected-xlsx', requireRole(...VIEW_ROLES), async (req, res, next) 
         WHERE c.cnt < $2
         ORDER BY ag.sort_order NULLS LAST, c.cnt, e.event_name, p.full_name`,
       [y.id, min]);
+
+    // Only events that will be CANCELLED belong here — not Boys/Girls pairs that
+    // will be MERGED (those parents need no follow-up). Mirror the Changes sheet:
+    // include already-cancelled cells, exclude cells that merge into a Common
+    // event, and exclude an under-strength cell that has a viable merge partner.
+    const { rows: allCells } = await pool.query(
+      `SELECT r.event_id, r.age_group_id, COUNT(*)::int AS cnt, e.event_name, e.gender_split, e.category_id
+         FROM registrations r
+         JOIN events e ON e.id = r.event_id AND e.event_kind = 'individual' AND e.is_cancelled = FALSE AND e.is_generated = FALSE
+         JOIN participants p ON p.id = r.participant_id
+        WHERE r.year_id = $1 AND r.status NOT IN ('withdrawn','swapped') AND r.team_id IS NULL AND p.confirmed_at IS NOT NULL
+        GROUP BY r.event_id, r.age_group_id, e.event_name, e.gender_split, e.category_id`, [y.id]);
+    const { rows: cons } = await pool.query(
+      `SELECT kind, source_event_ids, age_group_id FROM event_consolidations
+        WHERE year_id = $1 AND reverted_at IS NULL AND kind IN ('cancel','merge')`, [y.id]);
+    const executedCancel = new Set(), executedMerge = new Set();
+    for (const c of cons) {
+      if (c.kind === 'cancel') executedCancel.add(`${c.source_event_ids[0]}:${c.age_group_id}`);
+      else if (c.kind === 'merge') (c.source_event_ids || []).forEach((i) => executedMerge.add(`${i}:${c.age_group_id}`));
+    }
+    const byKey = new Map();
+    for (const cc of allCells) { const b = baseName(cc.event_name); const k = `${b.toLowerCase()}|${cc.category_id}|${cc.age_group_id}`; if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(cc); }
+    const atRisk = (r) => {
+      const key = `${r.event_id}:${r.age_group_id}`;
+      if (executedCancel.has(key)) return true;
+      if (executedMerge.has(key)) return false;
+      if (Number(r.cnt) >= min) return false;
+      if (r.gender_split === 'boys' || r.gender_split === 'girls') {
+        const b = baseName(r.event_name);
+        const partner = (byKey.get(`${b.toLowerCase()}|${r.category_id}|${r.age_group_id}`) || [])
+          .find((o) => o.event_id !== r.event_id && (o.gender_split === 'boys' || o.gender_split === 'girls') && o.gender_split !== r.gender_split);
+        if (partner && (Number(r.cnt) + Number(partner.cnt)) >= min) return false; // will be merged
+      }
+      return true;
+    };
 
     const ExcelJS = require('exceljs');
     const wb = new ExcelJS.Workbook();
@@ -1080,7 +1115,10 @@ router.get('/affected-xlsx', requireRole(...VIEW_ROLES), async (req, res, next) 
       { header: 'WhatsApp 2', key: 'wa2', width: 16 },
       { header: 'Email', key: 'email', width: 28 },
     ];
+    let added = 0;
     for (const r of rows) {
+      if (!atRisk(r)) continue;
+      added += 1;
       ws.addRow({
         ag: r.ag_label ? `${r.ag_label} (${r.ag_code})` : r.ag_code,
         event: r.event_name, code: r.event_code, cnt: r.cnt,
@@ -1092,7 +1130,7 @@ router.get('/affected-xlsx', requireRole(...VIEW_ROLES), async (req, res, next) 
     const h = ws.getRow(1); h.font = { bold: true }; ws.views = [{ state: 'frozen', ySplit: 1 }];
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_AFFECTED_XLSX',
-      entity: 'event_consolidations', entityId: null, details: { rows: rows.length, min } });
+      entity: 'event_consolidations', entityId: null, details: { rows: added, min } });
 
     const buf = await wb.xlsx.writeBuffer();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
