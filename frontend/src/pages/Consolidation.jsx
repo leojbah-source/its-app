@@ -36,6 +36,7 @@ export default function Consolidation() {
   const [notifyModal, setNotifyModal] = useState(false);
   const [dlChanges, setDlChanges] = useState(false);
   const [dlXlsx, setDlXlsx] = useState(false);
+  const [dlDocx, setDlDocx] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
   const historyRef = useRef(null);
 
@@ -129,6 +130,19 @@ export default function Consolidation() {
     finally { setDlXlsx(false); }
   }
 
+  async function downloadChangesDocx() {
+    setDlDocx(true);
+    try {
+      const blob = await consolidationApi.changesDocx(token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'changes-and-cancellations.docx';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (err) { setError(err.message || 'Could not generate the Word file.'); }
+    finally { setDlDocx(false); }
+  }
+
   async function publishFinal() {
     if (!window.confirm('Publish the Final list? This stamps the final event & participant lists as published.')) return;
     setBusy(true);
@@ -174,6 +188,9 @@ export default function Consolidation() {
           )}
           <Button variant="outline" size="sm" icon={Download} onClick={downloadChangesPdf} loading={dlChanges} disabled={busy}>
             Changes &amp; Cancellations PDF
+          </Button>
+          <Button variant="outline" size="sm" icon={Download} onClick={downloadChangesDocx} loading={dlDocx} disabled={busy}>
+            Changes &amp; Cancellations (Word)
           </Button>
           <Button variant="outline" size="sm" icon={Download} onClick={downloadAffectedXlsx} loading={dlXlsx} disabled={busy}>
             Follow-up Excel

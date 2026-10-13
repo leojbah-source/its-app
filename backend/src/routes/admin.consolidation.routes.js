@@ -878,6 +878,140 @@ router.post('/affected/:regId/refund', requireRole(...ACT_ROLES), async (req, re
   } finally { client.release(); }
 });
 
+// Shared computation for the Changes & Cancellations outputs (PDF and Word):
+// which INDIVIDUAL events are at risk of cancellation (under the minimum, not a
+// viable merge), which are being combined (Boys+Girls merge), and any splits.
+// Mirrors the Consolidation review logic. Returns null if there is no active year.
+async function computeChangeLists() {
+  const y = await activeYear();
+  if (!y) return null;
+  const min = Number(y.min_threshold || 5), split = Number(y.split_threshold || 25);
+  const { rows: yr } = await pool.query(
+    `SELECT event_year_label, kca_logo_url, its_logo_url, sponsor_logo_url FROM year_config WHERE id = $1`, [y.id]);
+  const yc = yr[0] || {};
+  const { rows: cells } = await pool.query(
+    `SELECT e.id AS event_id, e.event_code, e.event_name, e.gender_split, e.is_stage_event, e.category_id,
+            ag.id AS ag_id, ag.code AS ag_code, ag.label AS ag_label, ag.sort_order AS ag_sort,
+            COUNT(r.id)::int AS count
+       FROM registrations r
+       JOIN events e ON e.id = r.event_id AND e.is_cancelled = FALSE AND e.is_generated = FALSE
+       LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+       LEFT JOIN participants p ON p.id = r.participant_id
+      WHERE r.year_id = $1 AND r.status NOT IN ('withdrawn','swapped')
+        AND r.team_id IS NULL AND e.event_kind = 'individual'
+        AND p.confirmed_at IS NOT NULL
+      GROUP BY e.id, e.event_code, e.event_name, e.gender_split, e.is_stage_event, e.category_id,
+               ag.id, ag.code, ag.label, ag.sort_order`, [y.id]);
+  const { rows: cons } = await pool.query(
+    `SELECT ec.kind, ec.source_event_ids, ec.target_event_ids, ec.moved, ec.age_group_id,
+            ag.code AS ag_code, ag.label AS ag_label, ag.sort_order AS ag_sort
+       FROM event_consolidations ec LEFT JOIN age_groups ag ON ag.id = ec.age_group_id
+      WHERE ec.year_id = $1 AND ec.reverted_at IS NULL AND ec.kind IN ('cancel','merge','split')`, [y.id]);
+  const ids = new Set();
+  cons.forEach((c) => { (c.source_event_ids||[]).forEach((i)=>ids.add(i)); (c.target_event_ids||[]).forEach((i)=>ids.add(i)); });
+  const nameById = new Map();
+  if (ids.size) { const { rows: evs } = await pool.query(`SELECT id, event_code, event_name FROM events WHERE id = ANY($1)`, [[...ids]]); evs.forEach((e)=>nameById.set(e.id, e)); }
+  const nm = (id) => { const e = nameById.get(id); return e ? `${e.event_name} (${e.event_code})` : `#${id}`; };
+  const cnt = (c) => Array.isArray(c.moved) ? c.moved.length : 0;
+  const byKey = new Map();
+  for (const c of cells) { c.base = baseName(c.event_name); const k = `${c.base.toLowerCase()}|${c.category_id}|${c.ag_id}`; if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(c); }
+  const cancelled = [], merged = [], splits = [];
+  const executedCancel = new Set(), executedMerge = new Set();
+  for (const c of cons) {
+    if (c.kind === 'cancel') { executedCancel.add(`${c.source_event_ids[0]}:${c.age_group_id}`);
+      cancelled.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, ag_label: c.ag_label, label: nm(c.source_event_ids[0]), count: cnt(c), done: true }); }
+    else if (c.kind === 'merge') { (c.source_event_ids||[]).forEach((i)=>executedMerge.add(`${i}:${c.age_group_id}`));
+      merged.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, ag_label: c.ag_label, src: (c.source_event_ids||[]).map(nm).join(' + '), tgt: (c.target_event_ids&&c.target_event_ids[0]) ? nm(c.target_event_ids[0]) : '(combined)', count: cnt(c), done: true }); }
+    else if (c.kind === 'split') { splits.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, ag_label: c.ag_label, src: nm(c.source_event_ids[0]), tgt: (c.target_event_ids||[]).map(nm).join(' + '), done: true }); }
+  }
+  const seenPair = new Set();
+  for (const c of cells) {
+    const key = `${c.event_id}:${c.ag_id}`;
+    if (executedCancel.has(key) || executedMerge.has(key)) continue;
+    if (c.is_stage_event && c.count > split) { splits.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, ag_label: c.ag_label, src: `${c.event_name} (${c.event_code})`, tgt: 'two groups', count: c.count, done: false }); continue; }
+    if (c.count < min) {
+      let partner = null;
+      if (c.gender_split === 'boys' || c.gender_split === 'girls') {
+        const k = `${c.base.toLowerCase()}|${c.category_id}|${c.ag_id}`;
+        partner = (byKey.get(k)||[]).find((o)=>o.event_id!==c.event_id && (o.gender_split==='boys'||o.gender_split==='girls') && o.gender_split!==c.gender_split);
+      }
+      if (partner && (c.count + partner.count) >= min) {
+        const pk = [c.event_id, partner.event_id].sort((a,b)=>a-b).join('-') + ':' + c.ag_id;
+        if (seenPair.has(pk)) continue; seenPair.add(pk);
+        merged.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, ag_label: c.ag_label, src: `${c.event_name} (${c.event_code}) + ${partner.event_name} (${partner.event_code})`, tgt: `${c.base} (Common)`, count: c.count + partner.count, done: false });
+      } else {
+        cancelled.push({ ag_code: c.ag_code, ag_sort: c.ag_sort, ag_label: c.ag_label, label: `${c.event_name} (${c.event_code})`, count: c.count, done: false });
+      }
+    }
+  }
+  const byCount = (a, b) => (a.ag_sort ?? 99) - (b.ag_sort ?? 99) || (a.count ?? 0) - (b.count ?? 0) || String(a.label || a.src).localeCompare(String(b.label || b.src));
+  cancelled.sort(byCount); merged.sort(byCount); splits.sort(byCount);
+  return { min, yc, cancelled, merged, splits };
+}
+
+// ── GET /changes-docx ─────────────────────────────────────────────────────────
+// Same content as the Changes & Cancellations PDF, as an editable Word (.docx)
+// so it can be merged into the parent notice. Read-only.
+router.get('/changes-docx', requireRole(...VIEW_ROLES), async (req, res, next) => {
+  try {
+    const data = await computeChangeLists();
+    if (!data) return res.status(400).json({ error: 'No active year' });
+    const { min, yc, cancelled, merged, splits } = data;
+    const D = require('docx');
+    const { Document, Packer, Paragraph, TextRun, AlignmentType, BorderStyle } = D;
+    const FONT = 'Calibri', NAVY = '1E3A5F', RED = 'B91C1C', MUTE = '555555', VIOLET = '7C3AED';
+
+    const title = (txt, o={}) => new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: o.after ?? 40 }, children: [new TextRun({ text: txt, bold: true, color: o.color ?? NAVY, size: o.size ?? 28, font: FONT })] });
+    const section = (txt, color) => new Paragraph({ spacing: { before: 220, after: 80 }, border: { bottom: { color: 'E2E8F0', style: BorderStyle.SINGLE, size: 4, space: 2 } }, children: [new TextRun({ text: txt, bold: true, color, size: 25, font: FONT })] });
+    const grpHead = (txt) => new Paragraph({ spacing: { before: 120, after: 40 }, children: [new TextRun({ text: txt, bold: true, color: '0F172A', size: 21, font: FONT })] });
+    const item = (n, txt) => new Paragraph({ spacing: { after: 30 }, indent: { left: 360 }, children: [new TextRun({ text: `${n}.  ${txt}`, size: 21, font: FONT })] });
+    const note = (txt) => new Paragraph({ spacing: { before: 60, after: 60 }, indent: { left: 200 }, children: [new TextRun({ text: txt, italics: true, color: MUTE, size: 18, font: FONT })] });
+
+    const groupLabel = (it) => it.ag_label ? `${it.ag_label} (${it.ag_code})` : (it.ag_code || '—');
+    function renderGrouped(items, fmt) {
+      const out = [];
+      if (!items.length) { out.push(item('', 'None.')); return out; }
+      let curAg = null, n = 0;
+      for (const it of items) {
+        const ag = groupLabel(it);
+        if (ag !== curAg) { curAg = ag; n = 0; out.push(grpHead(ag)); }
+        n += 1; out.push(item(n, fmt(it)));
+      }
+      return out;
+    }
+
+    const children = [
+      title(yc.event_year_label || 'KCA Indian Talent Scan', { size: 30 }),
+      title('Changes & Cancellations', { size: 24, color: NAVY, after: 20 }),
+      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 160 }, children: [new TextRun({ text: `Prepared ${new Date().toLocaleString('en-GB')}`, color: MUTE, size: 18, font: FONT })] }),
+
+      section(`Events with fewer than ${min} entries — at risk of cancellation`, RED),
+      ...renderGrouped(cancelled, (c) => `${c.label}  ·  ${c.count} entr${c.count === 1 ? 'y' : 'ies'}${c.done ? '  (cancelled)' : ''}`),
+      note(`Listed smallest first within each age group. A child entered in any of these events may switch to ANY other event they are eligible for — not only the events in this list. Choosing an event that is just short of the minimum (for example one with ${min - 2} or ${min - 1} entries) can lift it to ${min} and keep it running. Alternatively, the entry fee can be refunded. To make a change, please contact the KCA office.`),
+
+      section('Events being combined (Boys + Girls merged)', NAVY),
+      ...renderGrouped(merged, (c) => `${c.src}  ->  ${c.tgt}  ·  ${c.count} entries${c.done ? '  (confirmed)' : ''}`),
+      note('No action is needed for combined events — entries move automatically and will appear in the schedule.'),
+    ];
+    if (splits.length) {
+      children.push(section('Events being split (large entries)', VIOLET));
+      children.push(...renderGrouped(splits, (c) => `${c.src}  ->  ${c.tgt}${c.count ? `  ·  ${c.count} entries` : ''}${c.done ? '  (confirmed)' : ''}`));
+      children.push(note('No action is needed — these are divided into two groups for judging.'));
+    }
+
+    const doc = new Document({ styles: { default: { document: { run: { font: FONT, size: 21 } } } },
+      sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 } } }, children }] });
+    const buf = await Packer.toBuffer(doc);
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_CHANGES_DOCX',
+      entity: 'event_consolidations', entityId: null, details: { cancelled: cancelled.length, merged: merged.length, splits: splits.length } });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', 'attachment; filename="changes-and-cancellations.docx"');
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+});
+
 // ── GET /changes-pdf ──────────────────────────────────────────────────────────
 // A standalone, branded "Changes & Cancellations" sheet listing EVERY event that
 // will be cancelled (fewer than the minimum entries), combined (merged) or split

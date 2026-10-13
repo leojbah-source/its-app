@@ -4,7 +4,7 @@
 // Printing opens a clean window with the year header + logos and calls print().
 
 import { useEffect, useState, useCallback } from 'react';
-import { Printer, RefreshCw, Megaphone, Download, Share2 } from 'lucide-react';
+import { Printer, RefreshCw, Megaphone, Download } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -60,7 +60,6 @@ export default function Lists() {
   const [error, setError] = useState('');
   const [publishing, setPublishing] = useState(false);
   const [dlZip, setDlZip] = useState(false);
-  const [pubBoard, setPubBoard] = useState(false);
   const [flash, setFlash] = useState('');
 
   const load = useCallback(async () => {
@@ -163,15 +162,6 @@ export default function Lists() {
     finally { setDlZip(false); }
   }
 
-  async function publishToBoard() {
-    setPubBoard(true); setFlash('');
-    try {
-      const r = await listsApi.publishToBoard(token);
-      setFlash(`Participant Lists published to the PWA board — ${r.list.length} age-group file${r.list.length === 1 ? '' : 's'}. Parents can tap their group on talentscan.kcabah.com/pwa.`);
-    } catch (err) { setFlash(err.message || 'Could not publish to the board.'); }
-    finally { setPubBoard(false); }
-  }
-
   async function publishInitial() {
     setPublishing(true);
     setFlash('');
@@ -201,9 +191,6 @@ export default function Lists() {
           </Button>
           <Button variant="outline" icon={Download} onClick={downloadInitialZip} loading={dlZip} disabled={loading || !!error}>
             Download initial lists (PDF per age group)
-          </Button>
-          <Button variant="outline" icon={Share2} onClick={publishToBoard} loading={pubBoard} disabled={loading || !!error}>
-            Publish lists to PWA
           </Button>
           <Button
             variant="gold"

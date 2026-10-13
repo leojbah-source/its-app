@@ -353,7 +353,8 @@ export const listsApi = {
   byParticipant: (token) => request('/api/admin/lists/by-participant', { token }),
   final: (token) => request('/api/admin/lists/final', { token }),
   publishInitial: (token) => request('/api/admin/lists/publish-initial', { method: 'POST', token, body: {} }),
-  publishToBoard: (token) => request('/api/admin/lists/publish-to-board', { method: 'POST', token, body: {} }),
+  boardFiles: (token) => request('/api/admin/lists/board-files', { token }),
+  saveBoardFiles: (token, files) => request('/api/admin/lists/board-files', { method: 'PUT', token, body: { files } }),
   /** ZIP of one initial-list PDF per age group (as registered). Returns a Blob. */
   initialPdf: async (token) => {
     const res = await fetch(`${API_BASE}/api/admin/lists/initial-pdf`, { headers: { Authorization: `Bearer ${token}` } });
@@ -385,6 +386,12 @@ export const consolidationApi = {
   /** Follow-up Excel of under-strength events + affected participants. Blob. */
   affectedXlsx: async (token) => {
     const res = await fetch(`${API_BASE}/api/admin/consolidation/affected-xlsx`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
+    return res.blob();
+  },
+  /** Changes & Cancellations as an editable Word (.docx). Returns a Blob. */
+  changesDocx: async (token) => {
+    const res = await fetch(`${API_BASE}/api/admin/consolidation/changes-docx`, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
     return res.blob();
   },

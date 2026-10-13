@@ -18,6 +18,7 @@ import VenuesCard from './year-config/VenuesCard';
 import GradingCard from './year-config/GradingCard';
 import DivergenceCard from './year-config/DivergenceCard';
 import BrandingCard from './year-config/BrandingCard';
+import BoardListsCard from './year-config/BoardListsCard';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -264,6 +265,8 @@ export default function YearConfig() {
             <GradingCard config={config} errors={errors} onChange={setConfig} />
             <DivergenceCard config={config} errors={errors} onChange={setConfig} />
             <BrandingCard config={config} onChange={setConfig} onUpload={handleUpload} uploadingField={uploadingField} />
+
+            <BoardListsCard />
           </>
         )}
       </div>
