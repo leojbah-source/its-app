@@ -1122,7 +1122,7 @@ router.get('/affected-xlsx', requireRole(...VIEW_ROLES), async (req, res, next) 
       ws.addRow({
         ag: r.ag_label ? `${r.ag_label} (${r.ag_code})` : r.ag_code,
         event: r.event_name, code: r.event_code, cnt: r.cnt,
-        name: r.full_name, cpr: r.cpr_number, gender: r.gender || '',
+        name: String(r.full_name || '').toUpperCase(), cpr: r.cpr_number, gender: r.gender || '',
         parent: r.parent_name || '', phone: r.guardian_phone || r.parent_phone || '',
         wa: r.whatsapp_number || '', wa2: r.whatsapp_number_2 || '', email: r.parent_email || '',
       });

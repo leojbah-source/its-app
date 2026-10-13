@@ -76,7 +76,7 @@ function renderGroupPdf(logos, year, group, minTh) {
 
     for (const evName of eventNames) {
       const ev = group.events.get(evName);
-      const names = [...ev.names].sort((a, b) => a.localeCompare(b));
+      const names = [...ev.names].map((n) => String(n || '').toUpperCase()).sort((a, b) => a.localeCompare(b));
       const under = names.length < minTh;
       if (doc.y + 48 > bottom()) newPage();
       doc.moveDown(0.45);
