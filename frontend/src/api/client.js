@@ -361,6 +361,12 @@ export const listsApi = {
   },
 };
 
+export const maintenanceApi = {
+  namesStatus: (token) => request('/api/admin/maintenance/names-status', { token }),
+  uppercaseNames: (token) => request('/api/admin/maintenance/uppercase-names', { method: 'POST', token, body: {} }),
+  restoreNames: (token) => request('/api/admin/maintenance/restore-names', { method: 'POST', token, body: {} }),
+};
+
 export const consolidationApi = {
   review: (token) => request('/api/admin/consolidation/review', { token }),
   history: (token) => request('/api/admin/consolidation/history', { token }),

@@ -2,10 +2,10 @@
 // Senior-staff security view: blocked access attempts (with who/what/when) and
 // any action taken by a parent ('Viewer') account inside admin. Read-only.
 import { useEffect, useState, useCallback } from 'react';
-import { ShieldAlert, RefreshCw, AlertTriangle, UserX } from 'lucide-react';
+import { ShieldAlert, RefreshCw, AlertTriangle, UserX, CaseUpper, Undo2 } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { useAuth } from '../context/AuthContext';
-import { securityApi } from '../api/client';
+import { securityApi, maintenanceApi } from '../api/client';
 import Button from '../components/ui/Button';
 import { Badge } from '../components/ui/Card';
 import { EmptyState, ErrorBanner, PageLoader } from '../components/ui/States';
@@ -13,7 +13,7 @@ import { EmptyState, ErrorBanner, PageLoader } from '../components/ui/States';
 const fmt = (v) => (v ? new Date(v).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export default function Security() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
@@ -26,6 +26,40 @@ export default function Security() {
       .finally(() => setLoading(false));
   }, [token]);
   useEffect(() => { load(); }, [load]);
+
+  // ── Data maintenance (SuperAdmin): uppercase participant names ──────────────
+  const isSuper = user?.role === 'SuperAdmin';
+  const [mStatus, setMStatus] = useState(null);
+  const [mMsg, setMMsg] = useState('');
+  const [mErr, setMErr] = useState('');
+  const [mBusy, setMBusy] = useState('');
+  const [confirmUpper, setConfirmUpper] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState(false);
+
+  const loadMStatus = useCallback(() => {
+    if (!isSuper) return;
+    maintenanceApi.namesStatus(token).then(setMStatus).catch(() => setMStatus(null));
+  }, [token, isSuper]);
+  useEffect(() => { loadMStatus(); }, [loadMStatus]);
+
+  async function doUppercase() {
+    setMBusy('up'); setMMsg(''); setMErr('');
+    try {
+      const r = await maintenanceApi.uppercaseNames(token);
+      setMMsg(`Done — ${r.changed} name${r.changed === 1 ? '' : 's'} converted to uppercase. Originals are backed up and can be restored.`);
+      setConfirmUpper(false); loadMStatus();
+    } catch (e) { setMErr(e.message || 'Could not update names.'); }
+    finally { setMBusy(''); }
+  }
+  async function doRestore() {
+    setMBusy('restore'); setMMsg(''); setMErr('');
+    try {
+      const r = await maintenanceApi.restoreNames(token);
+      setMMsg(`Restored ${r.restored} name${r.restored === 1 ? '' : 's'} to their original spelling.`);
+      setConfirmRestore(false); loadMStatus();
+    } catch (e) { setMErr(e.message || 'Could not restore names.'); }
+    finally { setMBusy(''); }
+  }
 
   const s = data?.summary;
 
@@ -147,6 +181,61 @@ export default function Security() {
               )}
             </section>
           </>
+        )}
+
+        {isSuper && (
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+              <CaseUpper size={18} className="text-navy-600" /> Data maintenance — participant names
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Convert every participant&rsquo;s name to UPPERCASE for the active year, for a uniform look on
+              all lists, certificates and result cards. The original spellings are backed up first and can be
+              restored at any time. Safe to run more than once.
+            </p>
+            {mStatus && (
+              <p className="mt-2 text-xs text-slate-600">
+                {mStatus.to_change} name{mStatus.to_change === 1 ? '' : 's'} not yet uppercase
+                {mStatus.backup_exists ? ` · ${mStatus.backup_rows} original name${mStatus.backup_rows === 1 ? '' : 's'} backed up` : ''}
+              </p>
+            )}
+            {mMsg && <p className="mt-2 rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-700">{mMsg}</p>}
+            {mErr && <p className="mt-2 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{mErr}</p>}
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {!confirmUpper ? (
+                <Button size="sm" variant="primary" icon={CaseUpper}
+                  onClick={() => { setConfirmUpper(true); setConfirmRestore(false); }}
+                  disabled={mStatus && mStatus.to_change === 0}>
+                  Back up &amp; make names UPPERCASE
+                </Button>
+              ) : (
+                <>
+                  <span className="text-xs text-slate-600">Back up originals, then uppercase {mStatus?.to_change ?? ''} names?</span>
+                  <Button size="sm" variant="primary" loading={mBusy === 'up'} onClick={doUppercase}>Yes, do it</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setConfirmUpper(false)}>Cancel</Button>
+                </>
+              )}
+
+              {mStatus?.backup_exists && mStatus.backup_rows > 0 && (
+                !confirmRestore ? (
+                  <Button size="sm" variant="outline" icon={Undo2}
+                    onClick={() => { setConfirmRestore(true); setConfirmUpper(false); }}>
+                    Restore original names
+                  </Button>
+                ) : (
+                  <>
+                    <span className="text-xs text-slate-600">Restore the backed-up original spellings?</span>
+                    <Button size="sm" variant="danger" loading={mBusy === 'restore'} onClick={doRestore}>Yes, restore</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setConfirmRestore(false)}>Cancel</Button>
+                  </>
+                )
+              )}
+            </div>
+            <p className="mt-3 text-[11px] text-slate-400">
+              Tip: download Registrations &rarr; Export Excel first as an extra offline backup before running this.
+            </p>
+          </section>
         )}
       </div>
     </AdminLayout>
