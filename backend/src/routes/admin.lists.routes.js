@@ -19,6 +19,9 @@ const { logAudit } = require('../utils/audit');
 const PDFDocument = require('pdfkit');
 const archiver = require('archiver');
 const { prepLogo } = require('../utils/pdf');
+const fs = require('fs');
+const path = require('path');
+const { uploadDir } = require('../utils/uploads');
 
 const INK = '#1e3a5f', MUTE = '#64748b', BODY = '#1e293b', RED = '#b91c1c';
 
@@ -334,6 +337,64 @@ router.get('/initial-pdf', requireRole(...staffRoles), async (req, res, next) =>
       details: { age_groups: ordered.length } });
 
     await archive.finalize();
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/lists/publish-to-board ────────────────────────────────────
+// Generates one participant-list PDF per age group (same as the download, AS
+// REGISTERED, individual events only), writes them to the public uploads disk,
+// and records their URLs in year_config.list_files so the PWA "Participant
+// Lists" card links to each group. Overwrites the previous files on each run.
+router.post('/publish-to-board', requireRole('SuperAdmin', 'Admin'), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+    const minTh = Number(yc.min_threshold || 5);
+
+    const { rows } = await pool.query(
+      `SELECT ag.id AS ag_id, ag.code AS age_group_code, ag.label AS age_group_label,
+              ag.sort_order AS ag_sort, e.event_name, e.event_code, p.full_name
+         FROM registrations r
+         JOIN events e ON e.id = r.event_id
+         LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+         JOIN participants p ON p.id = r.participant_id
+        WHERE r.year_id = $1
+          AND r.status NOT IN ('withdrawn','swapped')
+          AND r.team_id IS NULL AND e.event_kind = 'individual' AND e.is_generated = FALSE
+          AND p.confirmed_at IS NOT NULL
+        ORDER BY ag.sort_order NULLS LAST, e.event_name, p.full_name`, [yc.id]);
+
+    const groups = new Map();
+    for (const r of rows) {
+      const gid = r.ag_id ?? 0;
+      if (!groups.has(gid))
+        groups.set(gid, { code: r.age_group_code || 'NA', label: r.age_group_label || '', sort: r.ag_sort ?? 99, events: new Map() });
+      const g = groups.get(gid);
+      if (!g.events.has(r.event_name)) g.events.set(r.event_name, { code: r.event_code, names: [] });
+      g.events.get(r.event_name).names.push(r.full_name);
+    }
+    const ordered = [...groups.values()].sort((a, b) => (a.sort - b.sort) || a.code.localeCompare(b.code));
+    if (ordered.length === 0) return res.status(400).json({ error: 'No individual registrations to publish yet.' });
+
+    const logos = {
+      kca: await prepLogo(yc.kca_logo_url), its: await prepLogo(yc.its_logo_url), sponsor: await prepLogo(yc.sponsor_logo_url),
+    };
+    const safe = (x) => String(x || '').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 24);
+
+    const list = [];
+    for (const g of ordered) {
+      const buf = await renderGroupPdf(logos, yc, g, minTh);
+      const fname = `list-${yc.id}-${safe(g.code)}.pdf`;
+      fs.writeFileSync(path.join(uploadDir, fname), buf);
+      list.push({ code: g.code, label: g.label ? `${g.label} (${g.code})` : g.code, url: `/uploads/${fname}` });
+    }
+
+    await pool.query(`UPDATE year_config SET list_files = $1::jsonb, updated_at = NOW() WHERE id = $2`,
+      [JSON.stringify(list), yc.id]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'PUBLISH_LISTS_TO_BOARD', entity: 'year_config', entityId: yc.id, details: { groups: list.length } });
+
+    res.json({ ok: true, list });
   } catch (err) { next(err); }
 });
 

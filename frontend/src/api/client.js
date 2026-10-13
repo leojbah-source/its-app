@@ -353,6 +353,7 @@ export const listsApi = {
   byParticipant: (token) => request('/api/admin/lists/by-participant', { token }),
   final: (token) => request('/api/admin/lists/final', { token }),
   publishInitial: (token) => request('/api/admin/lists/publish-initial', { method: 'POST', token, body: {} }),
+  publishToBoard: (token) => request('/api/admin/lists/publish-to-board', { method: 'POST', token, body: {} }),
   /** ZIP of one initial-list PDF per age group (as registered). Returns a Blob. */
   initialPdf: async (token) => {
     const res = await fetch(`${API_BASE}/api/admin/lists/initial-pdf`, { headers: { Authorization: `Bearer ${token}` } });

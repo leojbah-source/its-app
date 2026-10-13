@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import rpLogo from '../../assets/research-point-logo.png';
-import { Trophy, CalendarDays, UserRound, Megaphone, FileText, ChevronDown, Search, BookOpen } from 'lucide-react';
+import { Trophy, CalendarDays, UserRound, Megaphone, FileText, ChevronDown, Search, BookOpen, ListChecks } from 'lucide-react';
 import { publicApi, API_BASE } from '../../api/client';
 
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
@@ -110,6 +110,25 @@ export default function PublicBoard() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+        {Array.isArray(year?.list_files) && year.list_files.length > 0 && (
+          <div className="mb-4 rounded-xl border border-gold-200 bg-gold-50/60 px-4 py-3">
+            <span className="flex items-center gap-2.5">
+              <ListChecks size={18} className="shrink-0 text-gold-700" />
+              <span>
+                <span className="block text-sm font-semibold text-navy-800">Participant Lists (as registered)</span>
+                <span className="block text-[11px] text-slate-500">Tap your child&rsquo;s age group to open its list (PDF)</span>
+              </span>
+            </span>
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              {year.list_files.map((f) => (
+                <a key={f.url} href={asset(f.url)} target="_blank" rel="noreferrer"
+                   className="inline-flex items-center gap-1.5 rounded-lg border border-navy-200 bg-white px-3 py-1.5 text-xs font-semibold text-navy-700 hover:bg-navy-50 transition-colors">
+                  <FileText size={13} className="shrink-0 text-navy-500" /> {f.label}
+                </a>
+              ))}
+            </div>
           </div>
         )}
         {asset(year?.rules_pdf_url) && (
