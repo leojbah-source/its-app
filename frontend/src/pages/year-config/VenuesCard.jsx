@@ -30,6 +30,7 @@ export default function VenuesCard() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [pendingBlocked, setPendingBlocked] = useState({}); // venue index -> date being typed
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +62,8 @@ export default function VenuesCard() {
 
   const addBlocked = (i, date) => {
     if (!date) return;
+    const yr = Number(String(date).slice(0, 4));
+    if (!(yr >= 2024 && yr <= 2100)) return; // ignore half-typed years
     const cur = venues[i].blocked_dates || [];
     if (!cur.includes(date)) up(i, { blocked_dates: [...cur, date].sort() });
   };
@@ -171,8 +174,14 @@ export default function VenuesCard() {
                       <button type="button" onClick={() => removeBlocked(i, d)} className="text-red-400 hover:text-red-600 font-bold leading-none">×</button>
                     </span>
                   ))}
-                  <input type="date" className={inputCls}
-                    onChange={(e) => { addBlocked(i, e.target.value); e.target.value = ''; }} />
+                  <input type="date" className={inputCls} min="2024-01-01" max="2100-12-31"
+                    value={pendingBlocked[i] || ''}
+                    onChange={(e) => setPendingBlocked((p) => ({ ...p, [i]: e.target.value }))} />
+                  <button type="button" disabled={!pendingBlocked[i]}
+                    onClick={() => { addBlocked(i, pendingBlocked[i]); setPendingBlocked((p) => ({ ...p, [i]: '' })); }}
+                    className="rounded-md border border-navy-300 text-navy-700 px-2.5 py-1 text-xs font-medium hover:bg-navy-50 disabled:opacity-40">
+                    Add
+                  </button>
                 </div>
               </div>
             </div>
