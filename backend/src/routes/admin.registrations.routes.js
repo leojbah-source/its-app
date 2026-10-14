@@ -163,6 +163,8 @@ router.get('/registrations/export', requireRole(...staffRoles), async (req, res,
              OR (t.id IS NOT NULL AND pay.team_id = t.id))) AS paid_confirmed,
          pu.full_name AS parent_name, pu.email AS parent_email,
          pu.phone AS parent_phone, pu.whatsapp_number AS parent_whatsapp,
+         pu.whatsapp_number_2 AS parent_whatsapp_2,
+         tag.code AS team_age_group_code, ts.name AS team_school_name,
          pu.kca_member_no, pu.membership_status AS kca_membership
        FROM registrations r
        LEFT JOIN participants p ON p.id = r.participant_id
@@ -170,13 +172,16 @@ router.get('/registrations/export', requireRole(...staffRoles), async (req, res,
        LEFT JOIN users pu ON pu.id = COALESCE(p.created_by, t.created_by)
        LEFT JOIN schools s ON s.id = p.school_id
        LEFT JOIN age_groups pag ON pag.id = p.age_group_id
+       LEFT JOIN age_groups tag ON tag.id = t.age_group_id
+       LEFT JOIN schools ts ON ts.id = t.school_id
        JOIN events e ON e.id = r.event_id
        WHERE ($1::int IS NULL OR r.year_id = $1)
          -- Completed registrations only (parent finished the flow), plus team entries.
          AND (p.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
        GROUP BY p.id, t.id, p.full_name, t.team_name, entry_type,
                 p.cpr_number, p.gender, p.dob, p.confirmed_at, pag.code, s.name,
-                pu.full_name, pu.email, pu.phone, pu.whatsapp_number,
+                pu.full_name, pu.email, pu.phone, pu.whatsapp_number, pu.whatsapp_number_2,
+                tag.code, ts.name,
                 pu.kca_member_no, pu.membership_status
        ORDER BY COALESCE(p.confirmed_at, MIN(r.registered_at)), participant_name`,
       [year_id],
@@ -233,11 +238,10 @@ router.get('/registrations/export', requireRole(...staffRoles), async (req, res,
       ws.views = [{ state: 'frozen', ySplit: 1 }];
     };
 
-    // Sheet 1 — Completed
-    const ws1 = wb.addWorksheet('Completed');
+    // Completed sheets - Individuals and Teams
+    const ws1 = wb.addWorksheet('Completed - Individuals');
     ws1.columns = [
       { header: 'Participant', key: 'participant_name', width: 26 },
-      { header: 'Type', key: 'entry_type', width: 11 },
       { header: 'CPR', key: 'cpr_number', width: 14 },
       { header: 'Gender', key: 'gender', width: 8 },
       { header: 'DOB', key: 'dob', width: 12 },
@@ -249,6 +253,7 @@ router.get('/registrations/export', requireRole(...staffRoles), async (req, res,
       { header: 'Parent Email', key: 'parent_email', width: 26 },
       { header: 'Parent Phone', key: 'parent_phone', width: 15 },
       { header: 'WhatsApp', key: 'parent_whatsapp', width: 15 },
+      { header: 'WhatsApp 2', key: 'parent_whatsapp_2', width: 15 },
       { header: 'KCA Member No', key: 'kca_member_no', width: 15 },
       { header: 'KCA Membership', key: 'kca_membership', width: 15 },
       { header: 'Events', key: 'events', width: 40 },
@@ -258,12 +263,40 @@ router.get('/registrations/export', requireRole(...staffRoles), async (req, res,
       { header: 'Payment Methods', key: 'payment_methods', width: 18 },
       { header: 'Paid Confirmed (BD)', key: 'paid_confirmed', width: 18 },
     ];
-    rows.forEach((r) => ws1.addRow({
+    rows.filter((r) => r.entry_type === 'individual').forEach((r) => ws1.addRow({
       ...r,
       total_fee: Number(bd(r.total_fee)),
       paid_confirmed: Number(bd(r.paid_confirmed)),
     }));
     styleHeader(ws1);
+
+    // Sheet — Completed (Teams): age group & school come from the team itself
+    const wsT = wb.addWorksheet('Completed - Teams');
+    wsT.columns = [
+      { header: 'Team Name', key: 'participant_name', width: 28 },
+      { header: 'Age Group', key: 'age_group_code', width: 11 },
+      { header: 'School', key: 'school_name', width: 26 },
+      { header: 'Registration Date', key: 'reg_date', width: 16 },
+      { header: 'Registration Time', key: 'reg_time', width: 16 },
+      { header: 'Registered By', key: 'parent_name', width: 22 },
+      { header: 'Email', key: 'parent_email', width: 26 },
+      { header: 'Phone', key: 'parent_phone', width: 15 },
+      { header: 'WhatsApp', key: 'parent_whatsapp', width: 15 },
+      { header: 'WhatsApp 2', key: 'parent_whatsapp_2', width: 15 },
+      { header: 'Event', key: 'events', width: 40 },
+      { header: 'Total Fee (BD)', key: 'total_fee', width: 14 },
+      { header: 'Payment Status', key: 'payment_status', width: 15 },
+      { header: 'Payment Methods', key: 'payment_methods', width: 18 },
+      { header: 'Paid Confirmed (BD)', key: 'paid_confirmed', width: 18 },
+    ];
+    rows.filter((r) => r.entry_type === 'team').forEach((r) => wsT.addRow({
+      ...r,
+      age_group_code: r.team_age_group_code,
+      school_name: r.team_school_name,
+      total_fee: Number(bd(r.total_fee)),
+      paid_confirmed: Number(bd(r.paid_confirmed)),
+    }));
+    styleHeader(wsT);
 
     // Sheet 2 — In Progress
     const ws2 = wb.addWorksheet('In Progress');
