@@ -613,13 +613,23 @@ router.patch('/participant/:id', authenticate, async (req, res, next) => {
     const { full_name, dob, cpr_number, gender, school_id,
             cpr_scan_url, cpr_scan_back_url, photo_url, cpr_verified_method } = req.body;
 
-    const newCpr = cpr_number ?? p.cpr_number;
-    const newDob = dob ?? (p.dob ? new Date(p.dob).toISOString().slice(0, 10) : null);
+    // Parents may only re-upload documents (CPR scans + photo). Name / DOB /
+    // CPR number / gender / school are office-only, so a parent cannot shift an
+    // age group (via DOB) or alter identity after the list is out.
+    const canEditIdentity = staff;
+    const eff_full_name = canEditIdentity ? full_name : undefined;
+    const eff_dob       = canEditIdentity ? dob : undefined;
+    const eff_cpr       = canEditIdentity ? cpr_number : undefined;
+    const eff_gender    = canEditIdentity ? gender : undefined;
+    const eff_school    = canEditIdentity ? school_id : undefined;
+
+    const newCpr = eff_cpr ?? p.cpr_number;
+    const newDob = eff_dob ?? (p.dob ? new Date(p.dob).toISOString().slice(0, 10) : null);
     const cprErr = cprDobMismatch(newCpr, newDob);
     if (cprErr) return res.status(400).json({ error: cprErr });
 
     const cfg = await getActiveYear();
-    const ageGroupId = dob ? await resolveAgeGroup(newDob, p.year_id) : p.age_group_id;
+    const ageGroupId = eff_dob ? await resolveAgeGroup(newDob, p.year_id) : p.age_group_id;
 
     const before = {
       full_name: p.full_name, dob: p.dob, cpr_number: p.cpr_number,
@@ -642,8 +652,8 @@ router.patch('/participant/:id', authenticate, async (req, res, next) => {
          admin_verify_note = NULL,
          updated_at = NOW()
        WHERE id = $11 RETURNING *`,
-      [full_name || null, dob || null, cpr_number || null, gender || null,
-       school_id || null, cpr_scan_url || null, cpr_scan_back_url || null,
+      [eff_full_name || null, eff_dob || null, eff_cpr || null, eff_gender || null,
+       eff_school || null, cpr_scan_url || null, cpr_scan_back_url || null,
        photo_url || null,
        cpr_verified_method === 'ocr' ? 'ocr' : (cpr_verified_method === 'manual' ? 'manual' : null),
        ageGroupId, req.params.id]);

@@ -153,6 +153,7 @@ export default function ParticipantDetail() {
   const [fixForm, setFixForm] = useState(null); // {full_name, dob, cpr_number, ...}
   const [fixBusy, setFixBusy] = useState(false);
   const [fixMsg, setFixMsg] = useState('');
+  const [photoBusy, setPhotoBusy] = useState(false);
 
   // Final confirmation state
   const [agreed, setAgreed] = useState(false); // must accept rules before confirming
@@ -276,9 +277,9 @@ export default function ParticipantDetail() {
 
   function openFixForm() {
     setFixForm({
-      full_name: participant.full_name || '',
-      dob: participant.dob ? String(participant.dob).slice(0, 10) : '',
-      cpr_number: participant.cpr_number || '',
+      cpr_scan_url: participant.cpr_scan_url || '',
+      cpr_scan_back_url: participant.cpr_scan_back_url || '',
+      photo_url: participant.photo_url || '',
     });
     setFixMsg('');
   }
@@ -295,6 +296,26 @@ export default function ParticipantDetail() {
       setFixMsg(err.message || 'Update failed.');
     } finally {
       setFixBusy(false);
+    }
+  }
+
+  async function handlePhotoUpload(file) {
+    if (!file) return;
+    setPhotoBusy(true);
+    setFixMsg('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`${API_BASE}/api/register/upload`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Upload failed');
+      setFixForm((f) => ({ ...f, photo_url: d.url }));
+    } catch (err) {
+      setFixMsg(err.message || 'Photo upload failed.');
+    } finally {
+      setPhotoBusy(false);
     }
   }
 
@@ -451,37 +472,37 @@ export default function ParticipantDetail() {
               </button>
             ) : (
               <div className="space-y-2">
+                <p className="text-xs text-amber-700">
+                  Re-upload the CPR and/or photo below. To correct the name, date of birth or CPR number, please contact KCA — these can’t be changed here.
+                </p>
                 <CprScanner token={token} onResult={(r) =>
                   setFixForm((f) => ({
                     ...f,
-                    full_name: r.full_name || f.full_name,
-                    dob: r.dob || f.dob,
-                    cpr_number: r.cpr_number || f.cpr_number,
                     cpr_scan_url: r.cpr_scan_url || f.cpr_scan_url,
                     cpr_scan_back_url: r.cpr_scan_back_url || f.cpr_scan_back_url,
                     cpr_verified_method: 'ocr',
                   }))} />
-                <input value={fixForm.full_name}
-                  onChange={(e) => setFixForm((f) => ({ ...f, full_name: e.target.value }))}
-                  placeholder="Full name (as on CPR)"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                <div className="grid grid-cols-2 gap-2">
-                  <input type="date" value={fixForm.dob}
-                    onChange={(e) => setFixForm((f) => ({ ...f, dob: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                  <input value={fixForm.cpr_number}
-                    onChange={(e) => setFixForm((f) => ({ ...f, cpr_number: e.target.value }))}
-                    placeholder="CPR number" inputMode="numeric"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                <div className="rounded-lg bg-white/60 border border-amber-200 p-2 text-xs text-slate-600 space-y-0.5">
+                  <div><span className="text-slate-400">Name:</span> {participant.full_name}</div>
+                  <div><span className="text-slate-400">Date of birth:</span> {participant.dob ? String(participant.dob).slice(0, 10) : '—'}</div>
+                  <div><span className="text-slate-400">CPR number:</span> {participant.cpr_number}</div>
                 </div>
+                <label className={`flex items-center justify-center rounded-lg border border-dashed px-3 py-3 text-sm cursor-pointer ${fixForm.photo_url ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-300 text-slate-500 hover:border-navy-400'}`}>
+                  <input type="file" accept="image/*" className="hidden" disabled={photoBusy}
+                    onChange={(e) => { handlePhotoUpload(e.target.files?.[0]); e.target.value = ''; }} />
+                  {photoBusy ? 'Uploading…' : fixForm.photo_url ? 'Photo uploaded ✓ (tap to replace)' : "Upload participant's photo — png/jpg, max 5 MB"}
+                </label>
+                {asset(fixForm.photo_url) && (
+                  <img src={asset(fixForm.photo_url)} alt="participant photo" className="h-20 w-20 rounded-lg object-cover border border-slate-200" />
+                )}
                 <div className="flex gap-2">
                   <button onClick={() => setFixForm(null)}
                     className="flex-1 rounded-lg border border-slate-300 py-2 text-sm text-slate-600">
                     Cancel
                   </button>
-                  <button onClick={() => handleFixSave()} disabled={fixBusy}
+                  <button onClick={() => handleFixSave()} disabled={fixBusy || photoBusy}
                     className="flex-1 rounded-lg bg-navy-700 py-2 text-sm font-semibold text-white disabled:opacity-60">
-                    {fixBusy ? 'Saving…' : 'Save corrections'}
+                    {fixBusy ? 'Saving…' : 'Save'}
                   </button>
                 </div>
               </div>
