@@ -19,28 +19,37 @@ const fmtMin = (mins) => {
   const x = ((Math.round(mins) % 1440) + 1440) % 1440;
   return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`;
 };
-// Expand a schedule row into one entry per age group, with a staggered
-// reporting time for stage events (each group reports `lead` min before its
-// turn; groups run back-to-back within the combined sitting).
-function perGroupRows(r, lead) {
+// Expand a schedule row into one entry per age group (participants + per-head
+// time allowed). Reporting time is per EVENT, computed separately.
+function perGroupRows(r) {
   const groups = (r.groups && r.groups.length)
     ? r.groups
     : [{ code: r.age_groups || '—', entries: r.entries }];
   const perMin = r.allotted_time_seconds ? Math.round((r.allotted_time_seconds / 60) * 10) / 10 : null;
-  const startMin = r.start_time ? toMin(r.start_time) : null;
-  let offset = 0;
-  return groups.map((g) => {
-    let reportMin = null;
-    if (startMin != null) {
-      if (r.is_stage_event) {
-        reportMin = startMin + offset - lead;
-        offset += Math.round((g.entries || 0) * (perMin || 5));
-      } else {
-        reportMin = startMin - lead;
-      }
-    }
-    return { ...g, reportMin, perMin };
+  return groups.map((g) => ({ ...g, perMin }));
+}
+
+// Reporting time per event: the FIRST event in a venue each day reports 15 min
+// before it starts; every following event reports 30 min before the previous
+// event's scheduled end. Returns { [scheduleRowId]: reportingMinutes }.
+function computeReporting(rows) {
+  const byVenueDay = {};
+  rows.forEach((r) => {
+    const k = `${String(r.event_date).slice(0, 10)}|${r.venue || ''}`;
+    (byVenueDay[k] ??= []).push(r);
   });
+  const map = {};
+  Object.values(byVenueDay).forEach((list) => {
+    list.sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')));
+    let prevEnd = null;
+    list.forEach((r, i) => {
+      const start = r.start_time ? toMin(r.start_time) : null;
+      const end = r.end_time ? toMin(r.end_time) : null;
+      map[r.id] = start == null ? null : (i === 0 || prevEnd == null ? start - 15 : prevEnd - 30);
+      if (end != null) prevEnd = end;
+    });
+  });
+  return map;
 }
 
 function RowEditor({ row, token, onSaved }) {
@@ -220,6 +229,7 @@ export default function Schedule() {
     } catch (err) { setFlash(err.message); }
   }
 
+  const reportingById = computeReporting(rows);
   // group rows by date (filtered by the search box)
   const ql = q.trim().toLowerCase();
   const filtered = ql
@@ -318,13 +328,6 @@ export default function Schedule() {
                   To (blank = Year Setup end date)
                 </label>
                 <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className={inputCls} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Report lead (min before turn)
-                </label>
-                <input type="number" min={0} value={buffer}
-                  onChange={(e) => setBuffer(e.target.value)} className={`${inputCls} w-24`} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
@@ -478,7 +481,7 @@ export default function Schedule() {
                       </thead>
                                             <tbody className="divide-y divide-slate-100">
                         {list.map((r) => {
-                          const grp = perGroupRows(r, Number(buffer) || 30);
+                          const grp = perGroupRows(r);
                           const n = grp.length;
                           const cur = r.is_locked ? 'locked' : r.looks_good ? 'looks_good' : 'draft';
                           const meta = {
@@ -522,9 +525,9 @@ export default function Schedule() {
                               </td>
                               <td className="px-3 py-2"><Badge tone="navy">{g.entries}</Badge></td>
                               <td className="px-3 py-2 text-xs text-slate-600">{g.perMin ? `${g.perMin} min` : '—'}</td>
-                              <td className="px-3 py-2 font-mono text-xs text-slate-700">{g.reportMin != null ? fmtMin(g.reportMin) : '—'}</td>
                               {gi === 0 && (
                                 <>
+                                  <td rowSpan={n} className="px-3 py-2 font-mono text-xs align-top">{reportingById[r.id] != null ? fmtMin(reportingById[r.id]) : '—'}</td>
                                   <td rowSpan={n} className="px-3 py-2 align-top">{statusCell}</td>
                                   <td rowSpan={n} className="px-3 py-2 text-right align-top">
                                     {canEdit ? (
