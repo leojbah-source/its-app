@@ -154,6 +154,7 @@ export default function ParticipantDetail() {
   const [fixBusy, setFixBusy] = useState(false);
   const [fixMsg, setFixMsg] = useState('');
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoMsg, setPhotoMsg] = useState('');
 
   // Final confirmation state
   const [agreed, setAgreed] = useState(false); // must accept rules before confirming
@@ -279,7 +280,6 @@ export default function ParticipantDetail() {
     setFixForm({
       cpr_scan_url: participant.cpr_scan_url || '',
       cpr_scan_back_url: participant.cpr_scan_back_url || '',
-      photo_url: participant.photo_url || '',
     });
     setFixMsg('');
   }
@@ -299,10 +299,10 @@ export default function ParticipantDetail() {
     }
   }
 
-  async function handlePhotoUpload(file) {
+  async function handlePhotoReplace(file) {
     if (!file) return;
     setPhotoBusy(true);
-    setFixMsg('');
+    setPhotoMsg('');
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -311,9 +311,11 @@ export default function ParticipantDetail() {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'Upload failed');
-      setFixForm((f) => ({ ...f, photo_url: d.url }));
+      const updated = await portalApi.photoUpdate(token, id, d.url);
+      setParticipant((prev) => ({ ...prev, photo_url: updated.photo_url }));
+      setPhotoMsg('Photo updated. Thank you!');
     } catch (err) {
-      setFixMsg(err.message || 'Photo upload failed.');
+      setPhotoMsg(err.message || 'Photo update failed.');
     } finally {
       setPhotoBusy(false);
     }
@@ -473,7 +475,7 @@ export default function ParticipantDetail() {
             ) : (
               <div className="space-y-2">
                 <p className="text-xs text-amber-700">
-                  Re-upload the CPR and/or photo below. To correct the name, date of birth or CPR number, please contact KCA — these can’t be changed here.
+                  Re-upload the CPR below. To correct the name, date of birth or CPR number, please contact KCA — these can’t be changed here.
                 </p>
                 <CprScanner token={token} onResult={(r) =>
                   setFixForm((f) => ({
@@ -487,14 +489,6 @@ export default function ParticipantDetail() {
                   <div><span className="text-slate-400">Date of birth:</span> {participant.dob ? String(participant.dob).slice(0, 10) : '—'}</div>
                   <div><span className="text-slate-400">CPR number:</span> {participant.cpr_number}</div>
                 </div>
-                <label className={`flex items-center justify-center rounded-lg border border-dashed px-3 py-3 text-sm cursor-pointer ${fixForm.photo_url ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-300 text-slate-500 hover:border-navy-400'}`}>
-                  <input type="file" accept="image/*" className="hidden" disabled={photoBusy}
-                    onChange={(e) => { handlePhotoUpload(e.target.files?.[0]); e.target.value = ''; }} />
-                  {photoBusy ? 'Uploading…' : fixForm.photo_url ? 'Photo uploaded ✓ (tap to replace)' : "Upload participant's photo — png/jpg, max 5 MB"}
-                </label>
-                {asset(fixForm.photo_url) && (
-                  <img src={asset(fixForm.photo_url)} alt="participant photo" className="h-20 w-20 rounded-lg object-cover border border-slate-200" />
-                )}
                 <div className="flex gap-2">
                   <button onClick={() => setFixForm(null)}
                     className="flex-1 rounded-lg border border-slate-300 py-2 text-sm text-slate-600">
@@ -513,6 +507,31 @@ export default function ParticipantDetail() {
           <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full font-medium border bg-emerald-50 text-emerald-700 border-emerald-200">
             <CheckCircle2 size={11} /> Details verified by KCA
           </span>
+        )}
+
+        {/* ── Participant photo (any parent can replace, anytime) ──────────── */}
+        {participant && (
+          <div className="rounded-2xl bg-white border border-slate-200 p-4">
+            <p className="text-sm font-semibold text-slate-800 mb-1">Participant photo</p>
+            <p className="text-xs text-slate-500 mb-3">
+              Used on the result cards. Please upload a clear, recent photo of the child only — not a group photo.
+            </p>
+            <div className="flex items-center gap-4">
+              {asset(participant.photo_url) ? (
+                <img src={asset(participant.photo_url)} alt="participant" className="h-24 w-24 rounded-xl object-cover border border-slate-200" />
+              ) : (
+                <div className="h-24 w-24 rounded-xl border border-dashed border-slate-300 flex items-center justify-center text-[11px] text-slate-400 text-center px-1">No photo</div>
+              )}
+              <div className="flex-1">
+                <label className={`inline-flex items-center justify-center rounded-lg border px-4 py-2 text-sm cursor-pointer ${photoBusy ? 'opacity-60 border-slate-300 text-slate-400' : 'border-navy-300 text-navy-700 hover:bg-navy-50'}`}>
+                  <input type="file" accept="image/*" className="hidden" disabled={photoBusy}
+                    onChange={(e) => { handlePhotoReplace(e.target.files?.[0]); e.target.value = ''; }} />
+                  {photoBusy ? 'Uploading…' : participant.photo_url ? 'Replace photo' : 'Upload photo'}
+                </label>
+                {photoMsg && <p className="mt-2 text-xs text-emerald-700">{photoMsg}</p>}
+              </div>
+            </div>
+          </div>
         )}
 
         {/* ── Event selection ─────────────────────────────────────────────── */}

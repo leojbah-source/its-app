@@ -80,6 +80,9 @@ export const portalApi = {
   /** Correct participant details (resets admin verification to pending). */
   participantUpdate: (token, id, data) =>
     req(`/api/register/participant/${id}`, { method: 'PATCH', token, body: data }),
+  /** Replace only the participant photo (does not reset CPR verification). */
+  photoUpdate: (token, id, photo_url) =>
+    req(`/api/register/participant/${id}/photo`, { method: 'PUT', token, body: { photo_url } }),
 
   /** Create a new participant (or returns existing if CPR already registered). */
   participantCreate: (token, data) =>

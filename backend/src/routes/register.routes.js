@@ -670,6 +670,27 @@ router.patch('/participant/:id', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── PUT /api/register/participant/:id/photo ──────────────────────────────────
+// Replace the participant PHOTO only (parent or staff), at any time — e.g. when
+// a poor-quality or group photo was uploaded. Does NOT change CPR / identity
+// verification status, unlike the correction route above.
+router.put('/participant/:id/photo', authenticate, async (req, res, next) => {
+  try {
+    const _own = await assertOwnsParticipant(req.params.id, req.user, req);
+    if (!_own.ok) return res.status(_own.status).json({ error: _own.error });
+    const { photo_url } = req.body;
+    if (!photo_url) return res.status(400).json({ error: 'photo_url is required' });
+    const { rows } = await pool.query(
+      `UPDATE participants SET photo_url = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [photo_url, req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Participant not found' });
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'UPDATE_PHOTO', entity: 'participants', entityId: req.params.id,
+      details: { photo_url } });
+    res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/register/participant/lookup ─────────────────────────────────────
 // Lookup by CPR in the active year. MUST be defined before /:id.
 // Returns { found: true, participant: {...} } or { found: false }.
