@@ -180,6 +180,7 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
             minutes_per_participant_default = 5,
             setup_minutes = 10,
             max_groups_per_session = 3,
+            gap_minutes = 15,
             exclude_category_ids = [] } = req.body;
     const maxGroups = Math.min(3, Math.max(1, Number(max_groups_per_session) || 3));
     const excludeCategoryIds = (Array.isArray(exclude_category_ids) ? exclude_category_ids : [])
@@ -213,6 +214,7 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
 
     const config = {
       reportingBufferMinutes: Number(reporting_buffer_minutes) || 30,
+      gapMinutes: Number.isFinite(Number(gap_minutes)) ? Number(gap_minutes) : 15,
       dailySlots,
     };
 
@@ -559,10 +561,17 @@ router.get('/', requireRole(...staffRoles, 'Media'), async (req, res, next) => {
               s.event_id, s.time_slot_id, s.age_groups, s.is_locked,
               to_char(s.locked_at, 'YYYY-MM-DD') AS locked_at,
               e.event_code, e.event_name, e.event_kind, c.name AS category_name, c.code AS category_code,
+              e.allotted_time_seconds, e.is_stage_event,
               (SELECT COUNT(*)::int FROM registrations r
                LEFT JOIN age_groups ag2 ON ag2.id = r.age_group_id
                WHERE r.event_id = e.id AND r.status NOT IN ('withdrawn','swapped')
-                 AND (s.age_groups IS NULL OR ag2.code = ANY(string_to_array(s.age_groups, ', ')))) AS entries
+                 AND (s.age_groups IS NULL OR ag2.code = ANY(string_to_array(s.age_groups, ', ')))) AS entries,
+              (SELECT json_agg(json_build_object('code', g.code, 'entries', g.cnt) ORDER BY g.sort_order)
+               FROM (SELECT ag3.code, ag3.sort_order, COUNT(*)::int AS cnt
+                     FROM registrations r3 JOIN age_groups ag3 ON ag3.id = r3.age_group_id
+                     WHERE r3.event_id = e.id AND r3.status NOT IN ('withdrawn','swapped')
+                       AND (s.age_groups IS NULL OR ag3.code = ANY(string_to_array(s.age_groups, ', ')))
+                     GROUP BY ag3.code, ag3.sort_order) g) AS groups
        FROM schedule s
        JOIN events e ON e.id = s.event_id
        LEFT JOIN categories c ON c.id = e.category_id
@@ -597,6 +606,78 @@ router.put('/:id', requireRole(...editRoles), async (req, res, next) => {
       details: { event_date: rows[0].event_date, start_time: rows[0].start_time,
                  end_time: rows[0].end_time, venue: rows[0].venue } });
     res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
+// ── DELETE /api/admin/schedule/:id ───────────────────────────────────────────
+// Drop an event from the schedule (remove the row).
+router.delete('/:id', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM schedule WHERE id = $1
+       RETURNING event_id, age_groups, to_char(event_date,'YYYY-MM-DD') AS event_date, is_locked`,
+      [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Schedule row not found' });
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'DROP_SCHEDULE_ROW', entity: 'schedule', entityId: req.params.id, before: rows[0] });
+    res.json({ dropped: true });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/schedule/:id/check-move ──────────────────────────────────
+// Dry-run a move: would placing THIS event at the given date/time break a rule?
+// Returns { warnings: [...] } (participant clash, >2 events/day, venue clash).
+const partsOfQuery =
+  `SELECT DISTINCT COALESCE(r.participant_id, tm.participant_id) AS pid
+     FROM registrations r
+     LEFT JOIN team_members tm ON tm.team_id = r.team_id
+     LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+    WHERE r.event_id = $1 AND r.status NOT IN ('withdrawn','swapped')
+      AND (cardinality($2::text[]) = 0 OR ag.code = ANY($2::text[]))
+      AND COALESCE(r.participant_id, tm.participant_id) IS NOT NULL`;
+const codesOf = (ag) => (ag || '').split(', ').filter(Boolean);
+const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+
+router.post('/:id/check-move', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.json({ warnings: [] });
+    const { event_date, start_time, end_time, venue } = req.body;
+    if (!event_date || !start_time || !end_time) return res.json({ warnings: [] });
+
+    const { rows: me } = await pool.query(
+      `SELECT event_id, age_groups FROM schedule WHERE id = $1`, [req.params.id]);
+    if (!me[0]) return res.status(404).json({ error: 'Schedule row not found' });
+
+    const { rows: myP } = await pool.query(partsOfQuery, [me[0].event_id, codesOf(me[0].age_groups)]);
+    const mySet = new Set(myP.map((x) => x.pid));
+
+    const { rows: others } = await pool.query(
+      `SELECT s.id, s.event_id, s.age_groups, s.venue,
+              to_char(s.start_time,'HH24:MI') AS st, to_char(s.end_time,'HH24:MI') AS en,
+              e.event_code, e.event_name
+         FROM schedule s JOIN events e ON e.id = s.event_id
+        WHERE s.year_id = $1 AND s.event_date = $2 AND s.id <> $3`,
+      [yc.id, event_date, req.params.id]);
+
+    const ns = toMin(start_time), ne = toMin(end_time);
+    const warnings = [];
+    const perChild = {}; // pid -> count of OTHER events that child has this date
+    for (const o of others) {
+      const { rows: oP } = await pool.query(partsOfQuery, [o.event_id, codesOf(o.age_groups)]);
+      const oSet = new Set(oP.map((x) => x.pid));
+      const shared = [...mySet].filter((pid) => oSet.has(pid));
+      shared.forEach((pid) => { perChild[pid] = (perChild[pid] || 0) + 1; });
+      const os = toMin(o.st), oe = toMin(o.en);
+      if (shared.length && ns < oe && os < ne)
+        warnings.push(`${shared.length} participant(s) are also in ${o.event_code} ${o.event_name} (${o.st}–${o.en}) at the same time.`);
+      if (venue && o.venue === venue && ns < oe && os < ne)
+        warnings.push(`${venue} is already booked for ${o.event_code} ${o.event_name} (${o.st}–${o.en}).`);
+    }
+    const over = Object.values(perChild).filter((c) => c >= 2).length;
+    if (over > 0) warnings.push(`${over} participant(s) would then have more than 2 events on ${event_date}.`);
+
+    res.json({ warnings });
   } catch (err) { next(err); }
 });
 

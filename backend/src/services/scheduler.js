@@ -150,15 +150,19 @@ function commitPlacement({
   start,
   end,
   reportingBufferMinutes,
+  gapMinutes = 0,
   venueBookings,
   participantBookings,
   dailyCounts,
   categoryVenueUse,
   participantIds,
 }) {
+  // Reserve a breathing-space gap AFTER the real end so the next event in this
+  // venue (and the child's next event) can't butt right up against this one.
+  const bookedEnd = end + gapMinutes;
   venueBookings[date] ??= {};
   venueBookings[date][venue] ??= [];
-  venueBookings[date][venue].push({ start, end, event_id: event.event_id });
+  venueBookings[date][venue].push({ start, end: bookedEnd, event_id: event.event_id });
 
   categoryVenueUse[date] ??= {};
   categoryVenueUse[date][venue] ??= {};
@@ -167,7 +171,7 @@ function commitPlacement({
   participantIds.forEach((pid) => {
     participantBookings[pid] ??= {};
     participantBookings[pid][date] ??= [];
-    participantBookings[pid][date].push({ start, end });
+    participantBookings[pid][date].push({ start, end: bookedEnd });
 
     dailyCounts[pid] ??= {};
     dailyCounts[pid][date] = (dailyCounts[pid][date] || 0) + 1;
@@ -221,6 +225,7 @@ async function generateScheduleDraft(yearId, config, db) {
     }));
 
   const reportingBufferMinutes = config.reportingBufferMinutes ?? 30;
+  const gapMinutes = config.gapMinutes ?? 0;
 
   // Longest events first; same-category events kept adjacent in the queue as
   // a mild nudge toward clustering; event_id breaks remaining ties so the
@@ -306,7 +311,7 @@ async function generateScheduleDraft(yearId, config, db) {
             if (window) {
               placed = commitPlacement({
                 event, date: day.date, venue, start: window.start, end: window.end,
-                reportingBufferMinutes, venueBookings, participantBookings,
+                reportingBufferMinutes, gapMinutes, venueBookings, participantBookings,
                 dailyCounts, categoryVenueUse, participantIds,
               });
               break;
@@ -362,6 +367,7 @@ async function generateScheduleDraft(yearId, config, db) {
               start: window.start,
               end: window.end,
               reportingBufferMinutes,
+              gapMinutes,
               venueBookings,
               participantBookings,
               dailyCounts,

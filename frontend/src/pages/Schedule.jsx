@@ -4,7 +4,7 @@
 // same-category venue clustering), review & adjust rows, then publish.
 
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Wand2, CheckCircle2, Save, Lock, Unlock } from 'lucide-react';
+import { RefreshCw, Wand2, CheckCircle2, Save, Lock, Unlock, Trash2 } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -13,6 +13,35 @@ import { useAuth } from '../context/AuthContext';
 import { scheduleApi, venuesApi } from '../api/client';
 
 const inputCls = 'rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
+
+const toMin = (t) => { const [h, m] = String(t || '0:0').split(':').map(Number); return (h * 60 + (m || 0)); };
+const fmtMin = (mins) => {
+  const x = ((Math.round(mins) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`;
+};
+// Expand a schedule row into one entry per age group, with a staggered
+// reporting time for stage events (each group reports `lead` min before its
+// turn; groups run back-to-back within the combined sitting).
+function perGroupRows(r, lead) {
+  const groups = (r.groups && r.groups.length)
+    ? r.groups
+    : [{ code: r.age_groups || '—', entries: r.entries }];
+  const perMin = r.allotted_time_seconds ? Math.round((r.allotted_time_seconds / 60) * 10) / 10 : null;
+  const startMin = r.start_time ? toMin(r.start_time) : null;
+  let offset = 0;
+  return groups.map((g) => {
+    let reportMin = null;
+    if (startMin != null) {
+      if (r.is_stage_event) {
+        reportMin = startMin + offset - lead;
+        offset += Math.round((g.entries || 0) * (perMin || 5));
+      } else {
+        reportMin = startMin - lead;
+      }
+    }
+    return { ...g, reportMin, perMin };
+  });
+}
 
 function RowEditor({ row, token, onSaved }) {
   const [edit, setEdit] = useState(false);
@@ -31,6 +60,12 @@ function RowEditor({ row, token, onSaved }) {
   async function save() {
     setBusy(true);
     try {
+      const chk = await scheduleApi.checkMove(token, row.id, f);
+      if (chk?.warnings?.length) {
+        const ok = window.confirm(
+          'Heads up — this move may break the rules:\n\n• ' + chk.warnings.join('\n• ') + '\n\nSave anyway?');
+        if (!ok) { setBusy(false); return; }
+      }
       await scheduleApi.update(token, row.id, f);
       setEdit(false);
       onSaved();
@@ -73,6 +108,7 @@ export default function Schedule() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [buffer, setBuffer] = useState(30);
+  const [gap, setGap] = useState(15);
   const [maxGroups, setMaxGroups] = useState(3);
   const [catDates, setCatDates] = useState([]);  // [{id,code,name,not_before_date}]
   const [generating, setGenerating] = useState(false);
@@ -110,6 +146,7 @@ export default function Schedule() {
         start_date: startDate || undefined,
         end_date: endDate || undefined,
         reporting_buffer_minutes: Number(buffer) || 30,
+        gap_minutes: gap === '' ? 15 : Number(gap),
         max_groups_per_session: Number(maxGroups) || 3,
         exclude_category_ids: [...excludeCats],
       });
@@ -144,6 +181,15 @@ export default function Schedule() {
     try {
       const r = await scheduleApi.unlock(token);
       setFlash(`Unlocked ${r.unlocked} event(s).`);
+      load();
+    } catch (err) { setFlash(err.message); }
+  }
+
+  async function drop(row) {
+    if (!window.confirm(`Remove ${row.event_code} ${row.event_name} from the schedule?`)) return;
+    try {
+      await scheduleApi.remove(token, row.id);
+      setFlash(`Removed ${row.event_code} from the schedule.`);
       load();
     } catch (err) { setFlash(err.message); }
   }
@@ -239,10 +285,17 @@ export default function Schedule() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Reporting buffer (min)
+                  Report lead (min before turn)
                 </label>
                 <input type="number" min={0} value={buffer}
                   onChange={(e) => setBuffer(e.target.value)} className={`${inputCls} w-24`} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Gap between events (min)
+                </label>
+                <input type="number" min={0} value={gap}
+                  onChange={(e) => setGap(e.target.value)} className={`${inputCls} w-24`} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
@@ -369,47 +422,69 @@ export default function Schedule() {
                           <th className="px-3 py-2">Time</th>
                           <th className="px-3 py-2">Venue</th>
                           <th className="px-3 py-2">Event</th>
-                          <th className="px-3 py-2">Category</th>
-                          <th className="px-3 py-2">Entries</th>
+                          <th className="px-3 py-2">Group</th>
+                          <th className="px-3 py-2">Participants</th>
+                          <th className="px-3 py-2">Time allowed</th>
+                          <th className="px-3 py-2">Reporting</th>
                           <th className="px-3 py-2">Status</th>
                           <th className="px-3 py-2 text-right">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {list.map((r) => (
-                          <tr key={r.id} className={`hover:bg-slate-50 ${r.is_locked ? 'bg-amber-50/50' : ''}`}>
-                            <td className="px-3 py-2 font-mono text-xs">
-                              {(r.start_time || '').slice(0, 5)}–{(r.end_time || '').slice(0, 5)}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600">{r.venue || '—'}</td>
-                            <td className="px-3 py-2">
-                              <span className="font-mono text-xs text-navy-700 mr-1.5">{r.event_code}</span>
-                              <span className="font-medium text-slate-800">{r.event_name}</span>
-                              {r.age_groups && (
-                                <span className="ml-1.5 rounded bg-gold-100 text-gold-700 px-1.5 py-0.5 text-[10px] font-semibold">
-                                  {r.age_groups}
+                                            <tbody className="divide-y divide-slate-100">
+                        {list.map((r) => {
+                          const grp = perGroupRows(r, Number(buffer) || 30);
+                          const n = grp.length;
+                          const statusCell = (
+                            <div className="flex items-center gap-1.5">
+                              <Badge tone={r.status === 'confirmed' ? 'success' : r.status === 'completed' ? 'gold' : 'slate'}>
+                                {r.status}
+                              </Badge>
+                              {r.is_locked && (
+                                <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[10px] font-semibold" title="Locked — stays fixed across phases">
+                                  <Lock size={9} /> locked
                                 </span>
                               )}
-                            </td>
-                            <td className="px-3 py-2 text-xs text-slate-500">{r.category_name || '—'}</td>
-                            <td className="px-3 py-2"><Badge tone="navy">{r.entries}</Badge></td>
-                            <td className="px-3 py-2">
-                              <div className="flex items-center gap-1.5">
-                                <Badge tone={r.status === 'confirmed' ? 'success' : r.status === 'completed' ? 'gold' : 'slate'}>
-                                  {r.status}
-                                </Badge>
-                                {r.is_locked && (
-                                  <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[10px] font-semibold" title="Locked — stays fixed across phases">
-                                    <Lock size={9} /> locked
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-3 py-2 text-right">
-                              {canEdit ? <RowEditor row={r} token={token} onSaved={load} /> : null}
-                            </td>
-                          </tr>
-                        ))}
+                            </div>
+                          );
+                          return grp.map((g, gi) => (
+                            <tr key={`${r.id}-${g.code}-${gi}`} className={`hover:bg-slate-50 ${r.is_locked ? 'bg-amber-50/50' : ''}`}>
+                              {gi === 0 && (
+                                <>
+                                  <td rowSpan={n} className="px-3 py-2 font-mono text-xs align-top whitespace-nowrap">
+                                    {(r.start_time || '').slice(0, 5)}–{(r.end_time || '').slice(0, 5)}
+                                  </td>
+                                  <td rowSpan={n} className="px-3 py-2 text-slate-600 align-top">{r.venue || '—'}</td>
+                                  <td rowSpan={n} className="px-3 py-2 align-top">
+                                    <span className="font-mono text-xs text-navy-700 mr-1.5">{r.event_code}</span>
+                                    <span className="font-medium text-slate-800">{r.event_name}</span>
+                                  </td>
+                                </>
+                              )}
+                              <td className="px-3 py-2">
+                                <span className="rounded bg-gold-100 text-gold-700 px-1.5 py-0.5 text-[10px] font-semibold">{g.code}</span>
+                              </td>
+                              <td className="px-3 py-2"><Badge tone="navy">{g.entries}</Badge></td>
+                              <td className="px-3 py-2 text-xs text-slate-600">{g.perMin ? `${g.perMin} min` : '—'}</td>
+                              <td className="px-3 py-2 font-mono text-xs text-slate-700">{g.reportMin != null ? fmtMin(g.reportMin) : '—'}</td>
+                              {gi === 0 && (
+                                <>
+                                  <td rowSpan={n} className="px-3 py-2 align-top">{statusCell}</td>
+                                  <td rowSpan={n} className="px-3 py-2 text-right align-top">
+                                    {canEdit ? (
+                                      <div className="flex items-center justify-end gap-2">
+                                        <RowEditor row={r} token={token} onSaved={load} />
+                                        <button onClick={() => drop(r)} title="Remove this event from the schedule"
+                                          className="text-xs font-medium text-red-600 hover:text-red-700 inline-flex items-center gap-0.5">
+                                          <Trash2 size={12} /> Remove
+                                        </button>
+                                      </div>
+                                    ) : null}
+                                  </td>
+                                </>
+                              )}
+                            </tr>
+                          ));
+                        })}
                       </tbody>
                     </table>
                   </div>
