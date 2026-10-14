@@ -210,6 +210,15 @@ export default function Schedule() {
     catch (err) { setFlash(err.message); }
   }
 
+  async function removeGroup(row, code) {
+    if (!window.confirm(`Remove age group ${code} from ${row.event_code} ${row.event_name}?`)) return;
+    try {
+      await scheduleApi.removeGroup(token, row.id, code);
+      setFlash(`Removed ${code} from ${row.event_code}.`);
+      load();
+    } catch (err) { setFlash(err.message); }
+  }
+
   // group rows by date
   const byDate = rows.reduce((acc, r) => {
     const d = String(r.event_date).slice(0, 10);
@@ -218,6 +227,7 @@ export default function Schedule() {
   }, {});
   const draftCount = rows.filter((r) => r.status === 'draft').length;
   const lockedCount = rows.filter((r) => r.is_locked).length;
+  const pureDraftCount = rows.filter((r) => r.status === 'draft' && !r.is_locked && !r.looks_good).length;
   const unlockedCount = rows.filter((r) => !r.is_locked).length;
 
   return (
@@ -232,9 +242,9 @@ export default function Schedule() {
               <Button variant="outline" icon={Wand2} onClick={() => setShowGen((x) => !x)}>
                 Generate draft…
               </Button>
-              {draftCount > 0 && (
+              {pureDraftCount > 0 && (
                 <Button variant="outline" icon={Trash2} onClick={clearDrafts}>
-                  Clear drafts ({draftCount})
+                  Clear drafts ({pureDraftCount})
                 </Button>
               )}
               <Button variant="gold" icon={CheckCircle2} onClick={publish} disabled={draftCount === 0}>
@@ -386,7 +396,7 @@ export default function Schedule() {
             )}
 
             <p className="text-xs text-amber-600">
-              Generating replaces the current unlocked DRAFT rows; locked and confirmed rows are kept
+              Generating replaces only plain DRAFT rows; 'Looks good', locked and confirmed rows are kept
               and the new events are placed around them (still no clashes, max 2/day per child).
               Events only go in venues that suit their category, have capacity, and are open that day.
             </p>
@@ -491,8 +501,12 @@ export default function Schedule() {
                                   </td>
                                 </>
                               )}
-                              <td className="px-3 py-2">
+                              <td className="px-3 py-2 whitespace-nowrap">
                                 <span className="rounded bg-gold-100 text-gold-700 px-1.5 py-0.5 text-[10px] font-semibold">{g.code}</span>
+                                {canEdit && (
+                                  <button onClick={() => removeGroup(r, g.code)} title={`Remove ${g.code} from this event`}
+                                    className="ml-1 text-slate-300 hover:text-red-500 text-sm font-bold leading-none align-middle">×</button>
+                                )}
                               </td>
                               <td className="px-3 py-2"><Badge tone="navy">{g.entries}</Badge></td>
                               <td className="px-3 py-2 text-xs text-slate-600">{g.perMin ? `${g.perMin} min` : '—'}</td>

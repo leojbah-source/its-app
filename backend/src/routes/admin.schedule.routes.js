@@ -230,7 +230,7 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
          FROM schedule s
          LEFT JOIN events e2 ON e2.id = s.event_id
          LEFT JOIN categories c ON c.id = e2.category_id
-        WHERE s.year_id = $1 AND (s.is_locked = TRUE OR s.status <> 'draft')`, [yc.id]);
+        WHERE s.year_id = $1 AND (s.is_locked = TRUE OR s.status <> 'draft' OR s.looks_good = TRUE)`, [yc.id]);
     const lockedKeys = new Set();
     const fixedBookings = [];
     for (const lr of lockedRows) {
@@ -475,7 +475,7 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
         const client = await pool.connect();
         try {
           await client.query('BEGIN');
-          await client.query(`DELETE FROM schedule WHERE year_id = $1 AND status = 'draft' AND is_locked = FALSE`, [yearId]);
+          await client.query(`DELETE FROM schedule WHERE year_id = $1 AND status = 'draft' AND is_locked = FALSE AND looks_good = FALSE`, [yearId]);
           for (const s of draft.scheduled) {
             const [realId, groups] = String(s.event_id).split('|');
             await client.query(
@@ -617,7 +617,7 @@ router.post('/clear-drafts', requireRole(...editRoles), async (req, res, next) =
     const yc = await activeYear();
     if (!yc) return res.status(400).json({ error: 'No active year' });
     const { rows } = await pool.query(
-      `DELETE FROM schedule WHERE year_id = $1 AND status = 'draft' AND is_locked = FALSE RETURNING id`, [yc.id]);
+      `DELETE FROM schedule WHERE year_id = $1 AND status = 'draft' AND is_locked = FALSE AND looks_good = FALSE RETURNING id`, [yc.id]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'CLEAR_SCHEDULE_DRAFTS', entity: 'schedule', entityId: yc.id, details: { cleared: rows.length } });
     res.json({ cleared: rows.length });
@@ -648,6 +648,33 @@ router.post('/:id/state', requireRole(...editRoles), async (req, res, next) => {
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'SCHEDULE_ROW_STATE', entity: 'schedule', entityId: req.params.id, details: { state } });
     res.json({ ok: true, state });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/schedule/:id/remove-group ────────────────────────────────
+// Drop one age group from an event's scheduled row. If it was the last group,
+// the whole row is removed.
+router.post('/:id/remove-group', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ error: 'code is required' });
+    const { rows } = await pool.query(`SELECT age_groups FROM schedule WHERE id = $1`, [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Schedule row not found' });
+    const codes = (rows[0].age_groups || '').split(', ').filter(Boolean).filter((c) => c !== code);
+    if (!codes.length) {
+      await pool.query(`DELETE FROM schedule WHERE id = $1`, [req.params.id]);
+      await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+        action: 'REMOVE_SCHEDULE_GROUP', entity: 'schedule', entityId: req.params.id,
+        details: { code, row_deleted: true } });
+      return res.json({ deleted: true });
+    }
+    await pool.query(
+      `UPDATE schedule SET age_groups = $2, generated_by_scheduler = FALSE, updated_at = NOW() WHERE id = $1`,
+      [req.params.id, codes.join(', ')]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'REMOVE_SCHEDULE_GROUP', entity: 'schedule', entityId: req.params.id,
+      details: { code, age_groups: codes.join(', ') } });
+    res.json({ age_groups: codes.join(', ') });
   } catch (err) { next(err); }
 });
 
