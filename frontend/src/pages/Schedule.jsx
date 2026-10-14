@@ -109,6 +109,7 @@ export default function Schedule() {
   const [endDate, setEndDate] = useState('');
   const [buffer, setBuffer] = useState(30);
   const [gap, setGap] = useState(15);
+  const [q, setQ] = useState('');  // schedule search/lookup
   const [maxGroups, setMaxGroups] = useState(3);
   const [catDates, setCatDates] = useState([]);  // [{id,code,name,not_before_date}]
   const [generating, setGenerating] = useState(false);
@@ -219,8 +220,12 @@ export default function Schedule() {
     } catch (err) { setFlash(err.message); }
   }
 
-  // group rows by date
-  const byDate = rows.reduce((acc, r) => {
+  // group rows by date (filtered by the search box)
+  const ql = q.trim().toLowerCase();
+  const filtered = ql
+    ? rows.filter((r) => `${r.event_code} ${r.event_name} ${r.venue} ${r.age_groups}`.toLowerCase().includes(ql))
+    : rows;
+  const byDate = filtered.reduce((acc, r) => {
     const d = String(r.event_date).slice(0, 10);
     (acc[d] ??= []).push(r);
     return acc;
@@ -432,6 +437,15 @@ export default function Schedule() {
         </Card>
       )}
 
+      {rows.length > 0 && (
+        <div className="mb-3 flex items-center gap-2">
+          <input value={q} onChange={(e) => setQ(e.target.value)}
+            placeholder="Find an event (code, name, venue, group)…"
+            className={`${inputCls} w-full max-w-md`} />
+          {q && <button onClick={() => setQ('')} className="text-xs text-slate-500 underline">clear</button>}
+          {q && <span className="text-xs text-slate-500">{filtered.length} of {rows.length} rows</span>}
+        </div>
+      )}
       <Card>
         {loading ? <PageLoader label="Loading schedule…" />
           : error ? <ErrorBanner message={error} onRetry={load} />
@@ -439,6 +453,8 @@ export default function Schedule() {
             <p className="text-sm text-slate-400 text-center py-10">
               No schedule yet — use "Generate draft…" once registrations are closed.
             </p>
+          ) : Object.keys(byDate).length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-10">No events match "{q}".</p>
           ) : (
             <div className="space-y-6">
               {Object.entries(byDate).map(([date, list]) => (
@@ -450,7 +466,6 @@ export default function Schedule() {
                     <table className="w-full min-w-[760px] text-sm">
                       <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                         <tr>
-                          <th className="px-3 py-2">Time</th>
                           <th className="px-3 py-2">Venue</th>
                           <th className="px-3 py-2">Event</th>
                           <th className="px-3 py-2">Group</th>
@@ -491,9 +506,6 @@ export default function Schedule() {
                             <tr key={`${r.id}-${g.code}-${gi}`} className={`hover:bg-slate-50 ${r.is_locked ? 'bg-amber-50/50' : ''}`}>
                               {gi === 0 && (
                                 <>
-                                  <td rowSpan={n} className="px-3 py-2 font-mono text-xs align-top whitespace-nowrap">
-                                    {(r.start_time || '').slice(0, 5)}–{(r.end_time || '').slice(0, 5)}
-                                  </td>
                                   <td rowSpan={n} className="px-3 py-2 text-slate-600 align-top">{r.venue || '—'}</td>
                                   <td rowSpan={n} className="px-3 py-2 align-top">
                                     <span className="font-mono text-xs text-navy-700 mr-1.5">{r.event_code}</span>
