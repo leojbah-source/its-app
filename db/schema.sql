@@ -482,6 +482,7 @@ CREATE TABLE schedule (
     status                       TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','confirmed','completed')),
     generated_by_scheduler       BOOL NOT NULL DEFAULT TRUE,
     is_locked                    BOOL NOT NULL DEFAULT FALSE,   -- phased scheduling (migration 050)
+    looks_good                   BOOL NOT NULL DEFAULT FALSE,   -- per-row review marker (migration 051)
     locked_at                    TIMESTAMPTZ,
     locked_by                    INT REFERENCES users(id),
     created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),

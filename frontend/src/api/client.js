@@ -417,6 +417,8 @@ export const scheduleApi = {
   unlock: (token) => request('/api/admin/schedule/unlock', { method: 'POST', token, body: {} }),
   remove: (token, id) => request(`/api/admin/schedule/${id}`, { method: 'DELETE', token }),
   checkMove: (token, id, body) => request(`/api/admin/schedule/${id}/check-move`, { method: 'POST', token, body }),
+  clearDrafts: (token) => request('/api/admin/schedule/clear-drafts', { method: 'POST', token, body: {} }),
+  rowState: (token, id, state) => request(`/api/admin/schedule/${id}/state`, { method: 'POST', token, body: { state } }),
   categoryDates: (token) => request('/api/admin/schedule/category-dates', { token }),
   saveCategoryDates: (token, dates) => request('/api/admin/schedule/category-dates', { method: 'PUT', token, body: { dates } }),
 };

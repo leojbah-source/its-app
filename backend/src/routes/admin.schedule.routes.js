@@ -218,8 +218,9 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
       dailySlots,
     };
 
-    // Locked (committed) placements from earlier phases — seed them as FIXED
-    // bookings so this run is built around them and never regenerates them.
+    // Rows that SURVIVE a regenerate (locked, or already confirmed/completed) are
+    // seeded as FIXED bookings so new events are placed around them and never
+    // clash with them. (Only plain unlocked DRAFT rows are replaced.)
     const { rows: lockedRows } = await pool.query(
       `SELECT s.event_id, s.age_groups,
               to_char(s.event_date, 'YYYY-MM-DD') AS date,
@@ -229,7 +230,7 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
          FROM schedule s
          LEFT JOIN events e2 ON e2.id = s.event_id
          LEFT JOIN categories c ON c.id = e2.category_id
-        WHERE s.year_id = $1 AND s.is_locked = TRUE`, [yc.id]);
+        WHERE s.year_id = $1 AND (s.is_locked = TRUE OR s.status <> 'draft')`, [yc.id]);
     const lockedKeys = new Set();
     const fixedBookings = [];
     for (const lr of lockedRows) {
@@ -558,7 +559,7 @@ router.get('/', requireRole(...staffRoles, 'Media'), async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT s.id, to_char(s.event_date, 'YYYY-MM-DD') AS event_date,
               s.start_time, s.end_time, s.venue, s.status, s.generated_by_scheduler,
-              s.event_id, s.time_slot_id, s.age_groups, s.is_locked,
+              s.event_id, s.time_slot_id, s.age_groups, s.is_locked, s.looks_good,
               to_char(s.locked_at, 'YYYY-MM-DD') AS locked_at,
               e.event_code, e.event_name, e.event_kind, c.name AS category_name, c.code AS category_code,
               e.allotted_time_seconds, e.is_stage_event,
@@ -606,6 +607,47 @@ router.put('/:id', requireRole(...editRoles), async (req, res, next) => {
       details: { event_date: rows[0].event_date, start_time: rows[0].start_time,
                  end_time: rows[0].end_time, venue: rows[0].venue } });
     res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/schedule/clear-drafts ────────────────────────────────────
+// Delete ALL draft, unlocked rows for the active year (keeps locked + confirmed).
+router.post('/clear-drafts', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+    const { rows } = await pool.query(
+      `DELETE FROM schedule WHERE year_id = $1 AND status = 'draft' AND is_locked = FALSE RETURNING id`, [yc.id]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'CLEAR_SCHEDULE_DRAFTS', entity: 'schedule', entityId: yc.id, details: { cleared: rows.length } });
+    res.json({ cleared: rows.length });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/schedule/:id/state ───────────────────────────────────────
+// Per-row review toggle: 'draft' -> 'looks_good' -> 'locked'.
+router.post('/:id/state', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const { state } = req.body;
+    if (!['draft', 'looks_good', 'locked'].includes(state))
+      return res.status(400).json({ error: "state must be 'draft', 'looks_good' or 'locked'" });
+    let result;
+    if (state === 'locked')
+      result = await pool.query(
+        `UPDATE schedule SET is_locked = TRUE, looks_good = TRUE, locked_at = NOW(), locked_by = $2, updated_at = NOW()
+          WHERE id = $1 RETURNING id`, [req.params.id, req.user.id]);
+    else if (state === 'looks_good')
+      result = await pool.query(
+        `UPDATE schedule SET looks_good = TRUE, is_locked = FALSE, locked_at = NULL, locked_by = NULL, updated_at = NOW()
+          WHERE id = $1 RETURNING id`, [req.params.id]);
+    else
+      result = await pool.query(
+        `UPDATE schedule SET looks_good = FALSE, is_locked = FALSE, locked_at = NULL, locked_by = NULL, updated_at = NOW()
+          WHERE id = $1 RETURNING id`, [req.params.id]);
+    if (!result.rows[0]) return res.status(404).json({ error: 'Schedule row not found' });
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'SCHEDULE_ROW_STATE', entity: 'schedule', entityId: req.params.id, details: { state } });
+    res.json({ ok: true, state });
   } catch (err) { next(err); }
 });
 

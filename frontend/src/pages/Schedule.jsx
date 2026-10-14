@@ -194,6 +194,22 @@ export default function Schedule() {
     } catch (err) { setFlash(err.message); }
   }
 
+  async function clearDrafts() {
+    if (!window.confirm('Delete ALL draft (unlocked) schedule rows? Locked and confirmed rows are kept.')) return;
+    try {
+      const r = await scheduleApi.clearDrafts(token);
+      setFlash(`Cleared ${r.cleared} draft row(s).`);
+      load();
+    } catch (err) { setFlash(err.message); }
+  }
+
+  async function cycleState(row) {
+    const cur = row.is_locked ? 'locked' : row.looks_good ? 'looks_good' : 'draft';
+    const next = cur === 'draft' ? 'looks_good' : cur === 'looks_good' ? 'locked' : 'draft';
+    try { await scheduleApi.rowState(token, row.id, next); load(); }
+    catch (err) { setFlash(err.message); }
+  }
+
   // group rows by date
   const byDate = rows.reduce((acc, r) => {
     const d = String(r.event_date).slice(0, 10);
@@ -216,6 +232,11 @@ export default function Schedule() {
               <Button variant="outline" icon={Wand2} onClick={() => setShowGen((x) => !x)}>
                 Generate draft…
               </Button>
+              {draftCount > 0 && (
+                <Button variant="outline" icon={Trash2} onClick={clearDrafts}>
+                  Clear drafts ({draftCount})
+                </Button>
+              )}
               <Button variant="gold" icon={CheckCircle2} onClick={publish} disabled={draftCount === 0}>
                 Publish schedule ({draftCount} draft)
               </Button>
@@ -434,16 +455,26 @@ export default function Schedule() {
                         {list.map((r) => {
                           const grp = perGroupRows(r, Number(buffer) || 30);
                           const n = grp.length;
+                          const cur = r.is_locked ? 'locked' : r.looks_good ? 'looks_good' : 'draft';
+                          const meta = {
+                            draft: { label: 'Draft', cls: 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200' },
+                            looks_good: { label: 'Looks good', cls: 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100' },
+                            locked: { label: 'Locked', cls: 'bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200' },
+                          }[cur];
                           const statusCell = (
-                            <div className="flex items-center gap-1.5">
-                              <Badge tone={r.status === 'confirmed' ? 'success' : r.status === 'completed' ? 'gold' : 'slate'}>
-                                {r.status}
-                              </Badge>
-                              {r.is_locked && (
-                                <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[10px] font-semibold" title="Locked — stays fixed across phases">
-                                  <Lock size={9} /> locked
+                            <div className="flex flex-col items-start gap-1">
+                              {canEdit ? (
+                                <button onClick={() => cycleState(r)}
+                                  title="Click to cycle: Draft → Looks good → Locked (locked rows survive regeneration)"
+                                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold transition-colors ${meta.cls}`}>
+                                  {cur === 'locked' && <Lock size={10} />}{meta.label}
+                                </button>
+                              ) : (
+                                <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${meta.cls}`}>
+                                  {cur === 'locked' && <Lock size={10} />}{meta.label}
                                 </span>
                               )}
+                              {r.status !== 'draft' && <span className="text-[10px] text-slate-400">{r.status}</span>}
                             </div>
                           );
                           return grp.map((g, gi) => (
