@@ -4,7 +4,7 @@
 // capacity (e.g. tables & chairs for drawing/painting), and per-weekday
 // availability hours (unticked day = venue unavailable that day).
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { Plus, Trash2, Save } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { useAuth } from '../../context/AuthContext';
@@ -24,7 +24,7 @@ const emptyVenue = () => ({
   weekday_hours: {}, blocked_dates: [],
 });
 
-export default function VenuesCard() {
+const VenuesCard = forwardRef(function VenuesCard(props, ref) {
   const { token } = useAuth();
   const [venues, setVenues] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -80,9 +80,13 @@ export default function VenuesCard() {
       await venuesApi.save(token, payload);
       setMsg('Venues saved.');
       load();
-    } catch (err) { setMsg(err.message || 'Save failed'); }
+      return true;
+    } catch (err) { setMsg(err.message || 'Save failed'); return false; }
     finally { setSaving(false); }
   }
+
+  // Let the page-level "Save changes" also persist the venues.
+  useImperativeHandle(ref, () => ({ save }), [venues, token]);
 
   return (
     <Card
@@ -205,4 +209,6 @@ export default function VenuesCard() {
       )}
     </Card>
   );
-}
+});
+
+export default VenuesCard;

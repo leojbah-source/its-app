@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { AlertTriangle, Lock, Save, ShieldCheck, Snowflake } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
@@ -29,6 +29,7 @@ export default function YearConfig() {
   const [year, setYear] = useState(CURRENT_YEAR);
   const [config, setConfig] = useState(defaultYearConfig(CURRENT_YEAR));
   const [loading, setLoading] = useState(true);
+  const venuesRef = useRef(null);
   const [loadError, setLoadError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [uploadingField, setUploadingField] = useState(null);
@@ -104,7 +105,11 @@ export default function YearConfig() {
     setSaving(true);
     try {
       await persistConfig();
-      showToast('Configuration saved.', 'success');
+      const venuesOk = await venuesRef.current?.save(); // Save changes also persists the Venues card
+      if (venuesOk === false)
+        showToast('Settings saved, but the venues could not be saved — check the Venues card.', 'error');
+      else
+        showToast('Configuration saved.', 'success');
       await loadConfig(year); // re-read so the form reflects exactly what persisted
     } catch (err) {
       showToast(err.message || 'Could not save the configuration.', 'error');
@@ -261,7 +266,7 @@ export default function YearConfig() {
             />
             <LimitsCard config={config} errors={errors} onChange={setConfig} />
             <PaymentDeadlinesCard config={config} errors={errors} onChange={setConfig} />
-            <VenuesCard />
+            <VenuesCard ref={venuesRef} />
             <GradingCard config={config} errors={errors} onChange={setConfig} />
             <DivergenceCard config={config} errors={errors} onChange={setConfig} />
             <BrandingCard config={config} onChange={setConfig} onUpload={handleUpload} uploadingField={uploadingField} />
