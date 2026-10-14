@@ -4,7 +4,7 @@
 // same-category venue clustering), review & adjust rows, then publish.
 
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Wand2, CheckCircle2, Save } from 'lucide-react';
+import { RefreshCw, Wand2, CheckCircle2, Save, Lock, Unlock } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -76,6 +76,7 @@ export default function Schedule() {
   const [maxGroups, setMaxGroups] = useState(3);
   const [catDates, setCatDates] = useState([]);  // [{id,code,name,not_before_date}]
   const [generating, setGenerating] = useState(false);
+  const [excludeCats, setExcludeCats] = useState(() => new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -110,6 +111,7 @@ export default function Schedule() {
         end_date: endDate || undefined,
         reporting_buffer_minutes: Number(buffer) || 30,
         max_groups_per_session: Number(maxGroups) || 3,
+        exclude_category_ids: [...excludeCats],
       });
       setFlash(`Draft generated: ${r.scheduled} events placed${r.unplaced.length ? `, ${r.unplaced.length} could not be placed` : ''}.`);
       setUnplaced(r.unplaced || []);
@@ -128,6 +130,24 @@ export default function Schedule() {
     } catch (err) { setFlash(err.message); }
   }
 
+  async function lock() {
+    if (!window.confirm('Lock the current placements as a phase? Locked events stay fixed when you generate later phases.')) return;
+    try {
+      const r = await scheduleApi.lock(token);
+      setFlash(`Locked ${r.locked} event(s) — they stay fixed in later generations.`);
+      load();
+    } catch (err) { setFlash(err.message); }
+  }
+
+  async function unlock() {
+    if (!window.confirm('Unlock all locked events? They can then be moved or regenerated.')) return;
+    try {
+      const r = await scheduleApi.unlock(token);
+      setFlash(`Unlocked ${r.unlocked} event(s).`);
+      load();
+    } catch (err) { setFlash(err.message); }
+  }
+
   // group rows by date
   const byDate = rows.reduce((acc, r) => {
     const d = String(r.event_date).slice(0, 10);
@@ -135,6 +155,8 @@ export default function Schedule() {
     return acc;
   }, {});
   const draftCount = rows.filter((r) => r.status === 'draft').length;
+  const lockedCount = rows.filter((r) => r.is_locked).length;
+  const unlockedCount = rows.filter((r) => !r.is_locked).length;
 
   return (
     <AdminLayout
@@ -151,6 +173,14 @@ export default function Schedule() {
               <Button variant="gold" icon={CheckCircle2} onClick={publish} disabled={draftCount === 0}>
                 Publish schedule ({draftCount} draft)
               </Button>
+              <Button variant="outline" icon={Lock} onClick={lock} disabled={unlockedCount === 0}>
+                Lock phase
+              </Button>
+              {lockedCount > 0 && (
+                <Button variant="ghost" icon={Unlock} onClick={unlock}>
+                  Unlock ({lockedCount})
+                </Button>
+              )}
             </>
           )}
         </>
@@ -229,6 +259,36 @@ export default function Schedule() {
             {catDates.length > 0 && (
               <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
                 <p className="text-xs font-semibold text-slate-600 mb-2">
+                  Hold back categories (schedule in a later phase) — e.g. Dance until the India judges' dates are fixed
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {catDates.map((c) => {
+                    const held = excludeCats.has(c.id);
+                    return (
+                      <button key={c.id} type="button"
+                        onClick={() => setExcludeCats((prev) => {
+                          const n = new Set(prev);
+                          if (n.has(c.id)) n.delete(c.id); else n.add(c.id);
+                          return n;
+                        })}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                          held ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-300 text-slate-500 hover:bg-slate-100'}`}>
+                        {held ? 'Held: ' : ''}{c.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                {excludeCats.size > 0 && (
+                  <p className="mt-2 text-[11px] text-red-600">
+                    Held back this run: {catDates.filter((c) => excludeCats.has(c.id)).map((c) => c.name).join(', ')}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {catDates.length > 0 && (
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold text-slate-600 mb-2">
                   Earliest date per category (optional) — e.g. schedule dance late so kids get more practice time
                 </p>
                 <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
@@ -252,8 +312,9 @@ export default function Schedule() {
             )}
 
             <p className="text-xs text-amber-600">
-              Generating replaces the current DRAFT rows (confirmed rows are kept). Events are
-              only placed in venues that suit their category, have capacity, and are open that day.
+              Generating replaces the current unlocked DRAFT rows; locked and confirmed rows are kept
+              and the new events are placed around them (still no clashes, max 2/day per child).
+              Events only go in venues that suit their category, have capacity, and are open that day.
             </p>
             <Button variant="primary" icon={Wand2} loading={generating}
               disabled={venues.length === 0} onClick={generate}>
@@ -316,7 +377,7 @@ export default function Schedule() {
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {list.map((r) => (
-                          <tr key={r.id} className="hover:bg-slate-50">
+                          <tr key={r.id} className={`hover:bg-slate-50 ${r.is_locked ? 'bg-amber-50/50' : ''}`}>
                             <td className="px-3 py-2 font-mono text-xs">
                               {(r.start_time || '').slice(0, 5)}–{(r.end_time || '').slice(0, 5)}
                             </td>
@@ -333,9 +394,16 @@ export default function Schedule() {
                             <td className="px-3 py-2 text-xs text-slate-500">{r.category_name || '—'}</td>
                             <td className="px-3 py-2"><Badge tone="navy">{r.entries}</Badge></td>
                             <td className="px-3 py-2">
-                              <Badge tone={r.status === 'confirmed' ? 'success' : r.status === 'completed' ? 'gold' : 'slate'}>
-                                {r.status}
-                              </Badge>
+                              <div className="flex items-center gap-1.5">
+                                <Badge tone={r.status === 'confirmed' ? 'success' : r.status === 'completed' ? 'gold' : 'slate'}>
+                                  {r.status}
+                                </Badge>
+                                {r.is_locked && (
+                                  <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[10px] font-semibold" title="Locked — stays fixed across phases">
+                                    <Lock size={9} /> locked
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="px-3 py-2 text-right">
                               {canEdit ? <RowEditor row={r} token={token} onSaved={load} /> : null}

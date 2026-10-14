@@ -21,7 +21,7 @@ const inputCls = 'rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:o
 
 const emptyVenue = () => ({
   name: '', has_stage: true, capacity: '', suitable_for: [], notes: '',
-  weekday_hours: {},
+  weekday_hours: {}, blocked_dates: [],
 });
 
 export default function VenuesCard() {
@@ -35,7 +35,10 @@ export default function VenuesCard() {
     setLoading(true);
     try {
       const rows = await venuesApi.list(token);
-      setVenues(rows.map((v) => ({ ...v, capacity: v.capacity ?? '' })));
+      setVenues(rows.map((v) => ({
+        ...v, capacity: v.capacity ?? '',
+        blocked_dates: (v.blocked_dates || []).map((d) => String(d).slice(0, 10)),
+      })));
     } catch { /* shown on save */ }
     finally { setLoading(false); }
   }, [token]);
@@ -55,6 +58,14 @@ export default function VenuesCard() {
     else wh[day] = { start: '19:00', end: '22:00', ...(wh[day] || {}), ...patch };
     up(i, { weekday_hours: wh });
   };
+
+  const addBlocked = (i, date) => {
+    if (!date) return;
+    const cur = venues[i].blocked_dates || [];
+    if (!cur.includes(date)) up(i, { blocked_dates: [...cur, date].sort() });
+  };
+  const removeBlocked = (i, date) =>
+    up(i, { blocked_dates: (venues[i].blocked_dates || []).filter((d) => d !== date) });
 
   async function save() {
     setSaving(true);
@@ -146,6 +157,22 @@ export default function VenuesCard() {
                       </div>
                     );
                   })}
+                </div>
+              </div>
+
+              <div>
+                <span className="text-xs font-medium text-slate-600">
+                  Blocked dates (hall taken for another function — unavailable even on its normal days)
+                </span>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  {(v.blocked_dates || []).map((d) => (
+                    <span key={d} className="inline-flex items-center gap-1 rounded-full bg-red-50 border border-red-200 text-red-700 px-2.5 py-1 text-xs">
+                      {d}
+                      <button type="button" onClick={() => removeBlocked(i, d)} className="text-red-400 hover:text-red-600 font-bold leading-none">×</button>
+                    </span>
+                  ))}
+                  <input type="date" className={inputCls}
+                    onChange={(e) => { addBlocked(i, e.target.value); e.target.value = ''; }} />
                 </div>
               </div>
             </div>

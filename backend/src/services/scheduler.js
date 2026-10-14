@@ -239,6 +239,36 @@ async function generateScheduleDraft(yearId, config, db) {
   const scheduled = [];
   const unplaced = [];
 
+  // Phase scheduling: seed already-LOCKED placements as fixed bookings so this
+  // run is built AROUND them (never moving them), and skip any unit whose age
+  // group is already locked. The 2-per-day and no-clash rules then span phases
+  // automatically because the locked bookings are in the maps below.
+  const lockedKeys = config.lockedKeys instanceof Set
+    ? config.lockedKeys
+    : new Set(config.lockedKeys || []);
+  const isLocked = (event) => String(event.age_groups || '')
+    .split(', ')
+    .some((code) => lockedKeys.has(`${event.real_event_id}:${code}`));
+  for (const b of (config.fixedBookings || [])) {
+    const start = timeToMinutes(b.start);
+    const end = timeToMinutes(b.end);
+    venueBookings[b.date] ??= {};
+    venueBookings[b.date][b.venue] ??= [];
+    venueBookings[b.date][b.venue].push({ start, end, event_id: b.event_id });
+    categoryVenueUse[b.date] ??= {};
+    categoryVenueUse[b.date][b.venue] ??= {};
+    if (b.category)
+      categoryVenueUse[b.date][b.venue][b.category] =
+        (categoryVenueUse[b.date][b.venue][b.category] || 0) + 1;
+    for (const pid of (b.participantIds || [])) {
+      participantBookings[pid] ??= {};
+      participantBookings[pid][b.date] ??= [];
+      participantBookings[pid][b.date].push({ start, end });
+      dailyCounts[pid] ??= {};
+      dailyCounts[pid][b.date] = (dailyCounts[pid][b.date] || 0) + 1;
+    }
+  }
+
   // Table-events pass: "table" events (drawing, spelling, handwriting, clay
   // modelling...) run for all age groups at once. Place them FIRST, back-to-
   // back, each on its own venue within the shared blocks, so several tables run
@@ -250,6 +280,7 @@ async function generateScheduleDraft(yearId, config, db) {
     tableUnits.sort((a, b) => b.duration_minutes - a.duration_minutes
       || String(a.event_id).localeCompare(String(b.event_id)));
     for (const event of tableUnits) {
+      if (isLocked(event)) { placedTableUnitIds.add(event.event_id); continue; }
       const participantIds = participantsByEvent[event.event_id] || [];
       let placed = null;
       for (const day of dailySlots) {
@@ -298,6 +329,7 @@ async function generateScheduleDraft(yearId, config, db) {
 
   for (const event of queue) {
     if (placedTableUnitIds.has(event.event_id) || event.table_event) continue;
+    if (isLocked(event)) continue;
     const participantIds = participantsByEvent[event.event_id] || [];
     let placed = null;
 

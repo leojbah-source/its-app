@@ -112,6 +112,10 @@ router.put('/venues', requireRole('SuperAdmin', 'Admin'), async (req, res, next)
         if (!/^\d{2}:\d{2}$/.test(h?.start || '') || !/^\d{2}:\d{2}$/.test(h?.end || ''))
           return res.status(400).json({ error: `Venue ${v.name}: ${day} needs start/end as HH:MM` });
       }
+      for (const d of (v.blocked_dates || [])) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d))
+          return res.status(400).json({ error: `Venue ${v.name}: blocked date '${d}' must be YYYY-MM-DD` });
+      }
     }
     const yc = await activeYear();
     if (!yc) return res.status(400).json({ error: 'No active year' });
@@ -120,15 +124,17 @@ router.put('/venues', requireRole('SuperAdmin', 'Admin'), async (req, res, next)
     const keep = [];
     for (const [i, v] of venues.entries()) {
       const { rows } = await client.query(
-        `INSERT INTO venues (year_id, name, has_stage, capacity, suitable_for, weekday_hours, notes, sort_order)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        `INSERT INTO venues (year_id, name, has_stage, capacity, suitable_for, weekday_hours, notes, sort_order, blocked_dates)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          ON CONFLICT (year_id, name) DO UPDATE SET
            has_stage = EXCLUDED.has_stage, capacity = EXCLUDED.capacity,
            suitable_for = EXCLUDED.suitable_for, weekday_hours = EXCLUDED.weekday_hours,
-           notes = EXCLUDED.notes, sort_order = EXCLUDED.sort_order
+           notes = EXCLUDED.notes, sort_order = EXCLUDED.sort_order,
+           blocked_dates = EXCLUDED.blocked_dates
          RETURNING id`,
         [yc.id, v.name.trim(), v.has_stage !== false, v.capacity || null,
-         v.suitable_for || [], JSON.stringify(v.weekday_hours || {}), v.notes || null, i]);
+         v.suitable_for || [], JSON.stringify(v.weekday_hours || {}), v.notes || null, i,
+         (v.blocked_dates || [])]);
       keep.push(rows[0].id);
     }
     await client.query(
@@ -173,8 +179,11 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
             reporting_buffer_minutes = 30,
             minutes_per_participant_default = 5,
             setup_minutes = 10,
-            max_groups_per_session = 3 } = req.body;
+            max_groups_per_session = 3,
+            exclude_category_ids = [] } = req.body;
     const maxGroups = Math.min(3, Math.max(1, Number(max_groups_per_session) || 3));
+    const excludeCategoryIds = (Array.isArray(exclude_category_ids) ? exclude_category_ids : [])
+      .map(Number).filter((n) => Number.isInteger(n));
 
     const { rows: venueRows } = await pool.query(
       `SELECT * FROM venues WHERE year_id = $1 ORDER BY sort_order, id`, [yc.id]);
@@ -194,7 +203,8 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
       const blocks = [];
       for (const v of venueRows) {
         const h = (v.weekday_hours || {})[weekday];
-        if (h?.start && h?.end) blocks.push({ start: h.start, end: h.end, venues: [v.name] });
+        const blocked = (v.blocked_dates || []).some((d) => localISO(d) === date);
+        if (h?.start && h?.end && !blocked) blocks.push({ start: h.start, end: h.end, venues: [v.name] });
       }
       if (blocks.length) dailySlots.push({ date, blocks });
     }
@@ -205,6 +215,44 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
       reportingBufferMinutes: Number(reporting_buffer_minutes) || 30,
       dailySlots,
     };
+
+    // Locked (committed) placements from earlier phases — seed them as FIXED
+    // bookings so this run is built around them and never regenerates them.
+    const { rows: lockedRows } = await pool.query(
+      `SELECT s.event_id, s.age_groups,
+              to_char(s.event_date, 'YYYY-MM-DD') AS date,
+              to_char(s.start_time, 'HH24:MI') AS start_time,
+              to_char(s.end_time, 'HH24:MI') AS end_time,
+              s.venue, COALESCE(c.name, 'Other') AS category
+         FROM schedule s
+         LEFT JOIN events e2 ON e2.id = s.event_id
+         LEFT JOIN categories c ON c.id = e2.category_id
+        WHERE s.year_id = $1 AND s.is_locked = TRUE`, [yc.id]);
+    const lockedKeys = new Set();
+    const fixedBookings = [];
+    for (const lr of lockedRows) {
+      const codes = (lr.age_groups || '').split(', ').filter(Boolean);
+      for (const code of codes) lockedKeys.add(`${lr.event_id}:${code}`);
+      const { rows: prows } = await pool.query(
+        `SELECT DISTINCT COALESCE(r.participant_id, tm.participant_id) AS pid
+           FROM registrations r
+           LEFT JOIN team_members tm ON tm.team_id = r.team_id
+           LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+          WHERE r.event_id = $1 AND r.status NOT IN ('withdrawn','swapped')
+            AND (cardinality($2::text[]) = 0 OR ag.code = ANY($2::text[]))
+            AND COALESCE(r.participant_id, tm.participant_id) IS NOT NULL`,
+        [lr.event_id, codes]);
+      if (lr.start_time && lr.end_time && lr.venue) {
+        fixedBookings.push({
+          date: lr.date, venue: lr.venue,
+          start: lr.start_time, end: lr.end_time,
+          event_id: lr.event_id, category: lr.category,
+          participantIds: prows.map((x) => x.pid),
+        });
+      }
+    }
+    config.lockedKeys = lockedKeys;
+    config.fixedBookings = fixedBookings;
 
     // Suitability + capacity → allowed venues per event.
     // NOTE: capacity only excludes a venue for STAGE events (audience seats
@@ -298,8 +346,9 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
              AND r.status NOT IN ('withdrawn','swapped')
            LEFT JOIN age_groups ag ON ag.id = r.age_group_id
            WHERE e.year_id = $1 AND e.is_cancelled = FALSE
+             AND (e.category_id IS NULL OR e.category_id <> ALL($2::int[]))
            GROUP BY e.id, c.name, c.not_before_date, pv.name, ag.code, ag.sort_order
-           ORDER BY e.id, ag.sort_order`, [yearId]);
+           ORDER BY e.id, ag.sort_order`, [yearId, excludeCategoryIds]);
 
         // group rows per event, then batch consecutive age groups
         const perEvent = new Map();
@@ -423,7 +472,7 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
         const client = await pool.connect();
         try {
           await client.query('BEGIN');
-          await client.query(`DELETE FROM schedule WHERE year_id = $1 AND status = 'draft'`, [yearId]);
+          await client.query(`DELETE FROM schedule WHERE year_id = $1 AND status = 'draft' AND is_locked = FALSE`, [yearId]);
           for (const s of draft.scheduled) {
             const [realId, groups] = String(s.event_id).split('|');
             await client.query(
@@ -507,7 +556,8 @@ router.get('/', requireRole(...staffRoles, 'Media'), async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT s.id, to_char(s.event_date, 'YYYY-MM-DD') AS event_date,
               s.start_time, s.end_time, s.venue, s.status, s.generated_by_scheduler,
-              s.event_id, s.time_slot_id, s.age_groups,
+              s.event_id, s.time_slot_id, s.age_groups, s.is_locked,
+              to_char(s.locked_at, 'YYYY-MM-DD') AS locked_at,
               e.event_code, e.event_name, e.event_kind, c.name AS category_name, c.code AS category_code,
               (SELECT COUNT(*)::int FROM registrations r
                LEFT JOIN age_groups ag2 ON ag2.id = r.age_group_id
@@ -562,6 +612,40 @@ router.post('/publish', requireRole('SuperAdmin', 'Admin', 'Chairman'), async (r
       action: 'PUBLISH_SCHEDULE', entity: 'schedule', entityId: yc.id,
       details: { confirmed_rows: rows.length } });
     res.json({ confirmed: rows.length });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/schedule/lock ────────────────────────────────────────────
+// Lock the current (unlocked) placements as a committed phase. Locked rows are
+// never moved or regenerated by a later generate-draft; the next phase is built
+// around them. Separate from publish.
+router.post('/lock', requireRole('SuperAdmin', 'Admin', 'Chairman'), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+    const { rows } = await pool.query(
+      `UPDATE schedule SET is_locked = TRUE, locked_at = NOW(), locked_by = $2, updated_at = NOW()
+        WHERE year_id = $1 AND is_locked = FALSE RETURNING id`, [yc.id, req.user.id]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'LOCK_SCHEDULE_PHASE', entity: 'schedule', entityId: yc.id,
+      details: { locked: rows.length } });
+    res.json({ locked: rows.length });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/schedule/unlock ──────────────────────────────────────────
+// Unlock all locked rows so a phase can be regenerated. Does not delete them.
+router.post('/unlock', requireRole('SuperAdmin', 'Admin', 'Chairman'), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+    const { rows } = await pool.query(
+      `UPDATE schedule SET is_locked = FALSE, locked_at = NULL, locked_by = NULL, updated_at = NOW()
+        WHERE year_id = $1 AND is_locked = TRUE RETURNING id`, [yc.id]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'UNLOCK_SCHEDULE_PHASE', entity: 'schedule', entityId: yc.id,
+      details: { unlocked: rows.length } });
+    res.json({ unlocked: rows.length });
   } catch (err) { next(err); }
 });
 

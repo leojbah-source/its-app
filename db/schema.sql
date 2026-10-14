@@ -481,6 +481,9 @@ CREATE TABLE schedule (
     venue                        TEXT,
     status                       TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','confirmed','completed')),
     generated_by_scheduler       BOOL NOT NULL DEFAULT TRUE,
+    is_locked                    BOOL NOT NULL DEFAULT FALSE,   -- phased scheduling (migration 050)
+    locked_at                    TIMESTAMPTZ,
+    locked_by                    INT REFERENCES users(id),
     created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at                   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
