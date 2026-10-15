@@ -246,9 +246,12 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
     setBusy(`pay${id}`);
     setFlash('');
     try {
-      if (action === 'confirm') await paymentsApi.confirm(token, id);
-      else await paymentsApi.reject(token, id, rejectReason.trim());
-      setFlash(action === 'confirm' ? 'Payment confirmed — parent notified.' : 'Payment rejected — parent notified.');
+      if (action === 'confirm') { await paymentsApi.confirm(token, id); }
+      else if (action === 'void') { await paymentsApi.reject(token, id, 'Not required (events cancelled)', false); }
+      else { await paymentsApi.reject(token, id, rejectReason.trim(), true); }
+      setFlash(action === 'confirm' ? 'Payment confirmed — parent notified.'
+        : action === 'void' ? 'Payment voided — no parent notice sent.'
+        : 'Payment rejected — parent notified.');
       setRejectFor(null);
       setRejectReason('');
       load();
@@ -796,10 +799,14 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                                 <Button variant="outline" size="sm" onClick={() => { setRejectFor(pay.id); setRejectReason(''); }}>
                                   Reject…
                                 </Button>
+                                <Button variant="outline" size="sm" loading={busy === `pay${pay.id}`}
+                                  onClick={() => { if (window.confirm('Void this pending payment? It will be cleared and the parent will NOT be notified. Use this when nothing is owed — e.g. the events were cancelled.')) doPayment(pay.id, 'void'); }}>
+                                  Void (no notice)
+                                </Button>
                               </div>
                               {balanceDue <= 0 && (
                                 <p className="text-[11px] text-slate-400">
-                                  No balance due — nothing to confirm. Use “Reject…” if this payment isn’t required.
+                                  No balance due — nothing to confirm. Use “Void (no notice)” to clear a payment that isn’t required (parent not notified), or “Reject…” to clear it and ask the parent to resubmit.
                                 </p>
                               )}
                             </div>

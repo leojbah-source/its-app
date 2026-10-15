@@ -148,7 +148,7 @@ export const financeApi = {
 export const paymentsApi = {
   list: (token, { yearId, status, q } = {}) => request(`/api/admin/payments${qs({ year_id: yearId, status, q })}`, { token }),
   confirm: (token, id) => request(`/api/admin/payments/${id}/confirm`, { method: 'POST', token, body: {} }),
-  reject: (token, id, reason) => request(`/api/admin/payments/${id}/reject`, { method: 'POST', token, body: { reason } }),
+  reject: (token, id, reason, notify = true) => request(`/api/admin/payments/${id}/reject`, { method: 'POST', token, body: { reason, notify } }),
   updateAmount: (token, id, amount, reason) => request(`/api/admin/payments/${id}/amount`, { method: 'PUT', token, body: { amount, reason } }),
   changeMethod: (token, id, { method, reference, file }) => {
     const fd = new FormData();

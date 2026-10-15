@@ -260,24 +260,32 @@ router.post('/payments/participant/:id', requireRole(...paymentActionRoles),
 // ── POST /api/admin/payments/:id/reject ──────────────────────────────────────
 router.post('/payments/:id/reject', requireRole(...paymentActionRoles), async (req, res, next) => {
   try {
-    const { reason } = req.body;
-    if (!reason?.trim()) return res.status(400).json({ error: 'reason is required' });
+    // notify=false → a SILENT void: clear a pending payment that is no longer
+    // required (e.g. the parent cancelled all events) without telling the parent
+    // to resubmit. Default (true) keeps the normal "rejected, please resubmit".
+    const notify = req.body?.notify !== false;
+    const reasonRaw = (req.body?.reason || '').trim();
+    if (notify && !reasonRaw) return res.status(400).json({ error: 'reason is required' });
+    const reason = reasonRaw || 'Voided — not required (e.g. events cancelled)';
+    const prefix = notify ? 'REJECTED: ' : 'VOIDED: ';
     const cashOnly = req.user.role === 'Registrar';   // Registrars: cash payments only
     const { rows } = await pool.query(
       `UPDATE payments SET status = 'rejected', confirmed_by = $1,
-              confirmed_at = NOW(), notes = COALESCE(notes || E'\n', '') || 'REJECTED: ' || $2,
+              confirmed_at = NOW(), notes = COALESCE(notes || E'\n', '') || $2 || $3,
               updated_at = NOW()
-       WHERE id = $3 AND status = 'pending' AND ($4 = false OR method = 'cash') RETURNING *`,
-      [req.user.id, reason.trim(), req.params.id, cashOnly]
+       WHERE id = $4 AND status = 'pending' AND ($5 = false OR method = 'cash') RETURNING *`,
+      [req.user.id, prefix, reason, req.params.id, cashOnly]
     );
     if (!rows[0]) return res.status(404).json({
       error: cashOnly
-        ? 'Pending cash payment not found — Registrars can only reject KCA-office (cash) payments.'
+        ? 'Pending cash payment not found — Registrars can only action KCA-office (cash) payments.'
         : 'Pending payment not found',
     });
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
-      action: 'REJECT_PAYMENT', entity: 'payments', entityId: req.params.id,
-      details: { amount: rows[0].amount, method: rows[0].method }, reason: reason.trim() });
+      action: notify ? 'REJECT_PAYMENT' : 'VOID_PAYMENT', entity: 'payments', entityId: req.params.id,
+      details: { amount: rows[0].amount, method: rows[0].method, notify }, reason });
+
+    if (!notify) return res.json(rows[0]);   // silent void — no parent notification
 
     // Notify the parent so they can resubmit (e.g. wrong transfer amount)
     const { rows: info } = await pool.query(
