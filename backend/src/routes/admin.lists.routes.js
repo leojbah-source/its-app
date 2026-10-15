@@ -421,8 +421,8 @@ router.get('/board-files', requireRole(...staffRoles), async (req, res, next) =>
     if (!yc) return res.status(400).json({ error: 'No active year' });
     const { rows: ags } = await pool.query(
       `SELECT code, label FROM age_groups WHERE year_id = $1 ORDER BY sort_order NULLS LAST, code`, [yc.id]);
-    const { rows: yr } = await pool.query(`SELECT list_files FROM year_config WHERE id = $1`, [yc.id]);
-    res.json({ groups: ags, files: yr[0]?.list_files || [] });
+    const { rows: yr } = await pool.query(`SELECT list_files, list_board_title FROM year_config WHERE id = $1`, [yc.id]);
+    res.json({ groups: ags, files: yr[0]?.list_files || [], title: yr[0]?.list_board_title || 'Final Participants List' });
   } catch (err) { next(err); }
 });
 
@@ -442,11 +442,16 @@ router.put('/board-files', requireRole('SuperAdmin', 'Admin'), async (req, res, 
       if (!/^(\/uploads\/|https?:\/\/)/i.test(url)) return res.status(400).json({ error: `Invalid file URL: ${url}` });
       clean.push({ code: String(f.code || '').slice(0, 20), label: String(f.label || f.code || '').slice(0, 80), url });
     }
-    await pool.query(`UPDATE year_config SET list_files = $1::jsonb, updated_at = NOW() WHERE id = $2`,
-      [JSON.stringify(clean), yc.id]);
+    // Optional title for the public card (keep the current one if not supplied).
+    const title = (typeof req.body?.title === 'string') ? req.body.title.trim().slice(0, 80) : null;
+    await pool.query(
+      `UPDATE year_config SET list_files = $1::jsonb,
+              list_board_title = COALESCE(NULLIF($2, ''), list_board_title),
+              updated_at = NOW() WHERE id = $3`,
+      [JSON.stringify(clean), title, yc.id]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
-      action: 'SET_BOARD_LIST_FILES', entity: 'year_config', entityId: yc.id, details: { count: clean.length } });
-    res.json({ ok: true, files: clean });
+      action: 'SET_BOARD_LIST_FILES', entity: 'year_config', entityId: yc.id, details: { count: clean.length, title: title || undefined } });
+    res.json({ ok: true, files: clean, title: title || undefined });
   } catch (err) { next(err); }
 });
 

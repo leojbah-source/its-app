@@ -355,7 +355,7 @@ export const listsApi = {
   final: (token) => request('/api/admin/lists/final', { token }),
   publishInitial: (token) => request('/api/admin/lists/publish-initial', { method: 'POST', token, body: {} }),
   boardFiles: (token) => request('/api/admin/lists/board-files', { token }),
-  saveBoardFiles: (token, files) => request('/api/admin/lists/board-files', { method: 'PUT', token, body: { files } }),
+  saveBoardFiles: (token, files, title) => request('/api/admin/lists/board-files', { method: 'PUT', token, body: { files, title } }),
   /** ZIP of one initial-list PDF per age group (as registered). Returns a Blob. */
   initialPdf: async (token) => {
     const res = await fetch(`${API_BASE}/api/admin/lists/initial-pdf`, { headers: { Authorization: `Bearer ${token}` } });

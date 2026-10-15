@@ -117,7 +117,7 @@ export default function PublicBoard() {
             <span className="flex items-center gap-2.5">
               <ListChecks size={18} className="shrink-0 text-gold-700" />
               <span>
-                <span className="block text-sm font-semibold text-navy-800">Initial Participants List</span>
+                <span className="block text-sm font-semibold text-navy-800">{year?.list_board_title || 'Participants List'}</span>
                 <span className="block text-[11px] text-slate-500">Tap your child&rsquo;s age group to open its list (PDF)</span>
               </span>
             </span>

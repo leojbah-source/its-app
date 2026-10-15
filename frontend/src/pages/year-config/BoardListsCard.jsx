@@ -11,6 +11,7 @@ export default function BoardListsCard() {
   const { token } = useAuth();
   const [groups, setGroups] = useState([]);
   const [files, setFiles] = useState({});        // code -> { label, url }
+  const [title, setTitle] = useState('Final Participants List');
   const [uploading, setUploading] = useState(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
@@ -20,6 +21,7 @@ export default function BoardListsCard() {
     listsApi.boardFiles(token)
       .then((d) => {
         setGroups(d.groups || []);
+        if (d.title) setTitle(d.title);
         const m = {};
         (d.files || []).forEach((f) => { m[f.code] = { label: f.label, url: f.url }; });
         setFiles(m);
@@ -45,19 +47,25 @@ export default function BoardListsCard() {
     try {
       const arr = groups.filter((g) => files[g.code]?.url)
         .map((g) => ({ code: g.code, label: files[g.code].label || labelFor(g), url: files[g.code].url }));
-      const r = await listsApi.saveBoardFiles(token, arr);
+      const r = await listsApi.saveBoardFiles(token, arr, title.trim() || 'Participants List');
       setMsg(`Saved — ${r.files.length} list${r.files.length === 1 ? '' : 's'} now shown on the PWA board.`);
     } catch (e) { setErr(e.message || 'Could not save.'); }
     finally { setSaving(false); }
   }
 
   return (
-    <Card title="Initial Participants List (PWA board)">
+    <Card title="Participants List (PWA board)">
       <p className="mb-3 text-xs text-slate-500">
-        Upload the reviewed participant-list PDF for each age group. They appear as the &ldquo;Initial Participants List&rdquo;
-        card on the public board, one tappable link per group. Download &amp; check them first from
-        <b> Lists &rarr; Download initial lists</b>. Leave a group empty to omit it; then click Save.
+        Upload the reviewed participant-list PDF for each age group. They appear under the heading below on the
+        public board, one tappable link per group. Download &amp; check them first from
+        <b> Lists &rarr; Download final lists</b>. Leave a group empty to omit it; then click Save.
       </p>
+      <label className="mb-3 block">
+        <span className="mb-1 block text-xs font-medium text-slate-600">Heading shown on the public board</span>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={80}
+               placeholder="e.g. Final Participants List"
+               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+      </label>
       {err && <p className="mb-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{err}</p>}
       {msg && <p className="mb-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{msg}</p>}
       <div className="space-y-2">
