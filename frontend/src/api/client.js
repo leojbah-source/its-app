@@ -361,6 +361,12 @@ export const listsApi = {
     if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
     return res.blob();
   },
+  /** ZIP of one FINAL-list PDF per age group (after merges/splits/cancels). Blob. */
+  finalPdf: async (token) => {
+    const res = await fetch(`${API_BASE}/api/admin/lists/final-pdf`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
+    return res.blob();
+  },
 };
 
 export const maintenanceApi = {

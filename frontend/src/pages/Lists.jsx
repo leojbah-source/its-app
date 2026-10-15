@@ -60,6 +60,7 @@ export default function Lists() {
   const [error, setError] = useState('');
   const [publishing, setPublishing] = useState(false);
   const [dlZip, setDlZip] = useState(false);
+  const [dlFinalZip, setDlFinalZip] = useState(false);
   const [flash, setFlash] = useState('');
 
   const load = useCallback(async () => {
@@ -162,6 +163,21 @@ export default function Lists() {
     finally { setDlZip(false); }
   }
 
+  async function downloadFinalZip() {
+    setDlFinalZip(true);
+    setFlash('');
+    try {
+      const blob = await listsApi.finalPdf(token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `final-lists-${(year?.event_year_label || 'ITS').replace(/[^a-z0-9]+/gi, '_')}.zip`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (err) { setFlash(err.message || 'Could not generate the PDF files.'); }
+    finally { setDlFinalZip(false); }
+  }
+
   async function publishInitial() {
     setPublishing(true);
     setFlash('');
@@ -191,6 +207,9 @@ export default function Lists() {
           </Button>
           <Button variant="outline" icon={Download} onClick={downloadInitialZip} loading={dlZip} disabled={loading || !!error}>
             Download initial lists (PDF per age group)
+          </Button>
+          <Button variant="outline" icon={Download} onClick={downloadFinalZip} loading={dlFinalZip} disabled={loading || !!error}>
+            Download final lists (after splits/merges)
           </Button>
           <Button
             variant="gold"

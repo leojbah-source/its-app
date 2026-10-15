@@ -23,7 +23,7 @@ const { prepLogo } = require('../utils/pdf');
 const INK = '#1e3a5f', MUTE = '#64748b', BODY = '#1e293b', RED = '#b91c1c';
 
 /** Full branded header + age-group banner at the top of a group's first page. */
-function drawGroupHeader(doc, logos, year, group) {
+function drawGroupHeader(doc, logos, year, group, subtitle) {
   const M = doc.page.margins.left;
   const W = doc.page.width - doc.page.margins.left - doc.page.margins.right;
   const topY = doc.page.margins.top;
@@ -34,7 +34,7 @@ function drawGroupHeader(doc, logos, year, group) {
   doc.fillColor(INK).font('Helvetica-Bold').fontSize(15)
      .text(year.event_year_label || 'KCA Indian Talent Scan', M, topY + logoH + 4, { width: W, align: 'center' });
   doc.font('Helvetica').fontSize(9.5).fillColor(MUTE)
-     .text(`Initial List (as registered) · printed ${new Date().toLocaleString('en-GB')}`, { width: W, align: 'center' });
+     .text(`${subtitle || 'Initial List (as registered)'} · printed ${new Date().toLocaleString('en-GB')}`, { width: W, align: 'center' });
   const by = doc.y + 8;
   doc.roundedRect(M, by, W, 23, 4).fill(INK);
   doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(12)
@@ -59,7 +59,7 @@ function drawRunningHeader(doc, group) {
  *  events in red, branded header + banner, running header, page numbers.
  *  Manual pagination (no pageAdded reentrancy) + margin-zero footer so no blank
  *  pages are produced. */
-function renderGroupPdf(logos, year, group, minTh) {
+function renderGroupPdf(logos, year, group, minTh, subtitle) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 45, size: 'A4', bufferPages: true });
     const chunks = [];
@@ -70,7 +70,7 @@ function renderGroupPdf(logos, year, group, minTh) {
     const bottom = () => doc.page.height - doc.page.margins.bottom - 16;
     const newPage = () => { doc.addPage(); drawRunningHeader(doc, group); };
 
-    drawGroupHeader(doc, logos, year, group);
+    drawGroupHeader(doc, logos, year, group, subtitle);
     const eventNames = [...group.events.keys()].sort((a, b) => a.localeCompare(b));
     if (eventNames.length === 0) doc.font('Helvetica').fontSize(11).fillColor(MUTE).text('No individual entries in this age group.');
 
@@ -331,6 +331,81 @@ router.get('/initial-pdf', requireRole(...staffRoles), async (req, res, next) =>
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'EXPORT_INITIAL_LIST_PDF', entity: 'year_config', entityId: yc.id,
+      details: { age_groups: ordered.length } });
+
+    await archive.finalize();
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/admin/lists/final-pdf ────────────────────────────────────────────
+// Streams a ZIP with one PDF per age group — the FINAL list AFTER consolidation
+// (merges + splits applied, cancelled events/cells removed). INDIVIDUAL events
+// only. Same layout as the initial list, but reflects the current line-up, so
+// split events (e.g. L07A / L07B) and merged "Common" events appear here.
+router.get('/final-pdf', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+    const minTh = Number(yc.min_threshold || 5);
+
+    const { rows } = await pool.query(
+      `SELECT ag.id AS ag_id, ag.code AS age_group_code, ag.label AS age_group_label,
+              ag.sort_order AS ag_sort, e.event_name, e.event_code, p.full_name
+         FROM registrations r
+         JOIN events e ON e.id = r.event_id
+         LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+         JOIN participants p ON p.id = r.participant_id
+        WHERE r.year_id = $1
+          AND r.status NOT IN ('withdrawn','swapped')
+          AND r.team_id IS NULL
+          AND e.event_kind = 'individual'
+          AND e.is_cancelled = FALSE
+          AND p.confirmed_at IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM event_consolidations x
+                           WHERE x.kind = 'cancel' AND x.reverted_at IS NULL
+                             AND x.source_event_ids[1] = r.event_id
+                             AND x.age_group_id = r.age_group_id)
+        ORDER BY ag.sort_order NULLS LAST, e.event_name, p.full_name`,
+      [yc.id]);
+
+    const groups = new Map();
+    for (const r of rows) {
+      const gid = r.ag_id ?? 0;
+      if (!groups.has(gid))
+        groups.set(gid, { code: r.age_group_code || '—', label: r.age_group_label || '', sort: r.ag_sort ?? 99, events: new Map() });
+      const g = groups.get(gid);
+      if (!g.events.has(r.event_name)) g.events.set(r.event_name, { code: r.event_code, names: [] });
+      g.events.get(r.event_name).names.push(r.full_name);
+    }
+    const ordered = [...groups.values()].sort((a, b) => (a.sort - b.sort) || a.code.localeCompare(b.code));
+    if (ordered.length === 0) return res.status(400).json({ error: 'No individual registrations to list yet.' });
+
+    const logos = {
+      kca: await prepLogo(yc.kca_logo_url),
+      its: await prepLogo(yc.its_logo_url),
+      sponsor: await prepLogo(yc.sponsor_logo_url),
+    };
+
+    const safe = (x) => String(x || '').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+    const label = safe(yc.event_year_label) || 'ITS';
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="final-lists-${label}.zip"`);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => { console.error('final-pdf zip error:', err.message); try { res.status(500).end(); } catch { /* noop */ } });
+    archive.pipe(res);
+
+    const used = new Set();
+    for (const g of ordered) {
+      const buf = await renderGroupPdf(logos, yc, g, minTh, 'Final List (after consolidation)');
+      let name = `${label}_FINAL_${safe(g.code)}${g.label ? '_' + safe(g.label) : ''}.pdf`;
+      let n = 1;
+      while (used.has(name)) name = name.replace(/\.pdf$/, `_${++n}.pdf`);
+      used.add(name);
+      archive.append(buf, { name });
+    }
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'EXPORT_FINAL_LIST_PDF', entity: 'year_config', entityId: yc.id,
       details: { age_groups: ordered.length } });
 
     await archive.finalize();
