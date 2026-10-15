@@ -70,7 +70,10 @@ export default function Lists() {
       const [ev, pa, fi] = await Promise.all([
         listsApi.byEvent(token), listsApi.byParticipant(token), listsApi.final(token),
       ]);
-      setByEvent(ev); setByParticipant(pa); setFinalList(fi);
+      // Final participant list = individual events only. Team events have their
+      // own flow (Team Event Day) and should not appear in the age-group lists.
+      const evIndividual = { ...ev, events: (ev?.events || []).filter((e) => e.event_kind !== 'team') };
+      setByEvent(evIndividual); setByParticipant(pa); setFinalList(fi);
     } catch (err) {
       setError(err.message || 'Failed to load lists');
     } finally { setLoading(false); }
@@ -111,7 +114,7 @@ export default function Lists() {
       return `<div><h2 style="font-size:16px;background:#f1f5f9;padding:6px 10px">
         ${esc(g)}${grp.label ? ` — ${esc(grp.label)}` : ''}</h2>${eventsHtml}</div>`;
     }).join('');
-    openPrint(year, 'Initial Lists — by Age Group & Event', body);
+    openPrint(year, 'Final List — by Age Group & Event', body);
   }
 
   function printByParticipant() {
@@ -126,7 +129,7 @@ export default function Lists() {
         </tbody></table>
         <div class="sign">Parent/guardian signature (details confirmed): ____________________________</div>
       </div>`).join('');
-    openPrint(year, 'Initial Lists — by Participant (for confirmation)', body);
+    openPrint(year, 'Final List — by Participant (for confirmation)', body);
   }
 
   function printFinal() {
