@@ -314,9 +314,10 @@ export const participantsApi = {
   /** Chairman-only event corrections with mandatory reason. */
   chairmanEvents: (token, id, body) =>
     request(`/api/admin/participants/${id}/events`, { method: 'PUT', token, body }),
-  /** Eligible individual events for add-corrections (public endpoint). */
+  /** Eligible individual events for Chairman add-corrections. Admin endpoint —
+   *  INCLUDES split/merged events (e.g. L07A) so late entries can be placed into them. */
   eligibleEvents: (token, ageGroupId, gender) =>
-    request(`/api/register/events?age_group_id=${ageGroupId}&kind=individual${gender ? `&gender=${gender}` : ''}`, { token }),
+    request(`/api/admin/participants/eligible-events?age_group_id=${ageGroupId}${gender ? `&gender=${gender}` : ''}`, { token }),
   /** List participants; optional filters: search, school_id, age_group_id */
   list: (token, params = {}) =>
     request(`/api/admin/participants${qs(params)}`, { token }),

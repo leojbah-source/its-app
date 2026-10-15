@@ -1025,6 +1025,38 @@ router.post('/participants/:id/verify', requireRole(...editRoles), async (req, r
 
 // PUT /api/admin/participants/:id/events — CHAIRMAN-ONLY event corrections
 // (add/remove regardless of parent deadlines). Fully audited before/after.
+// ── GET /api/admin/participants/eligible-events ──────────────────────────────
+// Events a participant can be ADDED to via a Chairman correction. Unlike the
+// public catalog (/api/register/events), this INCLUDES split/merged events
+// (is_generated = TRUE) — e.g. after L07 was split, a late-confirmed child can
+// be placed into L07A. Excludes cancelled events and cancelled age-group cells.
+router.get('/participants/eligible-events', requireRole('Chairman', 'SuperAdmin'), async (req, res, next) => {
+  try {
+    const { rows: yr } = await pool.query(`SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    if (!yr[0]) return res.json([]);
+    const yearId = yr[0].id;
+    const ageGroupId = req.query.age_group_id ? Number(req.query.age_group_id) : null;
+    const gender = req.query.gender || null;
+    if (!ageGroupId) return res.status(400).json({ error: 'age_group_id is required' });
+
+    const { rows } = await pool.query(
+      `SELECT DISTINCT e.id, e.event_name, e.event_code, e.event_kind, e.fee_amount, e.member_fee_amount,
+              e.gender_split, e.is_generated, c.name AS category_name
+         FROM events e
+         JOIN event_age_groups eag ON eag.event_id = e.id AND eag.age_group_id = $2
+         LEFT JOIN categories c ON c.id = e.category_id
+        WHERE e.year_id = $1 AND e.event_kind = 'individual' AND e.is_cancelled = FALSE
+          AND NOT EXISTS (SELECT 1 FROM event_consolidations x
+                           WHERE x.kind = 'cancel' AND x.reverted_at IS NULL
+                             AND x.source_event_ids[1] = e.id AND x.age_group_id = $2)
+        ORDER BY e.event_code`,
+      [yearId, ageGroupId]);
+
+    const filtered = gender ? rows.filter((e) => genderEligible(e.gender_split, gender)) : rows;
+    res.json(filtered);
+  } catch (err) { next(err); }
+});
+
 router.put('/participants/:id/events', requireRole('Chairman', 'SuperAdmin'), async (req, res, next) => {
   const client = await pool.connect();
   try {
