@@ -679,7 +679,13 @@ router.get('/affected', requireRole(...VIEW_ROLES), async (req, res, next) => {
               ag.code AS ag_code, ag.label AS ag_label,
               ce.event_code AS cancelled_code, ce.event_name AS cancelled_name,
               u.full_name AS parent_name, COALESCE(u.whatsapp_number, u.phone) AS parent_contact,
-              (SELECT COUNT(*)::int FROM refunds rf WHERE rf.registration_id = m.reg_id) AS refund_count
+              (SELECT COUNT(*)::int FROM refunds rf WHERE rf.registration_id = m.reg_id) AS refund_count,
+              act.action AS act_action, act.changed_at AS resolved_at, au.full_name AS resolved_by,
+              te.event_code AS to_code, te.event_name AS to_name,
+              (act.new_value->>'additional_due')::numeric AS act_add_due,
+              (act.new_value->>'new_fee')::numeric        AS act_new_fee,
+              COALESCE((act.new_value->>'refund_due')::numeric,
+                       (act.new_value->>'refund_amount')::numeric) AS act_refund
          FROM event_consolidations ec
          CROSS JOIN LATERAL jsonb_to_recordset(ec.moved) AS m(reg_id int, from_event_id int, to_event_id int)
          JOIN registrations r ON r.id = m.reg_id
@@ -687,6 +693,15 @@ router.get('/affected', requireRole(...VIEW_ROLES), async (req, res, next) => {
          LEFT JOIN age_groups ag ON ag.id = ec.age_group_id
          LEFT JOIN events ce ON ce.id = ec.source_event_ids[1]
          LEFT JOIN users u ON u.id = p.created_by
+         LEFT JOIN LATERAL (
+           SELECT al.new_value, al.action, al.changed_by, al.changed_at
+             FROM audit_log al
+            WHERE al.table_name = 'registrations' AND al.record_id = m.reg_id
+              AND al.action IN ('CONSOLIDATE_SWITCH','CONSOLIDATE_REFUND')
+            ORDER BY al.id DESC LIMIT 1
+         ) act ON TRUE
+         LEFT JOIN events te ON te.id = (act.new_value->>'to_event_id')::int
+         LEFT JOIN users au ON au.id = act.changed_by
         WHERE ec.year_id = $1 AND ec.kind = 'cancel' AND ec.reverted_at IS NULL
         ORDER BY ag.sort_order NULLS LAST, p.full_name`, [y.id]);
 
@@ -701,6 +716,11 @@ router.get('/affected', requireRole(...VIEW_ROLES), async (req, res, next) => {
         cancelled_event_id: r.cancelled_event_id, cancelled_code: r.cancelled_code, cancelled_name: r.cancelled_name,
         fee_amount: Number(r.fee_amount || 0),
         parent_name: r.parent_name, parent_contact: r.parent_contact, state,
+        to_code: r.to_code || null, to_name: r.to_name || null,
+        additional_due: Number(r.act_add_due || 0),
+        new_fee: r.act_new_fee != null ? Number(r.act_new_fee) : null,
+        refund_amount: Number(r.act_refund || 0),
+        resolved_by: r.resolved_by || null, resolved_at: r.resolved_at || null,
       };
     });
     const summary = { total: items.length, open: items.filter((i) => i.state === 'open').length,
@@ -1269,6 +1289,123 @@ router.get('/affected-xlsx', requireRole(...VIEW_ROLES), async (req, res, next) 
     const buf = await wb.xlsx.writeBuffer();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="cancelled-events-followup.xlsx"');
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+});
+
+
+// ── GET /affected-resolutions-xlsx ────────────────────────────────────────────
+// Reconciliation ledger of every cancelled entry and the action taken on it
+// (switched to which event / refunded), with the fee effect — for the office to
+// re-confirm each change. Built from the resolution audit trail + current state.
+router.get('/affected-resolutions-xlsx', requireRole(...VIEW_ROLES), async (req, res, next) => {
+  try {
+    const y = await activeYear();
+    if (!y) return res.status(400).json({ error: 'No active year' });
+
+    const { rows } = await pool.query(
+      `SELECT m.reg_id, ec.age_group_id,
+              r.status AS reg_status, r.fee_amount,
+              p.full_name, p.cpr_number, p.gender,
+              ag.code AS ag_code, ag.label AS ag_label, ag.sort_order AS ag_sort,
+              ce.event_code AS cancelled_code, ce.event_name AS cancelled_name,
+              u.full_name AS parent_name,
+              COALESCE(u.whatsapp_number, u.phone) AS parent_contact,
+              (SELECT COUNT(*)::int FROM refunds rf WHERE rf.registration_id = m.reg_id) AS refund_count,
+              act.action AS act_action, act.changed_at AS resolved_at, au.full_name AS resolved_by,
+              te.event_code AS to_code, te.event_name AS to_name,
+              (act.new_value->>'old_fee')::numeric        AS act_old_fee,
+              (act.new_value->>'new_fee')::numeric        AS act_new_fee,
+              (act.new_value->>'additional_due')::numeric AS act_add_due,
+              COALESCE((act.new_value->>'refund_due')::numeric,
+                       (act.new_value->>'refund_amount')::numeric) AS act_refund
+         FROM event_consolidations ec
+         CROSS JOIN LATERAL jsonb_to_recordset(ec.moved) AS m(reg_id int, from_event_id int, to_event_id int)
+         JOIN registrations r ON r.id = m.reg_id
+         JOIN participants p ON p.id = r.participant_id
+         LEFT JOIN age_groups ag ON ag.id = ec.age_group_id
+         LEFT JOIN events ce ON ce.id = ec.source_event_ids[1]
+         LEFT JOIN users u ON u.id = p.created_by
+         LEFT JOIN LATERAL (
+           SELECT al.new_value, al.action, al.changed_by, al.changed_at
+             FROM audit_log al
+            WHERE al.table_name = 'registrations' AND al.record_id = m.reg_id
+              AND al.action IN ('CONSOLIDATE_SWITCH','CONSOLIDATE_REFUND')
+            ORDER BY al.id DESC LIMIT 1
+         ) act ON TRUE
+         LEFT JOIN events te ON te.id = (act.new_value->>'to_event_id')::int
+         LEFT JOIN users au ON au.id = act.changed_by
+        WHERE ec.year_id = $1 AND ec.kind = 'cancel' AND ec.reverted_at IS NULL
+        ORDER BY ag.sort_order NULLS LAST, p.full_name`, [y.id]);
+
+    const fmt = (v) => (v == null ? '' : Number(v).toFixed(3));
+    const when = (d) => (d ? new Date(d).toLocaleString('en-GB', { timeZone: 'Asia/Bahrain' }) : '');
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'KCA ITS'; wb.created = new Date();
+    const ws = wb.addWorksheet('Resolutions');
+    ws.columns = [
+      { header: 'Age Group', key: 'ag', width: 18 },
+      { header: 'Participant', key: 'name', width: 26 },
+      { header: 'CPR', key: 'cpr', width: 14 },
+      { header: 'Gender', key: 'gender', width: 8 },
+      { header: 'Parent', key: 'parent', width: 24 },
+      { header: 'Contact', key: 'contact', width: 16 },
+      { header: 'Cancelled Code', key: 'ccode', width: 14 },
+      { header: 'Cancelled Event', key: 'cevent', width: 30 },
+      { header: 'Original Fee (BD)', key: 'ofee', width: 15 },
+      { header: 'Action', key: 'action', width: 12 },
+      { header: 'Switched To', key: 'to', width: 34 },
+      { header: 'New Fee (BD)', key: 'nfee', width: 13 },
+      { header: 'Additional Due (BD)', key: 'add', width: 17 },
+      { header: 'Refund (BD)', key: 'refund', width: 13 },
+      { header: 'Resolved By', key: 'by', width: 18 },
+      { header: 'When (Bahrain)', key: 'at', width: 20 },
+    ];
+
+    let nSwitched = 0, nRefunded = 0, nOpen = 0;
+    for (const r of rows) {
+      let action = 'open';
+      if (r.reg_status === 'withdrawn' && r.refund_count > 0) action = 'refunded';
+      else if (r.reg_status === 'swapped') action = 'switched';
+      else if (r.reg_status !== 'registered') action = 'closed';
+      if (action === 'switched') nSwitched += 1;
+      else if (action === 'refunded') nRefunded += 1;
+      else if (action === 'open') nOpen += 1;
+
+      ws.addRow({
+        ag: r.ag_label ? `${r.ag_label} (${r.ag_code})` : (r.ag_code || ''),
+        name: String(r.full_name || '').toUpperCase(),
+        cpr: r.cpr_number || '', gender: r.gender || '',
+        parent: r.parent_name || '', contact: r.parent_contact || '',
+        ccode: r.cancelled_code || '', cevent: r.cancelled_name || '',
+        ofee: fmt(r.fee_amount),
+        action,
+        to: action === 'switched' && r.to_code ? `${r.to_code} — ${r.to_name}` : '',
+        nfee: action === 'switched' ? fmt(r.act_new_fee) : '',
+        add: action === 'switched' ? fmt(r.act_add_due) : '',
+        refund: fmt(r.act_refund),
+        by: r.resolved_by || '', at: when(r.resolved_at),
+      });
+    }
+
+    const h = ws.getRow(1); h.font = { bold: true };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    ws.autoFilter = { from: 'A1', to: 'P1' };
+
+    // Summary line beneath the table.
+    ws.addRow({});
+    const sum = ws.addRow({ name: `Total ${rows.length}  ·  Switched ${nSwitched}  ·  Refunded ${nRefunded}  ·  Open ${nOpen}` });
+    sum.font = { italic: true, color: { argb: 'FF666666' } };
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_RESOLUTIONS_XLSX',
+      entity: 'event_consolidations', entityId: null,
+      details: { rows: rows.length, switched: nSwitched, refunded: nRefunded, open: nOpen } });
+
+    const buf = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="cancelled-entries-resolutions.xlsx"');
     res.send(Buffer.from(buf));
   } catch (err) { next(err); }
 });

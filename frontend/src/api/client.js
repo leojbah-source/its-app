@@ -389,6 +389,12 @@ export const consolidationApi = {
     if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
     return res.blob();
   },
+  /** Resolutions ledger (switched / refunded, with fee effect) as Excel. Blob. */
+  resolutionsXlsx: async (token) => {
+    const res = await fetch(`${API_BASE}/api/admin/consolidation/affected-resolutions-xlsx`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
+    return res.blob();
+  },
   /** Changes & Cancellations as an editable Word (.docx). Returns a Blob. */
   changesDocx: async (token) => {
     const res = await fetch(`${API_BASE}/api/admin/consolidation/changes-docx`, { headers: { Authorization: `Bearer ${token}` } });

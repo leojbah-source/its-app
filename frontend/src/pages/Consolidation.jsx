@@ -490,6 +490,20 @@ function ResolvePanel({ token, canActNow, reloadKey, onChanged }) {
   const [refundFor, setRefundFor] = useState(null);
   const [note, setNote] = useState('');
   const [msg, setMsg] = useState('');
+  const [dl, setDl] = useState(false);
+
+  async function downloadReport() {
+    setDl(true); setErr('');
+    try {
+      const blob = await consolidationApi.resolutionsXlsx(token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'cancelled-entries-resolutions.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) { setErr(e.message || 'Could not generate the report.'); }
+    finally { setDl(false); }
+  }
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -546,10 +560,14 @@ function ResolvePanel({ token, canActNow, reloadKey, onChanged }) {
       ) : (
         <>
           {sm && (
-            <div className="mb-3 flex flex-wrap gap-2 text-xs">
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
               <Badge tone="amber">{sm.open} open</Badge>
               <Badge tone="navy">{sm.switched} switched</Badge>
               <Badge tone="neutral">{sm.refunded} refunded</Badge>
+              <Button size="sm" variant="outline" icon={Download} className="ml-auto" loading={dl}
+                onClick={downloadReport} disabled={(sm.switched + sm.refunded) === 0}>
+                Download report
+              </Button>
             </div>
           )}
           {msg && <div className="mb-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{msg}</div>}
@@ -583,8 +601,19 @@ function ResolvePanel({ token, canActNow, reloadKey, onChanged }) {
                     </td>
                     <td className="px-3 text-slate-600 whitespace-nowrap">BD {Number(it.fee_amount).toFixed(3)}</td>
                     <td className="px-3">
-                      {it.state === 'switched' ? <Badge tone="navy">switched</Badge>
-                      : it.state === 'refunded' ? <Badge tone="neutral">refunded</Badge>
+                      {it.state === 'switched' ? (
+                        <div className="space-y-0.5">
+                          <Badge tone="navy">switched</Badge>
+                          {it.to_code && <div className="text-xs text-slate-600">&rarr; <span className="font-mono text-navy-500">{it.to_code}</span> {it.to_name}</div>}
+                          {it.additional_due > 0 && <div className="text-[11px] text-amber-600">+BD {Number(it.additional_due).toFixed(3)} due</div>}
+                          {it.refund_amount > 0 && <div className="text-[11px] text-slate-500">refund BD {Number(it.refund_amount).toFixed(3)}</div>}
+                        </div>
+                      ) : it.state === 'refunded' ? (
+                        <div className="space-y-0.5">
+                          <Badge tone="neutral">refunded</Badge>
+                          {it.refund_amount > 0 && <div className="text-[11px] text-slate-500">BD {Number(it.refund_amount).toFixed(3)}</div>}
+                        </div>
+                      )
                       : it.state === 'closed' ? <Badge tone="neutral">closed</Badge>
                       : !canActNow ? <span className="text-xs text-slate-400">view only</span>
                       : (
