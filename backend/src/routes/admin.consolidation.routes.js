@@ -752,10 +752,15 @@ router.get('/affected/:regId/options', requireRole(...VIEW_ROLES), async (req, r
          JOIN event_age_groups eag ON eag.event_id = e.id AND eag.age_group_id = $2
          LEFT JOIN categories c ON c.id = e.category_id
         WHERE e.year_id = $1 AND e.event_kind = 'individual'
-          AND e.is_cancelled = FALSE AND e.is_generated = FALSE
+          AND e.is_cancelled = FALSE
           AND e.id <> $3
-          AND NOT EXISTS (SELECT 1 FROM event_consolidations x WHERE x.kind='cancel' AND x.reverted_at IS NULL
-                           AND x.source_event_ids[1] = e.id AND x.age_group_id = $2)
+          -- Exclude any event whose cell for this age group has been consolidated
+          -- away: cancelled cells, and the ORIGINAL events of a merge or split
+          -- (their registrations now live in the generated Common / A / B event,
+          -- which IS offered below). Generated targets are intentionally included.
+          AND NOT EXISTS (SELECT 1 FROM event_consolidations x
+                           WHERE x.kind IN ('cancel','merge','split') AND x.reverted_at IS NULL
+                             AND e.id = ANY(x.source_event_ids) AND x.age_group_id = $2)
           AND NOT EXISTS (SELECT 1 FROM registrations r2 WHERE r2.participant_id = $4
                            AND r2.event_id = e.id AND r2.status NOT IN ('withdrawn','swapped'))
         ORDER BY c.sort_order NULLS LAST, e.event_name`,
