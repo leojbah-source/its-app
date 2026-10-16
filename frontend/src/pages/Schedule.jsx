@@ -254,6 +254,18 @@ export default function Schedule() {
     if (state === 'looks_good') return { is_locked: false, looks_good: true };
     return { is_locked: false, looks_good: false };
   }
+  async function downloadDaySheet(date) {
+    setFlash('');
+    try {
+      const blob = await scheduleApi.dayReport(token, date);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `day-schedule-${date}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) { setFlash(e.message || 'Could not generate the day sheet.'); }
+  }
+
   async function setDayState(date, state) {
     const flags = stateFlags(state);
     setRows((rs) => rs.map((x) => (String(x.event_date).slice(0, 10) === date ? { ...x, ...flags } : x)));
@@ -617,9 +629,12 @@ export default function Schedule() {
                     <h3 className="text-sm font-semibold text-navy-800">
                       {new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                     </h3>
-                    {canEdit && (
-                      <div className="flex items-center gap-1.5 text-[11px]">
-                        <span className="text-slate-400">Mark whole day:</span>
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <button onClick={() => downloadDaySheet(date)} title="Download this day's participant sheet (Excel)"
+                        className="rounded border border-navy-300 bg-navy-50 px-2 py-0.5 font-medium text-navy-700 hover:bg-navy-100">Day sheet (Excel)</button>
+                      {canEdit && (
+                      <>
+                        <span className="text-slate-400 ml-1">Mark whole day:</span>
                         <button onClick={() => setDayState(date, 'looks_good')} className="rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 hover:bg-emerald-100">Looks good</button>
                         <button onClick={() => setDayState(date, 'locked')} className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 font-medium text-amber-700 hover:bg-amber-100">Lock</button>
                         <button onClick={() => setDayState(date, 'draft')} className="rounded border border-slate-300 bg-white px-2 py-0.5 font-medium text-slate-500 hover:bg-slate-50">Reset to draft</button>
@@ -631,8 +646,9 @@ export default function Schedule() {
                           <button onClick={() => moveDay(date)} disabled={!moveDates[date]}
                             className="rounded border border-navy-300 bg-navy-50 px-2 py-0.5 font-medium text-navy-700 hover:bg-navy-100 disabled:opacity-40">Move</button>
                         </span>
-                      </div>
-                    )}
+                      </>
+                      )}
+                    </div>
                   </div>
                   <div className="overflow-x-auto rounded-lg border border-slate-200">
                     <table className="w-full min-w-[760px] text-sm">

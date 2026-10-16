@@ -684,6 +684,132 @@ router.post('/:id/state', requireRole(...editRoles), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── GET /api/admin/schedule/day-report?date=YYYY-MM-DD ───────────────────────
+// Excel day-sheet: every participant with ALL their events on that date, their
+// group's reporting time, time allowed per participant, venue and event window,
+// plus a count and a flag for anyone with more than 2 events. Helps verify the
+// 2-events-per-day rule and see the flow.
+router.get('/day-report', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const date = req.query.date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || ''))
+      return res.status(400).json({ error: 'date is required (YYYY-MM-DD)' });
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+
+    const { rows: sched } = await pool.query(
+      `SELECT s.id AS sched_id, s.venue, s.age_groups,
+              to_char(s.start_time,'HH24:MI') AS start_time, to_char(s.end_time,'HH24:MI') AS end_time,
+              e.id AS event_id, e.event_code, e.event_name, e.is_stage_event, e.allotted_time_seconds
+         FROM schedule s JOIN events e ON e.id = s.event_id
+        WHERE s.year_id = $1 AND s.event_date = $2
+        ORDER BY s.start_time NULLS LAST, s.id`, [yc.id, date]);
+
+    const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+    const fmt = (min) => { if (min == null) return ''; const x = ((min % 1440) + 1440) % 1440; return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
+
+    // participant -> { name, age, school, events: [{reporting, reportingMin, event, venue, group, perMin, window}] }
+    const byPart = new Map();
+    for (const row of sched) {
+      const codes = (row.age_groups || '').split(', ').filter(Boolean);
+      if (!codes.length) continue;
+      const perMin = row.allotted_time_seconds ? row.allotted_time_seconds / 60 : 5;
+      const { rows: parts } = await pool.query(
+        `SELECT p.id, p.full_name, ag.code AS gcode, ag.label AS glabel, ag.sort_order AS gsort,
+                sch.name AS school
+           FROM registrations r
+           JOIN participants p ON p.id = r.participant_id
+           LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+           LEFT JOIN schools sch ON sch.id = p.school_id
+          WHERE r.event_id = $1 AND r.status NOT IN ('withdrawn','swapped')
+            AND p.confirmed_at IS NOT NULL
+            AND ag.code = ANY($2::text[])
+          ORDER BY ag.sort_order NULLS LAST, p.full_name`, [row.event_id, codes]);
+
+      // ordered groups with counts, for the staggered reporting
+      const counts = {};
+      parts.forEach((p) => { counts[p.gcode] = (counts[p.gcode] || 0) + 1; });
+      const orderedCodes = [...new Set(parts.map((p) => p.gcode))];
+      const start = row.start_time ? toMin(row.start_time) : null;
+      const repByGroup = {};
+      if (start != null) {
+        if (!row.is_stage_event || orderedCodes.length <= 1) {
+          orderedCodes.forEach((c) => { repByGroup[c] = start - 15; });
+        } else {
+          let performStart = start;
+          orderedCodes.forEach((c, i) => {
+            repByGroup[c] = i === 0 ? start - 15 : performStart - 30;
+            performStart += Math.ceil((counts[c] || 0) * perMin);
+          });
+        }
+      }
+
+      for (const p of parts) {
+        if (!byPart.has(p.id)) byPart.set(p.id, { name: p.full_name, group: p.glabel, school: p.school || '', events: [] });
+        byPart.get(p.id).events.push({
+          reportingMin: repByGroup[p.gcode] ?? null,
+          reporting: fmt(repByGroup[p.gcode]),
+          event: `${row.event_code} — ${row.event_name}`,
+          venue: row.venue || '',
+          perMin: Math.round(perMin * 10) / 10,
+          window: row.start_time ? `${row.start_time}–${row.end_time || ''}` : '',
+        });
+      }
+    }
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook(); wb.creator = 'KCA ITS'; wb.created = new Date();
+    const ws = wb.addWorksheet(`Day ${date}`);
+    ws.columns = [
+      { header: 'Participant', key: 'name', width: 26 },
+      { header: 'Age Group', key: 'age', width: 12 },
+      { header: 'School', key: 'school', width: 26 },
+      { header: 'Events today', key: 'n', width: 12 },
+      { header: 'Flag', key: 'flag', width: 10 },
+      { header: 'Reporting', key: 'rep', width: 11 },
+      { header: 'Event', key: 'event', width: 34 },
+      { header: 'Venue', key: 'venue', width: 16 },
+      { header: 'Min/participant', key: 'perMin', width: 14 },
+      { header: 'Event window', key: 'window', width: 16 },
+    ];
+
+    const participants = [...byPart.values()]
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    let over = 0;
+    for (const p of participants) {
+      const evs = [...p.events].sort((a, b) => (a.reportingMin ?? 1e9) - (b.reportingMin ?? 1e9));
+      const n = evs.length;
+      if (n > 2) over += 1;
+      evs.forEach((ev, i) => {
+        const r = ws.addRow({
+          name: i === 0 ? String(p.name || '').toUpperCase() : '',
+          age: i === 0 ? p.group : '',
+          school: i === 0 ? p.school : '',
+          n: i === 0 ? n : '',
+          flag: i === 0 ? (n > 2 ? `>2 (${n})` : '') : '',
+          rep: ev.reporting, event: ev.event, venue: ev.venue,
+          perMin: ev.perMin, window: ev.window,
+        });
+        if (n > 2) r.getCell('flag').font = { bold: true, color: { argb: 'FFB91C1C' } };
+      });
+    }
+    const h = ws.getRow(1); h.font = { bold: true };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    ws.autoFilter = { from: 'A1', to: 'J1' };
+    ws.addRow({});
+    const sum = ws.addRow({ name: `${participants.length} participant(s) scheduled on ${date}  ·  ${over} with more than 2 events` });
+    sum.font = { italic: true, color: { argb: 'FF666666' } };
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_DAY_SCHEDULE',
+      entity: 'schedule', entityId: yc.id, details: { date, participants: participants.length, over } });
+
+    const buf = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="day-schedule-${date}.xlsx"`);
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/admin/schedule/date-state  { date, state } ─────────────────────
 // Set EVERY row on one date to draft / looks_good / locked in one action, so the
 // office can mark a whole day reviewed or locked without toggling each row.
