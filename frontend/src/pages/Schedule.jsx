@@ -124,6 +124,7 @@ export default function Schedule() {
   const [generating, setGenerating] = useState(false);
   const [excludeCats, setExcludeCats] = useState(() => new Set());
   const [reflowOnly, setReflowOnly] = useState(false);
+  const [moveDates, setMoveDates] = useState({});  // date -> new date value
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -204,6 +205,19 @@ export default function Schedule() {
       setFlash(`Removed ${row.event_code} from the schedule.`);
       load();
     } catch (err) { setFlash(err.message); }
+  }
+
+  async function moveDay(date) {
+    const to = moveDates[date];
+    if (!to) return;
+    if (!window.confirm(`Move ALL events on ${date} to ${to}? Each event keeps its venue and times.`)) return;
+    setFlash('');
+    try {
+      const r = await scheduleApi.moveDate(token, date, to);
+      setFlash(`Moved ${r.moved} event row(s) from ${date} to ${to}.`);
+      setMoveDates((m) => { const n = { ...m }; delete n[date]; return n; });
+      load();
+    } catch (e) { setFlash(e.message); }
   }
 
   async function setDayState(date, state) {
@@ -484,6 +498,14 @@ export default function Schedule() {
                         <button onClick={() => setDayState(date, 'looks_good')} className="rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 hover:bg-emerald-100">Looks good</button>
                         <button onClick={() => setDayState(date, 'locked')} className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 font-medium text-amber-700 hover:bg-amber-100">Lock</button>
                         <button onClick={() => setDayState(date, 'draft')} className="rounded border border-slate-300 bg-white px-2 py-0.5 font-medium text-slate-500 hover:bg-slate-50">Reset to draft</button>
+                        <span className="ml-2 flex items-center gap-1">
+                          <span className="text-slate-400">Move day to:</span>
+                          <input type="date" value={moveDates[date] || ''} min="2024-01-01" max="2100-12-31"
+                            onChange={(e) => setMoveDates((m) => ({ ...m, [date]: e.target.value }))}
+                            className="rounded border border-slate-300 px-1.5 py-0.5 text-[11px]" />
+                          <button onClick={() => moveDay(date)} disabled={!moveDates[date]}
+                            className="rounded border border-navy-300 bg-navy-50 px-2 py-0.5 font-medium text-navy-700 hover:bg-navy-100 disabled:opacity-40">Move</button>
+                        </span>
                       </div>
                     )}
                   </div>

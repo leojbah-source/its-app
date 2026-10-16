@@ -702,6 +702,33 @@ router.post('/date-state', requireRole(...editRoles), async (req, res, next) => 
   } catch (err) { next(err); }
 });
 
+// ── POST /api/admin/schedule/move-date  { from_date, to_date } ───────────────
+// Move EVERY row on one date to another date, as-is (same venue, start/end and
+// reporting times). A whole-day shift; the office can then adjust individual
+// rows. Does not re-check clashes — it is an explicit manual move.
+router.post('/move-date', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const from = req.body?.from_date;
+    const to = req.body?.to_date;
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    if (!ymd.test(from || '') || !ymd.test(to || ''))
+      return res.status(400).json({ error: 'from_date and to_date are required (YYYY-MM-DD)' });
+    if (from === to) return res.status(400).json({ error: 'The new date is the same as the current date' });
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+
+    const { rows } = await pool.query(
+      `UPDATE schedule SET event_date = $3, generated_by_scheduler = FALSE, updated_at = NOW()
+         WHERE year_id = $1 AND event_date = $2 RETURNING id`, [yc.id, from, to]);
+    if (!rows.length) return res.status(404).json({ error: 'No events on that date to move' });
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'SCHEDULE_MOVE_DATE', entity: 'schedule', entityId: yc.id,
+      details: { from_date: from, to_date: to, rows: rows.length } });
+    res.json({ ok: true, from_date: from, to_date: to, moved: rows.length });
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/admin/schedule/:id/remove-group ────────────────────────────────
 // Drop one age group from an event's scheduled row. If it was the last group,
 // the whole row is removed.

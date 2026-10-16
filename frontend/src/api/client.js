@@ -433,6 +433,7 @@ export const scheduleApi = {
   clearDrafts: (token) => request('/api/admin/schedule/clear-drafts', { method: 'POST', token, body: {} }),
   rowState: (token, id, state) => request(`/api/admin/schedule/${id}/state`, { method: 'POST', token, body: { state } }),
   dateState: (token, date, state) => request('/api/admin/schedule/date-state', { method: 'POST', token, body: { date, state } }),
+  moveDate: (token, from_date, to_date) => request('/api/admin/schedule/move-date', { method: 'POST', token, body: { from_date, to_date } }),
   removeGroup: (token, id, code) => request(`/api/admin/schedule/${id}/remove-group`, { method: 'POST', token, body: { code } }),
   categoryDates: (token) => request('/api/admin/schedule/category-dates', { token }),
   saveCategoryDates: (token, dates) => request('/api/admin/schedule/category-dates', { method: 'PUT', token, body: { dates } }),
