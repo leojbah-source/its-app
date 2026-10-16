@@ -347,8 +347,10 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
            LEFT JOIN venues pv ON pv.id = e.preferred_venue_id
            JOIN registrations r ON r.event_id = e.id
              AND r.status NOT IN ('withdrawn','swapped')
+           LEFT JOIN participants pr ON pr.id = r.participant_id
            LEFT JOIN age_groups ag ON ag.id = r.age_group_id
            WHERE e.year_id = $1 AND e.is_cancelled = FALSE
+             AND (pr.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
              AND (e.category_id IS NULL OR e.category_id <> ALL($2::int[]))
            GROUP BY e.id, c.name, c.not_before_date, pv.name, ag.code, ag.sort_order
            ORDER BY e.id, ag.sort_order`, [yearId, excludeCategoryIds]);
@@ -564,13 +566,18 @@ router.get('/', requireRole(...staffRoles, 'Media'), async (req, res, next) => {
               e.event_code, e.event_name, e.event_kind, c.name AS category_name, c.code AS category_code,
               e.allotted_time_seconds, e.is_stage_event,
               (SELECT COUNT(*)::int FROM registrations r
+               LEFT JOIN participants pr2 ON pr2.id = r.participant_id
                LEFT JOIN age_groups ag2 ON ag2.id = r.age_group_id
                WHERE r.event_id = e.id AND r.status NOT IN ('withdrawn','swapped')
+                 AND (pr2.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
                  AND (s.age_groups IS NULL OR ag2.code = ANY(string_to_array(s.age_groups, ', ')))) AS entries,
               (SELECT json_agg(json_build_object('code', g.code, 'entries', g.cnt) ORDER BY g.sort_order)
                FROM (SELECT ag3.code, ag3.sort_order, COUNT(*)::int AS cnt
-                     FROM registrations r3 JOIN age_groups ag3 ON ag3.id = r3.age_group_id
+                     FROM registrations r3
+                     JOIN age_groups ag3 ON ag3.id = r3.age_group_id
+                     LEFT JOIN participants pr3 ON pr3.id = r3.participant_id
                      WHERE r3.event_id = e.id AND r3.status NOT IN ('withdrawn','swapped')
+                       AND (pr3.confirmed_at IS NOT NULL OR r3.team_id IS NOT NULL)
                        AND (s.age_groups IS NULL OR ag3.code = ANY(string_to_array(s.age_groups, ', ')))
                      GROUP BY ag3.code, ag3.sort_order) g) AS groups
        FROM schedule s
