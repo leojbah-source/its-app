@@ -729,6 +729,96 @@ router.post('/move-date', requireRole(...editRoles), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── GET /api/admin/schedule/addable ──────────────────────────────────────────
+// Event x age-group cells that have confirmed entries but are NOT currently on
+// the schedule — i.e. events that were removed, or that the generator could not
+// place. These can be added back to a chosen date without a full regenerate.
+router.get('/addable', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.json([]);
+    const { rows } = await pool.query(
+      `WITH cells AS (
+         SELECT e.id AS event_id, e.event_code, e.event_name,
+                e.is_stage_event, e.allotted_time_seconds,
+                COALESCE(c.name, 'Other') AS category_name,
+                ag.code AS ag_code, ag.sort_order AS ag_sort,
+                COUNT(r.id)::int AS entries
+           FROM events e
+           LEFT JOIN categories c ON c.id = e.category_id
+           JOIN registrations r ON r.event_id = e.id AND r.status NOT IN ('withdrawn','swapped')
+           LEFT JOIN participants pr ON pr.id = r.participant_id
+           LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+          WHERE e.year_id = $1 AND e.is_cancelled = FALSE
+            AND (pr.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
+            AND ag.code IS NOT NULL
+          GROUP BY e.id, c.name, ag.code, ag.sort_order
+       )
+       SELECT cc.* FROM cells cc
+        WHERE NOT EXISTS (
+          SELECT 1 FROM schedule s
+           WHERE s.year_id = $1 AND s.event_id = cc.event_id
+             AND cc.ag_code = ANY(string_to_array(s.age_groups, ', '))
+        )
+        ORDER BY cc.event_code, cc.ag_sort`, [yc.id]);
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/schedule/add-row ─────────────────────────────────────────
+// Manually add ONE unscheduled event x age-group cell to the schedule at a given
+// date / venue / start time, as a draft row. End time is estimated from the
+// entries; the office can fine-tune with Adjust.
+router.post('/add-row', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const eventId = Number(req.body?.event_id);
+    const code = String(req.body?.age_group_code || '').trim();
+    const date = req.body?.event_date;
+    const venue = String(req.body?.venue || '').trim();
+    const start = String(req.body?.start_time || '').trim();
+    const ymd = /^\d{4}-\d{2}-\d{2}$/, hm = /^\d{2}:\d{2}$/;
+    if (!eventId || !code || !ymd.test(date || '') || !venue || !hm.test(start))
+      return res.status(400).json({ error: 'event_id, age_group_code, event_date (YYYY-MM-DD), venue and start_time (HH:MM) are required' });
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+
+    const { rows: ev } = await pool.query(
+      `SELECT e.id, e.is_stage_event, e.allotted_time_seconds,
+              (SELECT COUNT(*)::int FROM registrations r
+                 LEFT JOIN participants pr ON pr.id = r.participant_id
+                 LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+                WHERE r.event_id = e.id AND r.status NOT IN ('withdrawn','swapped')
+                  AND (pr.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
+                  AND ag.code = $2) AS entries
+         FROM events e WHERE e.id = $1 AND e.year_id = $3 AND e.is_cancelled = FALSE`,
+      [eventId, code, yc.id]);
+    if (!ev[0]) return res.status(404).json({ error: 'Event not found' });
+
+    // Already scheduled for this cell? Don't duplicate.
+    const { rows: dup } = await pool.query(
+      `SELECT 1 FROM schedule WHERE year_id = $1 AND event_id = $2
+         AND $3 = ANY(string_to_array(age_groups, ', ')) LIMIT 1`, [yc.id, eventId, code]);
+    if (dup[0]) return res.status(409).json({ error: 'That event and group is already on the schedule.' });
+
+    const entries = Math.max(1, Number(ev[0].entries) || 1);
+    const perMin = ev[0].allotted_time_seconds ? ev[0].allotted_time_seconds / 60 : 5;
+    const minutes = Math.max(20, Math.ceil(entries * perMin) + 10);
+    const [hh, mm] = start.split(':').map(Number);
+    const endMins = hh * 60 + mm + minutes;
+    const end = `${String(Math.floor(endMins / 60) % 24).padStart(2, '0')}:${String(endMins % 60).padStart(2, '0')}`;
+
+    const { rows: ins } = await pool.query(
+      `INSERT INTO schedule (year_id, event_id, event_date, start_time, end_time, venue,
+                             age_groups, status, generated_by_scheduler)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',FALSE) RETURNING id`,
+      [yc.id, eventId, date, start, end, venue, code]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'SCHEDULE_ADD_ROW', entity: 'schedule', entityId: ins[0].id,
+      details: { event_id: eventId, age_group_code: code, event_date: date, venue, start_time: start, end_time: end } });
+    res.json({ ok: true, id: ins[0].id, start_time: start, end_time: end });
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/admin/schedule/:id/remove-group ────────────────────────────────
 // Drop one age group from an event's scheduled row. If it was the last group,
 // the whole row is removed.

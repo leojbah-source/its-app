@@ -125,19 +125,23 @@ export default function Schedule() {
   const [excludeCats, setExcludeCats] = useState(() => new Set());
   const [reflowOnly, setReflowOnly] = useState(false);
   const [moveDates, setMoveDates] = useState({});  // date -> new date value
+  const [addable, setAddable] = useState([]);       // unscheduled event cells
+  const [addForms, setAddForms] = useState({});     // key -> { date, venue, start }
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [rowsData, venueData, catData] = await Promise.all([
+      const [rowsData, venueData, catData, addableData] = await Promise.all([
         scheduleApi.list(token),
         venuesApi.list(token).catch(() => []),
         scheduleApi.categoryDates(token).catch(() => []),
+        scheduleApi.addable(token).catch(() => []),
       ]);
       setRows(rowsData);
       setVenues(venueData);
       setCatDates(catData);
+      setAddable(addableData || []);
     } catch (err) {
       setError(err.message || 'Failed to load schedule');
     } finally { setLoading(false); }
@@ -220,10 +224,29 @@ export default function Schedule() {
     } catch (e) { setFlash(e.message); }
   }
 
+  function stateFlags(state) {
+    if (state === 'locked') return { is_locked: true, looks_good: true };
+    if (state === 'looks_good') return { is_locked: false, looks_good: true };
+    return { is_locked: false, looks_good: false };
+  }
   async function setDayState(date, state) {
+    const flags = stateFlags(state);
+    setRows((rs) => rs.map((x) => (String(x.event_date).slice(0, 10) === date ? { ...x, ...flags } : x)));
+    try { await scheduleApi.dateState(token, date, state); }
+    catch (e) { setFlash(e.message); load(); }
+  }
+  async function addRow(cell) {
+    const key = `${cell.event_id}:${cell.ag_code}`;
+    const form = addForms[key] || {};
+    if (!form.date || !form.venue || !form.start) { setFlash('Pick a date, venue and start time to add the event.'); return; }
     setFlash('');
-    try { const r = await scheduleApi.dateState(token, date, state); setFlash(`Marked ${r.updated} row(s) on this day as ${state === 'looks_good' ? 'Looks good' : state === 'locked' ? 'Locked' : 'Draft'}.`); load(); }
-    catch (e) { setFlash(e.message); }
+    try {
+      const r = await scheduleApi.addRow(token, { event_id: cell.event_id, age_group_code: cell.ag_code,
+        event_date: form.date, venue: form.venue, start_time: form.start });
+      setFlash(`Added ${cell.event_code} [${cell.ag_code}] on ${form.date} (${r.start_time}–${r.end_time}). Use Adjust to fine-tune.`);
+      setAddForms((m) => { const n = { ...m }; delete n[key]; return n; });
+      load();
+    } catch (e) { setFlash(e.message); }
   }
 
   async function clearDrafts() {
@@ -238,8 +261,10 @@ export default function Schedule() {
   async function cycleState(row) {
     const cur = row.is_locked ? 'locked' : row.looks_good ? 'looks_good' : 'draft';
     const next = cur === 'draft' ? 'looks_good' : cur === 'looks_good' ? 'locked' : 'draft';
-    try { await scheduleApi.rowState(token, row.id, next); load(); }
-    catch (err) { setFlash(err.message); }
+    const flags = stateFlags(next);
+    setRows((rs) => rs.map((x) => (x.id === row.id ? { ...x, ...flags } : x)));
+    try { await scheduleApi.rowState(token, row.id, next); }
+    catch (err) { setFlash(err.message); load(); }
   }
 
   async function removeGroup(row, code) {
@@ -257,6 +282,9 @@ export default function Schedule() {
   const filtered = ql
     ? rows.filter((r) => `${r.event_code} ${r.event_name} ${r.venue} ${r.age_groups}`.toLowerCase().includes(ql))
     : rows;
+  const addableMatches = ql
+    ? addable.filter((a) => `${a.event_code} ${a.event_name} ${a.ag_code}`.toLowerCase().includes(ql))
+    : [];
   const byDate = filtered.reduce((acc, r) => {
     const d = String(r.event_date).slice(0, 10);
     (acc[d] ??= []).push(r);
@@ -473,6 +501,42 @@ export default function Schedule() {
             className={`${inputCls} w-full max-w-md`} />
           {q && <button onClick={() => setQ('')} className="text-xs text-slate-500 underline">clear</button>}
           {q && <span className="text-xs text-slate-500">{filtered.length} of {rows.length} rows</span>}
+        </div>
+      )}
+      {canEdit && ql && addableMatches.length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+          <div className="mb-2 text-xs font-semibold text-amber-800">
+            Not yet scheduled — matching &ldquo;{q}&rdquo; ({addableMatches.length}). Includes events that were removed or could not be placed. Pick a date, venue &amp; start to add.
+          </div>
+          <div className="space-y-2">
+            {addableMatches.map((cell) => {
+              const key = `${cell.event_id}:${cell.ag_code}`;
+              const form = addForms[key] || {};
+              return (
+                <div key={key} className="flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="min-w-[230px]">
+                    <span className="font-mono text-navy-500">{cell.event_code}</span> {cell.event_name}
+                    <span className="ml-1 rounded bg-navy-50 px-1.5 py-0.5 text-[10px] font-semibold text-navy-700">{cell.ag_code}</span>
+                    <span className="ml-1 text-slate-400">· {cell.entries} entries</span>
+                  </span>
+                  <input type="date" value={form.date || ''} min="2024-01-01" max="2100-12-31"
+                    onChange={(e) => setAddForms((m) => ({ ...m, [key]: { ...form, date: e.target.value } }))}
+                    className="rounded border border-slate-300 px-1.5 py-0.5" />
+                  <select value={form.venue || ''}
+                    onChange={(e) => setAddForms((m) => ({ ...m, [key]: { ...form, venue: e.target.value } }))}
+                    className="rounded border border-slate-300 px-1.5 py-0.5">
+                    <option value="">Venue…</option>
+                    {venues.map((v) => <option key={v.id} value={v.name}>{v.name}</option>)}
+                  </select>
+                  <input type="time" value={form.start || ''}
+                    onChange={(e) => setAddForms((m) => ({ ...m, [key]: { ...form, start: e.target.value } }))}
+                    className="rounded border border-slate-300 px-1.5 py-0.5" />
+                  <button onClick={() => addRow(cell)}
+                    className="rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 hover:bg-emerald-100">Add</button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
       <Card>
