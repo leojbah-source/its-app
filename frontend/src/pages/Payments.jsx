@@ -125,7 +125,15 @@ export default function Payments() {
                   {rows.map((r) => (
                     <tr key={r.id}>
                       <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{dt(r.created_at)}</td>
-                      <td className="px-3 py-2"><div className="font-medium text-slate-800">{r.participant_name || '—'}</div><div className="text-[11px] text-slate-400">{r.cpr_number}</div></td>
+                      <td className="px-3 py-2">
+                        <div className="font-medium text-slate-800">{r.participant_name || '—'}</div>
+                        <div className="text-[11px] text-slate-400">{r.cpr_number}</div>
+                        {!r.participant_id ? (
+                          <span className="mt-0.5 inline-block rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">No participant linked</span>
+                        ) : !r.participant_confirmed_at ? (
+                          <span className="mt-0.5 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">Registration not completed</span>
+                        ) : null}
+                      </td>
                       <td className="px-3 py-2 text-slate-600">{r.parent_name || '—'}</td>
                       <td className="px-3 py-2 text-slate-600 whitespace-nowrap font-mono text-xs">{r.guardian_phone || r.parent_phone || '—'}</td>
                       <td className="px-2 py-2 text-right font-semibold text-navy-800">{money(r.amount)}</td>

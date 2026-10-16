@@ -58,6 +58,7 @@ router.get('/payments', requireRole(...staffRoles), async (req, res, next) => {
     const { year_id, status, q } = req.query;
     const { rows } = await pool.query(
       `SELECT pay.*, p.full_name AS participant_name, p.cpr_number,
+              p.confirmed_at AS participant_confirmed_at,
               p.guardian_phone, u.full_name AS parent_name,
               u.phone AS parent_phone, cu.full_name AS confirmed_by_name
        FROM payments pay
