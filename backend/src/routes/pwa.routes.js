@@ -12,27 +12,66 @@ router.use(authenticate, requireType('pwa'));
 // GET /api/pwa/my-schedule — this participant's personal events, NO chest numbers (rule #22)
 router.get('/my-schedule', async (req, res, next) => {
   try {
+    // One row per event the child is in. If the event is published, s.* holds the
+    // scheduled row (that also contains the child's age group) and sched_groups is
+    // the ordered list of that row's groups + confirmed counts, used to compute the
+    // child's own staggered reporting time.
     const { rows } = await pool.query(
-      `SELECT e.event_name, c.name AS category, (e.event_kind = 'team') AS is_team_event,
-              ag.label AS age_group,
-              s.venue, s.event_date, s.start_time, s.end_time, ts.slot_label
+      `SELECT e.event_name, (e.event_kind = 'team') AS is_team_event,
+              ag.code AS my_code, ag.label AS age_group,
+              e.is_stage_event, e.allotted_time_seconds,
+              s.venue, to_char(s.event_date,'YYYY-MM-DD') AS event_date,
+              to_char(s.start_time,'HH24:MI') AS start_time,
+              s.age_groups,
+              (SELECT json_agg(json_build_object('code', ag2.code, 'cnt',
+                        (SELECT COUNT(*) FROM registrations r2
+                           LEFT JOIN participants pr2 ON pr2.id = r2.participant_id
+                          WHERE r2.event_id = e.id AND r2.status NOT IN ('withdrawn','swapped')
+                            AND (pr2.confirmed_at IS NOT NULL OR r2.team_id IS NOT NULL)
+                            AND r2.age_group_id = ag2.id)) ORDER BY ag2.sort_order)
+                 FROM age_groups ag2
+                WHERE ag2.year_id = r.year_id AND s.age_groups IS NOT NULL
+                  AND ag2.code = ANY(string_to_array(s.age_groups, ', '))) AS sched_groups
        FROM registrations r
        JOIN events e ON e.id = r.event_id
-       LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN age_groups ag ON ag.id = r.age_group_id
        LEFT JOIN LATERAL (
-         SELECT venue, event_date, start_time, end_time, time_slot_id
+         SELECT venue, event_date, start_time, age_groups
          FROM schedule sd
          WHERE sd.event_id = r.event_id AND sd.year_id = r.year_id
            AND sd.status IN ('confirmed','completed')
+           AND ag.code = ANY(string_to_array(sd.age_groups, ', '))
          ORDER BY sd.event_date, sd.start_time LIMIT 1
        ) s ON TRUE
-       LEFT JOIN event_time_slots ts ON ts.id = s.time_slot_id
        WHERE r.participant_id = $1 AND r.status NOT IN ('withdrawn','swapped')
        ORDER BY s.event_date NULLS LAST, s.start_time NULLS LAST, e.event_name`,
       [req.user.participantId]
     );
-    res.json(rows);
+
+    const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+    const fmt = (min) => { if (min == null) return null; const x = ((min % 1440) + 1440) % 1440; return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
+
+    const out = rows.map((r) => {
+      let report = null;
+      if (r.start_time) {
+        const start = toMin(r.start_time);
+        const perMin = r.allotted_time_seconds ? r.allotted_time_seconds / 60 : 5;
+        const groups = Array.isArray(r.sched_groups) ? r.sched_groups : [];
+        const idx = groups.findIndex((g) => g.code === r.my_code);
+        if (!r.is_stage_event || groups.length <= 1 || idx <= 0) {
+          report = fmt(start - 15);
+        } else {
+          let earlier = 0;
+          for (let i = 0; i < idx; i++) earlier += Math.ceil((Number(groups[i].cnt) || 0) * perMin);
+          report = fmt(start + earlier - 30);
+        }
+      }
+      return {
+        event_name: r.event_name, is_team_event: r.is_team_event, age_group: r.age_group,
+        venue: r.venue, event_date: r.event_date, scheduled: !!r.start_time, report,
+      };
+    });
+    res.json(out);
   } catch (err) { next(err); }
 });
 

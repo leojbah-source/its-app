@@ -11,7 +11,6 @@ import BrandMark from '../../components/ui/BrandMark';
 const MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
 const EXTRA = { additional_3rd: 'Additional 3rd', consolation: 'Consolation' };
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : '');
-const fmtTime = (t) => (t ? String(t).slice(0, 5) : '');
 
 export default function MyPortal() {
   const { token, participant, logout } = usePwaAuth();
@@ -83,13 +82,18 @@ export default function MyPortal() {
               <ul className="divide-y divide-slate-100">
                 {schedule.map((s, i) => (
                   <li key={i} className="px-4 py-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-start justify-between gap-2">
                       <span className="text-sm font-semibold text-navy-800">{s.event_name}{s.is_team_event && <span className="ml-2 rounded bg-gold-100 px-1.5 py-0.5 text-[10px] font-medium text-gold-700">TEAM</span>}</span>
-                      <span className="text-xs text-slate-500">{fmtDate(s.event_date)}</span>
+                      {s.scheduled && <span className="shrink-0 text-xs text-slate-500">{fmtDate(s.event_date)}</span>}
                     </div>
-                    <div className="mt-0.5 text-xs text-slate-600">
-                      {[s.venue, (s.start_time || s.end_time) ? `${fmtTime(s.start_time)}${s.end_time ? '–' + fmtTime(s.end_time) : ''}` : s.slot_label].filter(Boolean).join(' · ')}
-                    </div>
+                    {s.scheduled ? (
+                      <div className="mt-1 flex items-center justify-between gap-2">
+                        <span className="text-xs text-slate-500">{s.venue || ''}</span>
+                        <span className="text-xs text-slate-700">report by <b className="font-mono text-navy-800">{s.report || '—'}</b></span>
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-xs text-slate-400">Schedule to be announced</div>
+                    )}
                   </li>
                 ))}
               </ul>
