@@ -123,6 +123,7 @@ export default function Schedule() {
   const [catDates, setCatDates] = useState([]);  // [{id,code,name,not_before_date}]
   const [generating, setGenerating] = useState(false);
   const [excludeCats, setExcludeCats] = useState(() => new Set());
+  const [reflowOnly, setReflowOnly] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -159,6 +160,7 @@ export default function Schedule() {
         gap_minutes: gap === '' ? 15 : Number(gap),
         max_groups_per_session: Number(maxGroups) || 3,
         exclude_category_ids: [...excludeCats],
+        reflow_only: reflowOnly,
       });
       setFlash(`Draft generated: ${r.scheduled} events placed${r.unplaced.length ? `, ${r.unplaced.length} could not be placed` : ''}.`);
       setUnplaced(r.unplaced || []);
@@ -202,6 +204,12 @@ export default function Schedule() {
       setFlash(`Removed ${row.event_code} from the schedule.`);
       load();
     } catch (err) { setFlash(err.message); }
+  }
+
+  async function setDayState(date, state) {
+    setFlash('');
+    try { const r = await scheduleApi.dateState(token, date, state); setFlash(`Marked ${r.updated} row(s) on this day as ${state === 'looks_good' ? 'Looks good' : state === 'locked' ? 'Locked' : 'Draft'}.`); load(); }
+    catch (e) { setFlash(e.message); }
   }
 
   async function clearDrafts() {
@@ -403,6 +411,10 @@ export default function Schedule() {
               </div>
             )}
 
+            <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-700">
+              <input type="checkbox" checked={reflowOnly} onChange={(e) => setReflowOnly(e.target.checked)} className="mt-0.5" />
+              <span><b>Re-flow current draft rows only</b> — don’t add any new events. Use this after fixing a few items: the scheduler re-places what is already in Draft and will not pull in events you removed or newly-eligible ones.</span>
+            </label>
             <p className="text-xs text-amber-600">
               Generating replaces only plain DRAFT rows; 'Looks good', locked and confirmed rows are kept
               and the new events are placed around them (still no clashes, max 2/day per child).
@@ -462,9 +474,19 @@ export default function Schedule() {
             <div className="space-y-6">
               {Object.entries(byDate).map(([date, list]) => (
                 <div key={date}>
-                  <h3 className="text-sm font-semibold text-navy-800 mb-2">
-                    {new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-                  </h3>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-navy-800">
+                      {new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                    </h3>
+                    {canEdit && (
+                      <div className="flex items-center gap-1.5 text-[11px]">
+                        <span className="text-slate-400">Mark whole day:</span>
+                        <button onClick={() => setDayState(date, 'looks_good')} className="rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 hover:bg-emerald-100">Looks good</button>
+                        <button onClick={() => setDayState(date, 'locked')} className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 font-medium text-amber-700 hover:bg-amber-100">Lock</button>
+                        <button onClick={() => setDayState(date, 'draft')} className="rounded border border-slate-300 bg-white px-2 py-0.5 font-medium text-slate-500 hover:bg-slate-50">Reset to draft</button>
+                      </div>
+                    )}
+                  </div>
                   <div className="overflow-x-auto rounded-lg border border-slate-200">
                     <table className="w-full min-w-[760px] text-sm">
                       <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">

@@ -186,6 +186,19 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
     const excludeCategoryIds = (Array.isArray(exclude_category_ids) ? exclude_category_ids : [])
       .map(Number).filter((n) => Number.isInteger(n));
 
+    // Re-flow mode: when the office has fixed a few things and regenerates, only
+    // re-place the events that currently have plain DRAFT rows — do NOT pull in
+    // new/removed events the scheduler would otherwise find "suitable". null =
+    // normal full generate (every eligible event).
+    let restrictEventIds = null;
+    if (req.body?.reflow_only) {
+      const { rows: dr } = await pool.query(
+        `SELECT DISTINCT event_id FROM schedule
+          WHERE year_id = $1 AND status = 'draft' AND is_locked = FALSE AND looks_good = FALSE`, [yc.id]);
+      restrictEventIds = dr.map((r) => r.event_id);
+      if (restrictEventIds.length === 0) restrictEventIds = [-1]; // nothing to re-flow
+    }
+
     const { rows: venueRows } = await pool.query(
       `SELECT * FROM venues WHERE year_id = $1 ORDER BY sort_order, id`, [yc.id]);
     if (!venueRows.length)
@@ -352,8 +365,9 @@ router.post('/generate-draft', requireRole(...editRoles), async (req, res, next)
            WHERE e.year_id = $1 AND e.is_cancelled = FALSE
              AND (pr.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
              AND (e.category_id IS NULL OR e.category_id <> ALL($2::int[]))
+             AND ($3::int[] IS NULL OR e.id = ANY($3::int[]))
            GROUP BY e.id, c.name, c.not_before_date, pv.name, ag.code, ag.sort_order
-           ORDER BY e.id, ag.sort_order`, [yearId, excludeCategoryIds]);
+           ORDER BY e.id, ag.sort_order`, [yearId, excludeCategoryIds, restrictEventIds]);
 
         // group rows per event, then batch consecutive age groups
         const perEvent = new Map();
@@ -655,6 +669,36 @@ router.post('/:id/state', requireRole(...editRoles), async (req, res, next) => {
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'SCHEDULE_ROW_STATE', entity: 'schedule', entityId: req.params.id, details: { state } });
     res.json({ ok: true, state });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/schedule/date-state  { date, state } ─────────────────────
+// Set EVERY row on one date to draft / looks_good / locked in one action, so the
+// office can mark a whole day reviewed or locked without toggling each row.
+router.post('/date-state', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const { date, state } = req.body;
+    if (!date) return res.status(400).json({ error: 'date is required (YYYY-MM-DD)' });
+    if (!['draft', 'looks_good', 'locked'].includes(state))
+      return res.status(400).json({ error: "state must be 'draft', 'looks_good' or 'locked'" });
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+
+    let sql;
+    if (state === 'locked')
+      sql = `UPDATE schedule SET is_locked = TRUE, looks_good = TRUE, locked_at = NOW(), locked_by = $3, updated_at = NOW()
+               WHERE year_id = $1 AND event_date = $2 RETURNING id`;
+    else if (state === 'looks_good')
+      sql = `UPDATE schedule SET looks_good = TRUE, is_locked = FALSE, locked_at = NULL, locked_by = NULL, updated_at = NOW()
+               WHERE year_id = $1 AND event_date = $2 RETURNING id`;
+    else
+      sql = `UPDATE schedule SET looks_good = FALSE, is_locked = FALSE, locked_at = NULL, locked_by = NULL, updated_at = NOW()
+               WHERE year_id = $1 AND event_date = $2 RETURNING id`;
+    const params = state === 'locked' ? [yc.id, date, req.user.id] : [yc.id, date];
+    const { rows } = await pool.query(sql, params);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'SCHEDULE_DATE_STATE', entity: 'schedule', entityId: yc.id, details: { date, state, rows: rows.length } });
+    res.json({ ok: true, state, date, updated: rows.length });
   } catch (err) { next(err); }
 });
 
