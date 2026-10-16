@@ -214,7 +214,14 @@ export default function Schedule() {
   async function moveDay(date) {
     const to = moveDates[date];
     if (!to) return;
-    if (!window.confirm(`Move ALL events on ${date} to ${to}? Each event keeps its venue and times.`)) return;
+    let warn = [];
+    try { const c = await scheduleApi.moveDateCheck(token, date, to); warn = c.warnings || []; } catch { /* check is best-effort */ }
+    const base = `Move ALL events on ${date} to ${to}? Each event keeps its venue and times.`;
+    const shown = warn.slice(0, 12).join('\n• ');
+    const msg = warn.length
+      ? `${base}\n\n⚠ ${warn.length} possible clash(es) on ${to}:\n• ${shown}${warn.length > 12 ? `\n…and ${warn.length - 12} more` : ''}\n\nProceed anyway?`
+      : base;
+    if (!window.confirm(msg)) return;
     setFlash('');
     try {
       const r = await scheduleApi.moveDate(token, date, to);

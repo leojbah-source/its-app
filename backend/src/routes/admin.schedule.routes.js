@@ -702,6 +702,59 @@ router.post('/date-state', requireRole(...editRoles), async (req, res, next) => 
   } catch (err) { next(err); }
 });
 
+// ── POST /api/admin/schedule/move-date/check  { from_date, to_date } ─────────
+// Dry-run a whole-day move: would any event moving to to_date clash with events
+// already there? Checks participant time-overlaps, venue double-booking, and the
+// 2-events-per-day-per-child rule. Returns { warnings: [...], moving }.
+router.post('/move-date/check', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.json({ warnings: [], moving: 0 });
+    const { from_date, to_date } = req.body || {};
+    if (!from_date || !to_date || from_date === to_date) return res.json({ warnings: [], moving: 0 });
+
+    const rowSel = `SELECT s.id, s.event_id, s.age_groups, s.venue,
+              to_char(s.start_time,'HH24:MI') AS st, to_char(s.end_time,'HH24:MI') AS en,
+              e.event_code, e.event_name
+         FROM schedule s JOIN events e ON e.id = s.event_id
+        WHERE s.year_id = $1 AND s.event_date = $2`;
+    const { rows: moving } = await pool.query(rowSel, [yc.id, from_date]);
+    if (!moving.length) return res.json({ warnings: [], moving: 0 });
+    const { rows: existing } = await pool.query(rowSel, [yc.id, to_date]);
+
+    const cache = new Map();
+    const partsOf = async (eventId, ag) => {
+      const key = `${eventId}|${ag}`;
+      if (cache.has(key)) return cache.get(key);
+      const { rows } = await pool.query(partsOfQuery, [eventId, codesOf(ag)]);
+      const set = new Set(rows.map((x) => x.pid));
+      cache.set(key, set); return set;
+    };
+
+    const warnSet = new Set();
+    for (const m of moving) {
+      const mSet = await partsOf(m.event_id, m.age_groups);
+      const ms = toMin(m.st), me = toMin(m.en);
+      for (const o of existing) {
+        const os = toMin(o.st), oe = toMin(o.en);
+        if (!(ms < oe && os < me)) continue; // no time overlap
+        const oSet = await partsOf(o.event_id, o.age_groups);
+        const shared = [...mSet].filter((p) => oSet.has(p)).length;
+        if (shared) warnSet.add(`${shared} participant(s): ${m.event_code} ${m.event_name} (${m.st}–${m.en}) clashes with ${o.event_code} ${o.event_name} (${o.st}–${o.en}).`);
+        if (m.venue && o.venue === m.venue) warnSet.add(`Venue ${m.venue}: ${m.event_code} ${m.event_name} (${m.st}–${m.en}) overlaps ${o.event_code} ${o.event_name} (${o.st}–${o.en}).`);
+      }
+    }
+    // 2-per-day rule across existing + moved on to_date.
+    const count = {}, movedHas = {};
+    for (const r of existing) { const set = await partsOf(r.event_id, r.age_groups); for (const p of set) count[p] = (count[p] || 0) + 1; }
+    for (const r of moving) { const set = await partsOf(r.event_id, r.age_groups); for (const p of set) { count[p] = (count[p] || 0) + 1; movedHas[p] = true; } }
+    const over = Object.keys(count).filter((p) => count[p] > 2 && movedHas[p]).length;
+    if (over > 0) warnSet.add(`${over} participant(s) would have more than 2 events on ${to_date} after the move.`);
+
+    res.json({ warnings: [...warnSet], moving: moving.length });
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/admin/schedule/move-date  { from_date, to_date } ───────────────
 // Move EVERY row on one date to another date, as-is (same venue, start/end and
 // reporting times). A whole-day shift; the office can then adjust individual
