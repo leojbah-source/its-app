@@ -67,6 +67,8 @@ function RowEditor({ row, token, onSaved }) {
     setEdit(true);
   }
   async function save() {
+    if (!f.start_time || !f.end_time) { alert('Enter both a start time and an end time.'); return; }
+    if (f.end_time <= f.start_time) { alert('The end time must be AFTER the start time. (For 2:00 pm to 3:30 pm use 14:00 and 15:30.)'); return; }
     setBusy(true);
     try {
       const chk = await scheduleApi.checkMove(token, row.id, f);
@@ -262,6 +264,13 @@ export default function Schedule() {
       setAddForms((m) => { const n = { ...m }; delete n[key]; return n; });
       load();
     } catch (e) { setFlash(e.message); }
+  }
+
+  async function unpublishRow(row) {
+    if (!window.confirm(`Unpublish ${row.event_code} ${row.event_name}? It goes back to Locked (draft) so you can edit it, and disappears from the participants’ page until you publish again.`)) return;
+    setFlash('');
+    try { await scheduleApi.unpublish(token, row.id); setFlash(`${row.event_code} unpublished — it is back to Locked (not visible to participants).`); load(); }
+    catch (e) { setFlash(e.message); }
   }
 
   async function clearDrafts() {
@@ -676,7 +685,12 @@ export default function Schedule() {
                               <td className="px-3 py-2 text-xs text-slate-600">{g.perMin ? `${g.perMin} min` : '—'}</td>
                               {gi === 0 && (
                                 <>
-                                  <td rowSpan={n} className="px-3 py-2 font-mono text-xs align-top">{reportingById[r.id] != null ? fmtMin(reportingById[r.id]) : '—'}</td>
+                                  <td rowSpan={n} className="px-3 py-2 font-mono text-xs align-top">
+                                    {reportingById[r.id] != null ? fmtMin(reportingById[r.id]) : '—'}
+                                    {(r.start_time || r.end_time) && (
+                                      <div className="text-[10px] font-normal text-slate-400">runs {(r.start_time || '').slice(0, 5)}–{(r.end_time || '').slice(0, 5)}</div>
+                                    )}
+                                  </td>
                                   <td rowSpan={n} className="px-3 py-2 align-top">{statusCell}</td>
                                   <td rowSpan={n} className="px-3 py-2 text-right align-top">
                                     {canChange(r) ? (
@@ -687,6 +701,11 @@ export default function Schedule() {
                                           <Trash2 size={12} /> Remove
                                         </button>
                                       </div>
+                                    ) : published && isSuper ? (
+                                      <button onClick={() => unpublishRow(r)} title="Pull this published row back to draft (SuperAdmin)"
+                                        className="text-xs font-medium text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5">
+                                        <Unlock size={12} /> Unpublish
+                                      </button>
                                     ) : published ? (
                                       <span className="text-[10px] text-slate-400">published</span>
                                     ) : null}
