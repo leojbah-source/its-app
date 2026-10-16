@@ -185,7 +185,14 @@ export default function Schedule() {
   const pubCount = rows.filter((r) => r.is_locked && r.status === 'draft'
     && (!pubDate || String(r.event_date).slice(0, 10) <= pubDate)).length;
   async function publish() {
-    if (pubCount === 0) { setFlash('No Locked rows to publish for that cut-off. Lock the day(s) you want to publish first.'); return; }
+    if (pubCount === 0) {
+      const already = rows.filter((r) => (r.status === 'confirmed' || r.status === 'completed')
+        && (!pubDate || String(r.event_date).slice(0, 10) <= pubDate)).length;
+      setFlash(already > 0
+        ? `Those day(s)${pubDate ? ` up to ${pubDate}` : ''} are already published. To change a published day just edit it (SuperAdmin) — the change is live on the participants' page right away; you don't re-publish. Refresh the participants' page to see it.`
+        : 'No Locked rows to publish for that cut-off. Lock the day(s) you want to publish first.');
+      return;
+    }
     if (!window.confirm(`Publish ${pubCount} locked event row(s)${pubDate ? ` up to and including ${pubDate}` : ''}? They appear on the participants’ page and can then be changed only by the SuperAdmin.`)) return;
     try {
       const r = await scheduleApi.publish(token, pubDate || undefined);
@@ -533,6 +540,7 @@ export default function Schedule() {
             <p className="text-xs text-slate-500">
               Only <b>Locked</b> rows are published. Pick a cut-off date to publish locked rows up to &amp; including that day (leave blank for all locked rows).
               Published events appear on the participants’ page and can then be changed only by the <b>SuperAdmin</b>.
+              Editing an already-published day is live immediately — you don’t re-publish it.
             </p>
             <label className="block text-xs text-slate-600">
               Publish locked rows up to &amp; including:

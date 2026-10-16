@@ -118,17 +118,18 @@ router.get('/schedule', async (req, res, next) => {
     for (const s of bySched.values()) {
       const start = s.start_time ? toMin(s.start_time) : null;
       const perMin = s.allotted ? s.allotted / 60 : 5;
+      const timeAllowed = s.allotted ? `${Math.round((s.allotted / 60) * 10) / 10} min` : null;
       let groups;
       if (start == null) {
-        groups = s.groups.map((g) => ({ label: g.label, report: null }));
+        groups = s.groups.map((g) => ({ label: g.label, time_allowed: timeAllowed, report: null }));
       } else if (!s.is_stage_event || s.groups.length <= 1) {
-        groups = s.groups.map((g) => ({ label: g.label, report: fmt(start - 15) }));
+        groups = s.groups.map((g) => ({ label: g.label, time_allowed: timeAllowed, report: fmt(start - 15) }));
       } else {
         let performStart = start;
         groups = s.groups.map((g, i) => {
           const rep = i === 0 ? start - 15 : performStart - 30;
           performStart += Math.ceil(g.cnt * perMin);
-          return { label: g.label, report: fmt(rep) };
+          return { label: g.label, time_allowed: timeAllowed, report: fmt(rep) };
         });
       }
       out.push({ event_name: s.event_name, is_team_event: s.is_team_event,

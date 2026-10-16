@@ -208,13 +208,25 @@ export default function PublicBoard() {
                       <span className="text-xs text-slate-500">{fmtDate(s.event_date)}</span>
                     </div>
                     {s.venue && <div className="mt-0.5 text-xs text-slate-500">{s.venue}</div>}
-                    <div className="mt-1.5 space-y-0.5">
-                      {(s.groups || []).map((g, gi) => (
-                        <div key={gi} className="flex items-center justify-between text-xs">
-                          <span className="font-medium text-navy-700">{g.label}</span>
-                          <span className="text-slate-600">report by <b className="font-mono">{g.report || '—'}</b></span>
-                        </div>
-                      ))}
+                    <div className="mt-2 overflow-hidden rounded-lg border border-slate-200">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
+                            <th className="border-b border-slate-200 px-2.5 py-1.5">Group</th>
+                            <th className="border-b border-slate-200 px-2.5 py-1.5">Time allowed</th>
+                            <th className="border-b border-slate-200 px-2.5 py-1.5 text-right">Report by</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(s.groups || []).map((g, gi) => (
+                            <tr key={gi} className="border-b border-slate-100 last:border-0">
+                              <td className="px-2.5 py-1.5 font-medium text-navy-700">{g.label}</td>
+                              <td className="px-2.5 py-1.5 text-slate-600">{g.time_allowed || '—'}</td>
+                              <td className="px-2.5 py-1.5 text-right font-mono font-semibold text-navy-800">{g.report || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </li>
                 ))}
