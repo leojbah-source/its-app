@@ -750,13 +750,18 @@ router.get('/full-report', requireRole(...staffRoles), async (req, res, next) =>
       { header: 'Participants', key: 'cnt', width: 12 },
     ];
     for (const r of rows) {
-      const perMin = r.allotted_time_seconds ? r.allotted_time_seconds / 60 : 5;
       const cnt = Number(r.cnt) || 0;
+      // Duration of the EVENT itself = End - Start (minutes), not the sum of all participants' time.
+      let dur = '';
+      if (r.start_time && r.end_time) {
+        const d = toMin(r.end_time) - toMin(r.start_time);
+        dur = d >= 0 ? d : d + 1440;
+      }
       ws.addRow({
         date: r.event_date || '', start: r.start_time || '', end: r.end_time || '',
-        venue: r.venue || '', event: `${r.event_code} — ${r.event_name}`, group: r.gcode,
+        venue: r.venue || '', event: r.event_name, group: r.gcode,
         rep: fmt(repMap.get(`${r.sched_id}|${r.gcode}`)),
-        dur: Math.ceil(cnt * perMin), cnt,
+        dur, cnt,
       });
     }
     const h = ws.getRow(1); h.font = { bold: true };
