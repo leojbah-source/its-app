@@ -104,6 +104,8 @@ function RowEditor({ row, token, onSaved }) {
 export default function Schedule() {
   const { token, user } = useAuth();
   const canEdit = user?.role !== 'EventStaff';
+  const isSuper = user?.role === 'SuperAdmin';
+  const canChange = (r) => canEdit && (!(r.status === 'confirmed' || r.status === 'completed') || isSuper);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -113,6 +115,8 @@ export default function Schedule() {
   // Draft-generation inputs (venues + availability come from the facility
   // setup in Year Setup; here we only pick the window + buffer)
   const [showGen, setShowGen] = useState(false);
+  const [showPub, setShowPub] = useState(false);
+  const [pubDate, setPubDate] = useState('');
   const [venues, setVenues] = useState([]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -175,11 +179,15 @@ export default function Schedule() {
     finally { setGenerating(false); }
   }
 
+  const pubCount = rows.filter((r) => r.is_locked && r.status === 'draft'
+    && (!pubDate || String(r.event_date).slice(0, 10) <= pubDate)).length;
   async function publish() {
-    if (!window.confirm('Publish the draft schedule? Rows become CONFIRMED and visible downstream.')) return;
+    if (pubCount === 0) { setFlash('No Locked rows to publish for that cut-off. Lock the day(s) you want to publish first.'); return; }
+    if (!window.confirm(`Publish ${pubCount} locked event row(s)${pubDate ? ` up to and including ${pubDate}` : ''}? They appear on the participants’ page and can then be changed only by the SuperAdmin.`)) return;
     try {
-      const r = await scheduleApi.publish(token);
-      setFlash(`Schedule published — ${r.confirmed} events confirmed.`);
+      const r = await scheduleApi.publish(token, pubDate || undefined);
+      setFlash(`Published ${r.confirmed} event(s)${r.cutoff_date ? ` up to ${r.cutoff_date}` : ''}.`);
+      setShowPub(false);
       load();
     } catch (err) { setFlash(err.message); }
   }
@@ -297,7 +305,7 @@ export default function Schedule() {
     (acc[d] ??= []).push(r);
     return acc;
   }, {});
-  const draftCount = rows.filter((r) => r.status === 'draft').length;
+  const lockedDraftCount = rows.filter((r) => r.status === 'draft' && r.is_locked).length;
   const lockedCount = rows.filter((r) => r.is_locked).length;
   const pureDraftCount = rows.filter((r) => r.status === 'draft' && !r.is_locked && !r.looks_good).length;
   const unlockedCount = rows.filter((r) => !r.is_locked).length;
@@ -319,8 +327,8 @@ export default function Schedule() {
                   Clear drafts ({pureDraftCount})
                 </Button>
               )}
-              <Button variant="gold" icon={CheckCircle2} onClick={publish} disabled={draftCount === 0}>
-                Publish schedule ({draftCount} draft)
+              <Button variant="gold" icon={CheckCircle2} onClick={() => setShowPub((v) => !v)} disabled={lockedDraftCount === 0}>
+                Publish locked… ({lockedDraftCount})
               </Button>
               <Button variant="outline" icon={Lock} onClick={lock} disabled={unlockedCount === 0}>
                 Lock phase
@@ -501,6 +509,27 @@ export default function Schedule() {
         </Card>
       )}
 
+      {canEdit && showPub && (
+        <Card>
+          <div className="space-y-2">
+            <div className="text-sm font-semibold text-navy-800">Publish locked schedule</div>
+            <p className="text-xs text-slate-500">
+              Only <b>Locked</b> rows are published. Pick a cut-off date to publish locked rows up to &amp; including that day (leave blank for all locked rows).
+              Published events appear on the participants’ page and can then be changed only by the <b>SuperAdmin</b>.
+            </p>
+            <label className="block text-xs text-slate-600">
+              Publish locked rows up to &amp; including:
+              <input type="date" value={pubDate} min="2024-01-01" max="2100-12-31"
+                onChange={(e) => setPubDate(e.target.value)} className={`${inputCls} mt-1`} />
+            </label>
+            <div className="text-xs font-medium text-navy-700">{pubCount} locked row(s) will be published{pubDate ? ` (on/before ${pubDate})` : ''}.</div>
+            <div className="flex gap-2 pt-1">
+              <Button variant="gold" icon={CheckCircle2} onClick={publish} disabled={pubCount === 0}>Publish {pubCount} now</Button>
+              <Button variant="outline" onClick={() => setShowPub(false)}>Cancel</Button>
+            </div>
+          </div>
+        </Card>
+      )}
       {rows.length > 0 && (
         <div className="mb-3 flex items-center gap-2">
           <input value={q} onChange={(e) => setQ(e.target.value)}
@@ -604,9 +633,14 @@ export default function Schedule() {
                             looks_good: { label: 'Looks good', cls: 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100' },
                             locked: { label: 'Locked', cls: 'bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200' },
                           }[cur];
+                          const published = r.status === 'confirmed' || r.status === 'completed';
                           const statusCell = (
                             <div className="flex flex-col items-start gap-1">
-                              {canEdit ? (
+                              {published ? (
+                                <span className="inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+                                  <Lock size={10} /> Published
+                                </span>
+                              ) : canEdit ? (
                                 <button onClick={() => cycleState(r)}
                                   title="Click to cycle: Draft → Looks good → Locked (locked rows survive regeneration)"
                                   className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold transition-colors ${meta.cls}`}>
@@ -617,7 +651,7 @@ export default function Schedule() {
                                   {cur === 'locked' && <Lock size={10} />}{meta.label}
                                 </span>
                               )}
-                              {r.status !== 'draft' && <span className="text-[10px] text-slate-400">{r.status}</span>}
+                              {published && isSuper && <span className="text-[10px] text-slate-400">SuperAdmin can still edit</span>}
                             </div>
                           );
                           return grp.map((g, gi) => (
@@ -633,7 +667,7 @@ export default function Schedule() {
                               )}
                               <td className="px-3 py-2 whitespace-nowrap">
                                 <span className="rounded bg-gold-100 text-gold-700 px-1.5 py-0.5 text-[10px] font-semibold">{g.code}</span>
-                                {canEdit && (
+                                {canChange(r) && (
                                   <button onClick={() => removeGroup(r, g.code)} title={`Remove ${g.code} from this event`}
                                     className="ml-1 text-slate-300 hover:text-red-500 text-sm font-bold leading-none align-middle">×</button>
                                 )}
@@ -645,7 +679,7 @@ export default function Schedule() {
                                   <td rowSpan={n} className="px-3 py-2 font-mono text-xs align-top">{reportingById[r.id] != null ? fmtMin(reportingById[r.id]) : '—'}</td>
                                   <td rowSpan={n} className="px-3 py-2 align-top">{statusCell}</td>
                                   <td rowSpan={n} className="px-3 py-2 text-right align-top">
-                                    {canEdit ? (
+                                    {canChange(r) ? (
                                       <div className="flex items-center justify-end gap-2">
                                         <RowEditor row={r} token={token} onSaved={load} />
                                         <button onClick={() => drop(r)} title="Remove this event from the schedule"
@@ -653,6 +687,8 @@ export default function Schedule() {
                                           <Trash2 size={12} /> Remove
                                         </button>
                                       </div>
+                                    ) : published ? (
+                                      <span className="text-[10px] text-slate-400">published</span>
                                     ) : null}
                                   </td>
                                 </>

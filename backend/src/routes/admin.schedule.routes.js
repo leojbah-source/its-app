@@ -27,6 +27,14 @@ router.use(authenticate);
 const staffRoles = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'EventStaff'];
 const editRoles = ['SuperAdmin', 'Admin', 'Coordinator'];
 
+// A published (confirmed/completed) row is locked against edits for everyone
+// except the SuperAdmin. Returns true if the row exists and is published.
+async function rowPublished(id) {
+  const { rows } = await pool.query(`SELECT status FROM schedule WHERE id = $1`, [id]);
+  return !!rows[0] && (rows[0].status === 'confirmed' || rows[0].status === 'completed');
+}
+const PUBLISHED_GUARD = 'This row is already published — only the SuperAdmin can change it.';
+
 async function activeYear() {
   const { rows } = await pool.query(
     `SELECT id, event_start_date, event_end_date FROM year_config WHERE is_active = TRUE LIMIT 1`);
@@ -606,6 +614,8 @@ router.get('/', requireRole(...staffRoles, 'Media'), async (req, res, next) => {
 // ── PUT /api/admin/schedule/:id ───────────────────────────────────────────────
 router.put('/:id', requireRole(...editRoles), async (req, res, next) => {
   try {
+    if (req.user.role !== 'SuperAdmin' && await rowPublished(req.params.id))
+      return res.status(403).json({ error: PUBLISHED_GUARD });
     const { event_date, start_time, end_time, venue } = req.body;
     const { rows: before } = await pool.query(
       `SELECT event_date, start_time, end_time, venue FROM schedule WHERE id = $1`, [req.params.id]);
@@ -649,6 +659,8 @@ router.post('/clear-drafts', requireRole(...editRoles), async (req, res, next) =
 // Per-row review toggle: 'draft' -> 'looks_good' -> 'locked'.
 router.post('/:id/state', requireRole(...editRoles), async (req, res, next) => {
   try {
+    if (req.user.role !== 'SuperAdmin' && await rowPublished(req.params.id))
+      return res.status(403).json({ error: PUBLISHED_GUARD });
     const { state } = req.body;
     if (!['draft', 'looks_good', 'locked'].includes(state))
       return res.status(400).json({ error: "state must be 'draft', 'looks_good' or 'locked'" });
@@ -683,6 +695,12 @@ router.post('/date-state', requireRole(...editRoles), async (req, res, next) => 
       return res.status(400).json({ error: "state must be 'draft', 'looks_good' or 'locked'" });
     const yc = await activeYear();
     if (!yc) return res.status(400).json({ error: 'No active year' });
+    if (req.user.role !== 'SuperAdmin') {
+      const { rows: pub } = await pool.query(
+        `SELECT 1 FROM schedule WHERE year_id = $1 AND event_date = $2
+           AND status IN ('confirmed','completed') LIMIT 1`, [yc.id, date]);
+      if (pub[0]) return res.status(403).json({ error: 'That day has published events — only the SuperAdmin can change it.' });
+    }
 
     let sql;
     if (state === 'locked')
@@ -770,6 +788,12 @@ router.post('/move-date', requireRole(...editRoles), async (req, res, next) => {
     const yc = await activeYear();
     if (!yc) return res.status(400).json({ error: 'No active year' });
 
+    if (req.user.role !== 'SuperAdmin') {
+      const { rows: pub } = await pool.query(
+        `SELECT 1 FROM schedule WHERE year_id = $1 AND event_date = $2
+           AND status IN ('confirmed','completed') LIMIT 1`, [yc.id, from]);
+      if (pub[0]) return res.status(403).json({ error: 'That day has published events — only the SuperAdmin can move it.' });
+    }
     const { rows } = await pool.query(
       `UPDATE schedule SET event_date = $3, generated_by_scheduler = FALSE, updated_at = NOW()
          WHERE year_id = $1 AND event_date = $2 RETURNING id`, [yc.id, from, to]);
@@ -877,6 +901,8 @@ router.post('/add-row', requireRole(...editRoles), async (req, res, next) => {
 // the whole row is removed.
 router.post('/:id/remove-group', requireRole(...editRoles), async (req, res, next) => {
   try {
+    if (req.user.role !== 'SuperAdmin' && await rowPublished(req.params.id))
+      return res.status(403).json({ error: PUBLISHED_GUARD });
     const { code } = req.body;
     if (!code) return res.status(400).json({ error: 'code is required' });
     const { rows } = await pool.query(`SELECT age_groups FROM schedule WHERE id = $1`, [req.params.id]);
@@ -903,6 +929,8 @@ router.post('/:id/remove-group', requireRole(...editRoles), async (req, res, nex
 // Drop an event from the schedule (remove the row).
 router.delete('/:id', requireRole(...editRoles), async (req, res, next) => {
   try {
+    if (req.user.role !== 'SuperAdmin' && await rowPublished(req.params.id))
+      return res.status(403).json({ error: PUBLISHED_GUARD });
     const { rows } = await pool.query(
       `DELETE FROM schedule WHERE id = $1
        RETURNING event_id, age_groups, to_char(event_date,'YYYY-MM-DD') AS event_date, is_locked`,
@@ -976,13 +1004,22 @@ router.post('/publish', requireRole('SuperAdmin', 'Admin', 'Chairman'), async (r
   try {
     const yc = await activeYear();
     if (!yc) return res.status(400).json({ error: 'No active year' });
+    // Phased publish: only LOCKED draft rows are published, up to and including
+    // an optional cut-off date. Plain drafts and 'Looks good' (unlocked) rows
+    // are never published — lock a day first to publish it.
+    const cutoff = req.body?.cutoff_date;
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    if (cutoff && !ymd.test(cutoff))
+      return res.status(400).json({ error: 'cutoff_date must be YYYY-MM-DD' });
     const { rows } = await pool.query(
       `UPDATE schedule SET status = 'confirmed', updated_at = NOW()
-       WHERE year_id = $1 AND status = 'draft' RETURNING id`, [yc.id]);
+        WHERE year_id = $1 AND status = 'draft' AND is_locked = TRUE
+          AND ($2::date IS NULL OR event_date <= $2::date)
+        RETURNING id`, [yc.id, cutoff || null]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'PUBLISH_SCHEDULE', entity: 'schedule', entityId: yc.id,
-      details: { confirmed_rows: rows.length } });
-    res.json({ confirmed: rows.length });
+      details: { confirmed_rows: rows.length, cutoff_date: cutoff || null } });
+    res.json({ confirmed: rows.length, cutoff_date: cutoff || null });
   } catch (err) { next(err); }
 });
 
@@ -1012,7 +1049,7 @@ router.post('/unlock', requireRole('SuperAdmin', 'Admin', 'Chairman'), async (re
     if (!yc) return res.status(400).json({ error: 'No active year' });
     const { rows } = await pool.query(
       `UPDATE schedule SET is_locked = FALSE, locked_at = NULL, locked_by = NULL, updated_at = NOW()
-        WHERE year_id = $1 AND is_locked = TRUE RETURNING id`, [yc.id]);
+        WHERE year_id = $1 AND is_locked = TRUE AND status = 'draft' RETURNING id`, [yc.id]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'UNLOCK_SCHEDULE_PHASE', entity: 'schedule', entityId: yc.id,
       details: { unlocked: rows.length } });
