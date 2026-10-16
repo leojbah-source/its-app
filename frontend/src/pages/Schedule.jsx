@@ -39,14 +39,12 @@ function computeReporting(rows) {
     (byVenueDay[k] ??= []).push(r);
   });
   const map = {};
+  // Reporting = 15 minutes before each event's OWN start time, so changing an
+  // event's time immediately moves its reporting time.
   Object.values(byVenueDay).forEach((list) => {
-    list.sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')));
-    let prevEnd = null;
-    list.forEach((r, i) => {
+    list.forEach((r) => {
       const start = r.start_time ? toMin(r.start_time) : null;
-      const end = r.end_time ? toMin(r.end_time) : null;
-      map[r.id] = start == null ? null : (i === 0 || prevEnd == null ? start - 15 : prevEnd - 30);
-      if (end != null) prevEnd = end;
+      map[r.id] = start == null ? null : start - 15;
     });
   });
   return map;
@@ -266,6 +264,13 @@ export default function Schedule() {
     } catch (e) { setFlash(e.message); }
   }
 
+  async function combineRows(row) {
+    if (!window.confirm(`Combine all rows of ${row.event_code} ${row.event_name} on this date into ONE event (all age groups together) at ${row.venue || 'this venue'} ${(row.start_time || '').slice(0, 5)}–${(row.end_time || '').slice(0, 5)}?`)) return;
+    setFlash('');
+    try { const r = await scheduleApi.combine(token, row.id); setFlash(`Combined into one event — groups ${r.age_groups}.`); load(); }
+    catch (e) { setFlash(e.message); }
+  }
+
   async function unpublishRow(row) {
     if (!window.confirm(`Unpublish ${row.event_code} ${row.event_name}? It goes back to Locked (draft) so you can edit it, and disappears from the participants’ page until you publish again.`)) return;
     setFlash('');
@@ -301,6 +306,7 @@ export default function Schedule() {
   }
 
   const reportingById = computeReporting(rows);
+  const eventDateCounts = rows.reduce((acc, r) => { const k = `${String(r.event_date).slice(0, 10)}|${r.event_id}`; acc[k] = (acc[k] || 0) + 1; return acc; }, {});
   // group rows by date (filtered by the search box)
   const ql = q.trim().toLowerCase();
   const filtered = ql
@@ -695,6 +701,10 @@ export default function Schedule() {
                                   <td rowSpan={n} className="px-3 py-2 text-right align-top">
                                     {canChange(r) ? (
                                       <div className="flex items-center justify-end gap-2">
+                                        {eventDateCounts[`${String(r.event_date).slice(0, 10)}|${r.event_id}`] > 1 && (
+                                          <button onClick={() => combineRows(r)} title="Combine the other row(s) of this event on this date into one"
+                                            className="text-xs font-medium text-navy-600 hover:text-navy-700 underline">Combine</button>
+                                        )}
                                         <RowEditor row={r} token={token} onSaved={load} />
                                         <button onClick={() => drop(r)} title="Remove this event from the schedule"
                                           className="text-xs font-medium text-red-600 hover:text-red-700 inline-flex items-center gap-0.5">

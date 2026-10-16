@@ -896,6 +896,43 @@ router.post('/add-row', requireRole(...editRoles), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── POST /api/admin/schedule/:id/combine ─────────────────────────────────────
+// Merge every schedule row of the SAME event on the SAME date into this one row
+// (all age groups together, at this row's venue/time) and delete the extras.
+// Used when the age-group batching placed one event across two rows/venues and
+// the office wants it as a single event.
+router.post('/:id/combine', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    if (req.user.role !== 'SuperAdmin' && await rowPublished(req.params.id))
+      return res.status(403).json({ error: PUBLISHED_GUARD });
+    const { rows: me } = await pool.query(
+      `SELECT year_id, event_id, to_char(event_date,'YYYY-MM-DD') AS event_date, age_groups FROM schedule WHERE id = $1`, [req.params.id]);
+    if (!me[0]) return res.status(404).json({ error: 'Schedule row not found' });
+    const { rows: others } = await pool.query(
+      `SELECT id, age_groups, status FROM schedule
+        WHERE year_id = $1 AND event_id = $2 AND event_date = $3 AND id <> $4`,
+      [me[0].year_id, me[0].event_id, me[0].event_date, req.params.id]);
+    if (!others.length) return res.status(400).json({ error: 'No other rows of this event on this date to combine.' });
+    if (req.user.role !== 'SuperAdmin' && others.some((o) => o.status === 'confirmed' || o.status === 'completed'))
+      return res.status(403).json({ error: 'One of the rows is published — only the SuperAdmin can combine it.' });
+
+    const codes = new Set();
+    codesOf(me[0].age_groups).forEach((c) => codes.add(c));
+    others.forEach((o) => codesOf(o.age_groups).forEach((c) => codes.add(c)));
+    const { rows: ord } = await pool.query(
+      `SELECT code FROM age_groups WHERE year_id = $1 AND code = ANY($2::text[]) ORDER BY sort_order NULLS LAST, code`,
+      [me[0].year_id, [...codes]]);
+    const ag = (ord.length ? ord.map((r) => r.code) : [...codes]).join(', ');
+
+    await pool.query(`UPDATE schedule SET age_groups = $1, generated_by_scheduler = FALSE, updated_at = NOW() WHERE id = $2`, [ag, req.params.id]);
+    await pool.query(`DELETE FROM schedule WHERE id = ANY($1)`, [others.map((o) => o.id)]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'SCHEDULE_COMBINE_ROWS', entity: 'schedule', entityId: req.params.id,
+      details: { event_id: me[0].event_id, age_groups: ag, merged: others.length } });
+    res.json({ ok: true, age_groups: ag, removed: others.length });
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/admin/schedule/:id/remove-group ────────────────────────────────
 // Drop one age group from an event's scheduled row. If it was the last group,
 // the whole row is removed.
