@@ -4,7 +4,7 @@
 // same-category venue clustering), review & adjust rows, then publish.
 
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Wand2, CheckCircle2, Save, Lock, Unlock, Trash2 } from 'lucide-react';
+import { RefreshCw, Wand2, CheckCircle2, Save, Lock, Unlock, Trash2, Download } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -120,6 +120,9 @@ export default function Schedule() {
   const [showGen, setShowGen] = useState(false);
   const [showPub, setShowPub] = useState(false);
   const [pubDate, setPubDate] = useState('');
+  const [showFull, setShowFull] = useState(false);
+  const [fullFrom, setFullFrom] = useState('');
+  const [fullTo, setFullTo] = useState('');
   const [venues, setVenues] = useState([]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -265,6 +268,18 @@ export default function Schedule() {
       setTimeout(() => URL.revokeObjectURL(url), 4000);
     } catch (e) { setFlash(e.message || 'Could not generate the day sheet.'); }
   }
+  async function downloadFullSchedule() {
+    setFlash('');
+    try {
+      const blob = await scheduleApi.fullReport(token, fullFrom || undefined, fullTo || undefined);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const tag = (fullFrom || fullTo) ? `-${fullFrom || 'start'}_to_${fullTo || 'end'}` : '';
+      a.href = url; a.download = `full-schedule${tag}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) { setFlash(e.message || 'Could not generate the schedule export.'); }
+  }
 
   async function setDayState(date, state) {
     const flags = stateFlags(state);
@@ -365,6 +380,9 @@ export default function Schedule() {
               )}
               <Button variant="gold" icon={CheckCircle2} onClick={() => setShowPub((v) => !v)} disabled={lockedDraftCount === 0}>
                 Publish locked… ({lockedDraftCount})
+              </Button>
+              <Button variant="outline" icon={Download} onClick={() => setShowFull((v) => !v)}>
+                Full schedule (Excel)
               </Button>
               <Button variant="outline" icon={Lock} onClick={lock} disabled={unlockedCount === 0}>
                 Lock phase
@@ -563,6 +581,33 @@ export default function Schedule() {
             <div className="flex gap-2 pt-1">
               <Button variant="gold" icon={CheckCircle2} onClick={publish} disabled={pubCount === 0}>Publish {pubCount} now</Button>
               <Button variant="outline" onClick={() => setShowPub(false)}>Cancel</Button>
+            </div>
+          </div>
+        </Card>
+      )}
+      {showFull && (
+        <Card>
+          <div className="space-y-2">
+            <div className="text-sm font-semibold text-navy-800">Full schedule (Excel)</div>
+            <p className="text-xs text-slate-500">
+              One sheet listing every event in the period — Date, Venue, Time, Event, Group, Reporting time, Duration and number of participants.
+              Sorted by Date, Venue and Time. Leave the dates blank to export the whole schedule.
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="block text-xs text-slate-600">
+                From (optional)
+                <input type="date" value={fullFrom} min="2024-01-01" max="2100-12-31"
+                  onChange={(e) => setFullFrom(e.target.value)} className={`${inputCls} mt-1`} />
+              </label>
+              <label className="block text-xs text-slate-600">
+                To (optional)
+                <input type="date" value={fullTo} min="2024-01-01" max="2100-12-31"
+                  onChange={(e) => setFullTo(e.target.value)} className={`${inputCls} mt-1`} />
+              </label>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button variant="gold" icon={Download} onClick={downloadFullSchedule}>Download Excel</Button>
+              <Button variant="outline" onClick={() => setShowFull(false)}>Cancel</Button>
             </div>
           </div>
         </Card>

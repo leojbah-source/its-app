@@ -433,6 +433,14 @@ export const scheduleApi = {
     if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
     return res.blob();
   },
+  fullReport: async (token, from, to) => {
+    const qs = new URLSearchParams();
+    if (from) qs.set('from', from);
+    if (to) qs.set('to', to);
+    const res = await fetch(`${API_BASE}/api/admin/schedule/full-report?${qs.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
+    return res.blob();
+  },
   lock: (token) => request('/api/admin/schedule/lock', { method: 'POST', token, body: {} }),
   unlock: (token) => request('/api/admin/schedule/unlock', { method: 'POST', token, body: {} }),
   remove: (token, id) => request(`/api/admin/schedule/${id}`, { method: 'DELETE', token }),

@@ -684,6 +684,95 @@ router.post('/:id/state', requireRole(...editRoles), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── GET /api/admin/schedule/full-report?from=&to= ────────────────────────────
+// Whole-schedule Excel: one row per event x group, with Date, Start-End, Venue,
+// Event, Group, Duration (group's total time), Reporting time and # participants.
+// Sorted by Date, Venue, Time. Optional from/to date range (default all).
+router.get('/full-report', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    const from = ymd.test(req.query.from || '') ? req.query.from : null;
+    const to = ymd.test(req.query.to || '') ? req.query.to : null;
+
+    const { rows } = await pool.query(
+      `SELECT s.id AS sched_id, to_char(s.event_date,'YYYY-MM-DD') AS event_date, s.venue,
+              to_char(s.start_time,'HH24:MI') AS start_time, to_char(s.end_time,'HH24:MI') AS end_time,
+              e.event_code, e.event_name, e.is_stage_event, e.allotted_time_seconds,
+              ag.code AS gcode, ag.label AS glabel, ag.sort_order AS gsort,
+              (SELECT COUNT(*) FROM registrations r
+                 LEFT JOIN participants pr ON pr.id = r.participant_id
+                WHERE r.event_id = e.id AND r.status NOT IN ('withdrawn','swapped')
+                  AND (pr.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
+                  AND r.age_group_id = ag.id) AS cnt
+         FROM schedule s JOIN events e ON e.id = s.event_id
+         JOIN age_groups ag ON ag.year_id = s.year_id
+              AND ag.code = ANY(string_to_array(s.age_groups, ', '))
+        WHERE s.year_id = $1
+          AND ($2::date IS NULL OR s.event_date >= $2::date)
+          AND ($3::date IS NULL OR s.event_date <= $3::date)
+        ORDER BY s.event_date NULLS LAST, s.venue, s.start_time NULLS LAST, s.id, ag.sort_order NULLS LAST, ag.code`,
+      [yc.id, from, to]);
+
+    const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+    const fmt = (min) => { if (min == null) return ''; const x = ((min % 1440) + 1440) % 1440; return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
+
+    // staggered reporting per (sched row, group)
+    const meta = new Map();
+    for (const r of rows) {
+      if (!meta.has(r.sched_id)) meta.set(r.sched_id, {
+        start: r.start_time ? toMin(r.start_time) : null,
+        perMin: r.allotted_time_seconds ? r.allotted_time_seconds / 60 : 5,
+        isStage: r.is_stage_event, order: [] });
+      meta.get(r.sched_id).order.push({ code: r.gcode, cnt: Number(r.cnt) || 0 });
+    }
+    const repMap = new Map();
+    for (const [sid, m] of meta) {
+      if (m.start == null) { m.order.forEach((g) => repMap.set(`${sid}|${g.code}`, null)); continue; }
+      if (!m.isStage || m.order.length <= 1) { m.order.forEach((g) => repMap.set(`${sid}|${g.code}`, m.start - 15)); continue; }
+      let ps = m.start;
+      m.order.forEach((g, i) => { repMap.set(`${sid}|${g.code}`, i === 0 ? m.start - 15 : ps - 30); ps += Math.ceil(g.cnt * m.perMin); });
+    }
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook(); wb.creator = 'KCA ITS'; wb.created = new Date();
+    const ws = wb.addWorksheet('Schedule');
+    ws.columns = [
+      { header: 'Date', key: 'date', width: 13 },
+      { header: 'Start', key: 'start', width: 8 },
+      { header: 'End', key: 'end', width: 8 },
+      { header: 'Venue', key: 'venue', width: 16 },
+      { header: 'Event', key: 'event', width: 34 },
+      { header: 'Group', key: 'group', width: 10 },
+      { header: 'Reporting', key: 'rep', width: 11 },
+      { header: 'Duration (min)', key: 'dur', width: 13 },
+      { header: 'Participants', key: 'cnt', width: 12 },
+    ];
+    for (const r of rows) {
+      const perMin = r.allotted_time_seconds ? r.allotted_time_seconds / 60 : 5;
+      const cnt = Number(r.cnt) || 0;
+      ws.addRow({
+        date: r.event_date || '', start: r.start_time || '', end: r.end_time || '',
+        venue: r.venue || '', event: `${r.event_code} — ${r.event_name}`, group: r.gcode,
+        rep: fmt(repMap.get(`${r.sched_id}|${r.gcode}`)),
+        dur: Math.ceil(cnt * perMin), cnt,
+      });
+    }
+    const h = ws.getRow(1); h.font = { bold: true };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    ws.autoFilter = { from: 'A1', to: 'I1' };
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_FULL_SCHEDULE',
+      entity: 'schedule', entityId: yc.id, details: { rows: rows.length, from, to } });
+
+    const buf = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="full-schedule.xlsx"');
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/admin/schedule/day-report?date=YYYY-MM-DD ───────────────────────
 // Excel day-sheet: every participant with ALL their events on that date, their
 // group's reporting time, time allowed per participant, venue and event window,
