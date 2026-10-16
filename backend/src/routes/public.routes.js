@@ -76,27 +76,65 @@ router.get('/schedule', async (req, res, next) => {
     // run). placement_order doesn't exist; ordering by event_date/start_time
     // instead. events has no name/category/age_group/is_team_event columns
     // directly -- joined out below. Cancelled events are excluded.
+    // One row per (scheduled row x age group ACTUALLY on that row). We show the
+    // reporting time per age group (not the run window), staggered for stage
+    // events: first group reports 15 min before start; each next group reports
+    // 30 min before its turn (i.e. the running total of earlier groups' time
+    // less 30). Age groups come from the scheduled row (sd.age_groups), NOT the
+    // event's full configuration — so only the groups actually scheduled show.
     const { rows } = await pool.query(
-      `SELECT e.event_name,
-              cat.name AS category,
-              string_agg(DISTINCT ag.label, ', ' ORDER BY ag.label) AS age_groups,
-              (e.event_kind = 'team') AS is_team_event,
-              sd.venue, sd.event_date, sd.start_time, sd.end_time,
-              ts.slot_label
-       FROM schedule sd
-       JOIN events e ON e.id = sd.event_id
-       LEFT JOIN categories cat ON cat.id = e.category_id
-       LEFT JOIN event_age_groups eag ON eag.event_id = e.id
-       LEFT JOIN age_groups ag ON ag.id = eag.age_group_id
-       LEFT JOIN event_time_slots ts ON ts.id = sd.time_slot_id
-       WHERE sd.year_id = $1
-         AND sd.status IN ('confirmed', 'completed')
-         AND e.is_cancelled = FALSE
-       GROUP BY sd.id, e.id, cat.name, ts.slot_label
-       ORDER BY sd.event_date, sd.start_time`,
+      `SELECT sd.id AS sched_id, e.event_name, (e.event_kind = 'team') AS is_team_event,
+              sd.venue, to_char(sd.event_date, 'YYYY-MM-DD') AS event_date,
+              to_char(sd.start_time, 'HH24:MI') AS start_time,
+              e.is_stage_event, e.allotted_time_seconds,
+              ag.code, ag.label, ag.sort_order,
+              (SELECT COUNT(*) FROM registrations r
+                 LEFT JOIN participants pr ON pr.id = r.participant_id
+                WHERE r.event_id = sd.event_id AND r.status NOT IN ('withdrawn','swapped')
+                  AND (pr.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
+                  AND r.age_group_id = ag.id) AS cnt
+         FROM schedule sd
+         JOIN events e ON e.id = sd.event_id
+         JOIN age_groups ag ON ag.year_id = sd.year_id
+              AND ag.code = ANY(string_to_array(sd.age_groups, ', '))
+        WHERE sd.year_id = $1 AND sd.status IN ('confirmed','completed') AND e.is_cancelled = FALSE
+        ORDER BY sd.event_date, sd.start_time NULLS LAST, sd.id, ag.sort_order NULLS LAST, ag.code`,
       [yearId]
     );
-    res.json(rows);
+
+    const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+    const fmt = (min) => { if (min == null) return null; const x = ((min % 1440) + 1440) % 1440; return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
+
+    const bySched = new Map();
+    for (const r of rows) {
+      if (!bySched.has(r.sched_id)) bySched.set(r.sched_id, {
+        event_name: r.event_name, is_team_event: r.is_team_event, venue: r.venue,
+        event_date: r.event_date, start_time: r.start_time,
+        is_stage_event: r.is_stage_event, allotted: r.allotted_time_seconds, groups: [] });
+      bySched.get(r.sched_id).groups.push({ code: r.code, label: r.label, cnt: Number(r.cnt) || 0 });
+    }
+
+    const out = [];
+    for (const s of bySched.values()) {
+      const start = s.start_time ? toMin(s.start_time) : null;
+      const perMin = s.allotted ? s.allotted / 60 : 5;
+      let groups;
+      if (start == null) {
+        groups = s.groups.map((g) => ({ label: g.label, report: null }));
+      } else if (!s.is_stage_event || s.groups.length <= 1) {
+        groups = s.groups.map((g) => ({ label: g.label, report: fmt(start - 15) }));
+      } else {
+        let performStart = start;
+        groups = s.groups.map((g, i) => {
+          const rep = i === 0 ? start - 15 : performStart - 30;
+          performStart += Math.ceil(g.cnt * perMin);
+          return { label: g.label, report: fmt(rep) };
+        });
+      }
+      out.push({ event_name: s.event_name, is_team_event: s.is_team_event,
+        venue: s.venue, event_date: s.event_date, groups });
+    }
+    res.json(out);
   } catch (err) {
     next(err);
   }

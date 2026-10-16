@@ -14,7 +14,6 @@ import { publicApi, API_BASE } from '../../api/client';
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
 const MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : '');
-const fmtTime = (t) => (t ? String(t).slice(0, 5) : '');
 
 export default function PublicBoard() {
   const [year, setYear] = useState(null);
@@ -208,11 +207,14 @@ export default function PublicBoard() {
                       <span className="text-sm font-semibold text-navy-800">{s.event_name}{s.is_team_event && <span className="ml-2 rounded bg-gold-100 px-1.5 py-0.5 text-[10px] font-medium text-gold-700">TEAM</span>}</span>
                       <span className="text-xs text-slate-500">{fmtDate(s.event_date)}</span>
                     </div>
-                    <div className="mt-0.5 text-xs text-slate-500">
-                      {[s.category, s.age_groups].filter(Boolean).join(' · ')}
-                    </div>
-                    <div className="mt-0.5 text-xs text-slate-600">
-                      {[s.venue, (s.start_time || s.end_time) ? `${fmtTime(s.start_time)}${s.end_time ? '–' + fmtTime(s.end_time) : ''}` : s.slot_label].filter(Boolean).join(' · ')}
+                    {s.venue && <div className="mt-0.5 text-xs text-slate-500">{s.venue}</div>}
+                    <div className="mt-1.5 space-y-0.5">
+                      {(s.groups || []).map((g, gi) => (
+                        <div key={gi} className="flex items-center justify-between text-xs">
+                          <span className="font-medium text-navy-700">{g.label}</span>
+                          <span className="text-slate-600">report by <b className="font-mono">{g.report || '—'}</b></span>
+                        </div>
+                      ))}
                     </div>
                   </li>
                 ))}

@@ -32,22 +32,25 @@ function perGroupRows(r) {
 // Reporting time per event: the FIRST event in a venue each day reports 15 min
 // before it starts; every following event reports 30 min before the previous
 // event's scheduled end. Returns { [scheduleRowId]: reportingMinutes }.
-function computeReporting(rows) {
-  const byVenueDay = {};
-  rows.forEach((r) => {
-    const k = `${String(r.event_date).slice(0, 10)}|${r.venue || ''}`;
-    (byVenueDay[k] ??= []).push(r);
+function groupReporting(r) {
+  // Reporting per age group. First group reports 15 min before start. For a
+  // STAGE event with several groups, each next group reports 30 min before its
+  // turn (running total of earlier groups' time, less 30). Non-stage or single
+  // group: every group reports 15 min before the event's start.
+  const start = r.start_time ? toMin(r.start_time) : null;
+  const grp = perGroupRows(r);
+  const res = {};
+  if (start == null) { grp.forEach((g) => { res[g.code] = null; }); return res; }
+  if (!r.is_stage_event || grp.length <= 1) {
+    grp.forEach((g) => { res[g.code] = start - 15; });
+    return res;
+  }
+  let performStart = start;
+  grp.forEach((g, i) => {
+    res[g.code] = i === 0 ? start - 15 : performStart - 30;
+    performStart += Math.ceil((Number(g.entries) || 0) * (g.perMin || 5));
   });
-  const map = {};
-  // Reporting = 15 minutes before each event's OWN start time, so changing an
-  // event's time immediately moves its reporting time.
-  Object.values(byVenueDay).forEach((list) => {
-    list.forEach((r) => {
-      const start = r.start_time ? toMin(r.start_time) : null;
-      map[r.id] = start == null ? null : start - 15;
-    });
-  });
-  return map;
+  return res;
 }
 
 function RowEditor({ row, token, onSaved }) {
@@ -305,7 +308,6 @@ export default function Schedule() {
     } catch (err) { setFlash(err.message); }
   }
 
-  const reportingById = computeReporting(rows);
   const eventDateCounts = rows.reduce((acc, r) => { const k = `${String(r.event_date).slice(0, 10)}|${r.event_id}`; acc[k] = (acc[k] || 0) + 1; return acc; }, {});
   // group rows by date (filtered by the search box)
   const ql = q.trim().toLowerCase();
@@ -641,6 +643,7 @@ export default function Schedule() {
                                             <tbody className="divide-y divide-slate-100">
                         {list.map((r) => {
                           const grp = perGroupRows(r);
+                          const grMap = groupReporting(r);
                           const n = grp.length;
                           const cur = r.is_locked ? 'locked' : r.looks_good ? 'looks_good' : 'draft';
                           const meta = {
@@ -677,6 +680,9 @@ export default function Schedule() {
                                   <td rowSpan={n} className="px-3 py-2 align-top">
                                     <span className="font-mono text-xs text-navy-700 mr-1.5">{r.event_code}</span>
                                     <span className="font-medium text-slate-800">{r.event_name}</span>
+                                    {(r.start_time || r.end_time) && (
+                                      <div className="text-[10px] text-slate-400">runs {(r.start_time || '').slice(0, 5)}–{(r.end_time || '').slice(0, 5)}</div>
+                                    )}
                                   </td>
                                 </>
                               )}
@@ -689,14 +695,9 @@ export default function Schedule() {
                               </td>
                               <td className="px-3 py-2"><Badge tone="navy">{g.entries}</Badge></td>
                               <td className="px-3 py-2 text-xs text-slate-600">{g.perMin ? `${g.perMin} min` : '—'}</td>
+                              <td className="px-3 py-2 font-mono text-xs">{grMap[g.code] != null ? fmtMin(grMap[g.code]) : '—'}</td>
                               {gi === 0 && (
                                 <>
-                                  <td rowSpan={n} className="px-3 py-2 font-mono text-xs align-top">
-                                    {reportingById[r.id] != null ? fmtMin(reportingById[r.id]) : '—'}
-                                    {(r.start_time || r.end_time) && (
-                                      <div className="text-[10px] font-normal text-slate-400">runs {(r.start_time || '').slice(0, 5)}–{(r.end_time || '').slice(0, 5)}</div>
-                                    )}
-                                  </td>
                                   <td rowSpan={n} className="px-3 py-2 align-top">{statusCell}</td>
                                   <td rowSpan={n} className="px-3 py-2 text-right align-top">
                                     {canChange(r) ? (
