@@ -21,9 +21,9 @@ const router = express.Router();
 router.use(authenticate);
 
 // Judging section is restricted to Chairman + SuperAdmin (separate access level).
-const staffRoles = ['SuperAdmin', 'Chairman'];
+const staffRoles = ['SuperAdmin', 'Admin', 'Chairman'];
 const manageRoles = ['SuperAdmin', 'Chairman'];
-const assignRoles = ['SuperAdmin', 'Chairman'];
+const assignRoles = ['SuperAdmin', 'Admin', 'Chairman'];
 const canSeeContact = (role) => role === 'SuperAdmin' || role === 'Chairman';
 
 const n = (v) => (v === '' || v === undefined || v === null ? null : v);

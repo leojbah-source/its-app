@@ -13,11 +13,7 @@ export default function Login() {
   const landingFor = (role) => (
     role === 'MC' ? '/mc'
     : role === 'Timer' ? '/timer'
-    : role === 'Registrar' ? '/admin/registrations'
-    : role === 'Accountant' ? '/admin/payments'
-    : role === 'Media' ? '/admin/media'
-    : role === 'EventStaff' ? '/admin/event-day'
-    : '/admin/config/year'
+    : '/admin/welcome'
   );
   const { showToast } = useToast();
   const navigate = useNavigate();

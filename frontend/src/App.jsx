@@ -36,6 +36,7 @@ import Payments from './pages/Payments';
 import Users from './pages/Users';
 import CertificatesPrint from './pages/CertificatesPrint';
 import JudgeReview from './pages/JudgeReview';
+import Welcome from './pages/Welcome';
 
 // Parent registration portal pages
 import Landing from './pages/register/Landing';
@@ -57,16 +58,14 @@ import MyPortal from './pages/pwa/MyPortal';
 
 // Organiser roles (everyone except the scoped Registrar/Accountant and the
 // day-of MC/Timer roles).
-const ORG = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman'];
+const ORG = ['SuperAdmin', 'Coordinator', 'Chairman'];
 
 /** Sends each staff role to its home screen (scoped roles skip Year Setup). */
 function AdminIndex() {
   const { user } = useAuth();
-  const home = user?.role === 'Registrar' ? '/admin/registrations'
-    : user?.role === 'Accountant' ? '/admin/payments'
-    : user?.role === 'Media' ? '/admin/media'
-    : user?.role === 'EventStaff' ? '/admin/event-day'
-    : '/admin/config/year';
+  const home = user?.role === 'MC' ? '/mc'
+    : user?.role === 'Timer' ? '/timer'
+    : '/admin/welcome';
   return <Navigate to={home} replace />;
 }
 
@@ -110,15 +109,15 @@ export default function App() {
               />
               <Route
                 path="/admin/registrations"
-                element={<ProtectedRoute allowedRoles={[...ORG, 'Registrar']}><Registrations /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={[...ORG, 'Admin', 'Registrar']}><Registrations /></ProtectedRoute>}
               />
               <Route
                 path="/admin/import"
-                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Coordinator', 'Registrar']}><ImportRegistrations /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Coordinator', 'Registrar']}><ImportRegistrations /></ProtectedRoute>}
               />
               <Route
                 path="/admin/security"
-                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Chairman']}><Security /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><Security /></ProtectedRoute>}
               />
               <Route
                 path="/admin/lists"
@@ -134,11 +133,11 @@ export default function App() {
               />
               <Route
                 path="/admin/event-day"
-                element={<ProtectedRoute allowedRoles={[...ORG, 'EventStaff']}><EventDay /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={[...ORG, 'Admin', 'EventStaff']}><EventDay /></ProtectedRoute>}
               />
               <Route
                 path="/admin/team-event-day"
-                element={<ProtectedRoute allowedRoles={[...ORG, 'EventStaff']}><TeamEventDay /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={[...ORG, 'Admin', 'EventStaff']}><TeamEventDay /></ProtectedRoute>}
               />
               <Route
                 path="/admin/judging/judges"
@@ -146,7 +145,7 @@ export default function App() {
               />
               <Route
                 path="/admin/judging/assignment"
-                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><Assignment /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Chairman']}><Assignment /></ProtectedRoute>}
               />
               <Route
                 path="/admin/judging/results"
@@ -158,15 +157,15 @@ export default function App() {
               />
               <Route
                 path="/admin/judging/winners/:eventId/:groupId"
-                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Chairman', 'Media']}><WinnersPoster /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman', 'Media']}><WinnersPoster /></ProtectedRoute>}
               />
               <Route
                 path="/admin/judging/judge-certificates/:eventId"
-                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Chairman']}><JudgeCertificatesPrint /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><JudgeCertificatesPrint /></ProtectedRoute>}
               />
               <Route
                 path="/admin/media"
-                element={<ProtectedRoute allowedRoles={['Media', 'SuperAdmin', 'Admin', 'Chairman']}><MediaResults /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={['Media', 'SuperAdmin', 'Chairman']}><MediaResults /></ProtectedRoute>}
               />
               <Route
                 path="/admin/video"
@@ -187,7 +186,7 @@ export default function App() {
               />
               <Route
                 path="/admin/awards/certificates"
-                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Chairman']}><CertificatesPrint /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><CertificatesPrint /></ProtectedRoute>}
               />
               <Route
                 path="/admin/judging/judge-review"
@@ -195,21 +194,25 @@ export default function App() {
               />
               <Route
                 path="/admin/notices"
-                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Chairman']}><Notices /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><Notices /></ProtectedRoute>}
               />
               <Route
                 path="/admin/finance"
-                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Accountant']}><Finance /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Coordinator', 'Chairman', 'Viewer', 'Accountant']}><Finance /></ProtectedRoute>}
               />
               <Route
                 path="/admin/payments"
-                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Accountant']}><Payments /></ProtectedRoute>}
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Coordinator', 'Chairman', 'Accountant']}><Payments /></ProtectedRoute>}
               />
               <Route
                 path="/admin/users"
                 element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin']}><Users /></ProtectedRoute>}
               />
               <Route path="/admin/judges" element={<Navigate to="/admin/judging/judges" replace />} />
+              <Route
+                path="/admin/welcome"
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Registrar', 'Accountant', 'Media', 'EventStaff', 'Viewer']}><Welcome /></ProtectedRoute>}
+              />
               <Route path="/admin" element={<ProtectedRoute><AdminIndex /></ProtectedRoute>} />
 
               {/* ── Parent registration portal ───────────────────────────── */}

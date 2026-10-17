@@ -8,7 +8,7 @@ const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 router.use(authenticate);
-const manageRoles = ['SuperAdmin', 'Chairman'];
+const manageRoles = ['SuperAdmin', 'Admin', 'Chairman'];
 const EVENT_ROLES = ['MC', 'Timer'];
 const tableFor = (role) => (role === 'MC' ? 'mc_assignments' : 'timer_assignments');
 

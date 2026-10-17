@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   Settings, ListChecks, Users, Gavel, CalendarClock, Trophy, Wallet,
   Sparkles, ClipboardList, ChevronDown, ClipboardCheck, Megaphone, BadgeDollarSign,
-  UserCog, UserCheck, Combine, Video, Award, ShieldAlert,
+  UserCog, UserCheck, Combine, Video, Award, ShieldAlert, Home,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import rpLogo from '../../assets/research-point-logo.png';
@@ -11,28 +11,33 @@ import { yearConfigApi, API_BASE } from '../../api/client';
 
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
 
-// Organiser roles (everyone EXCEPT the day-of MC/Timer roles, who use /mc, /timer).
-const ORG = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'];
+// Organiser roles. NOTE: 'Admin' is intentionally NOT in ORG — the Admin role is
+// scoped to a small, safe set of pages (Registrations, Event assignment, Event Day,
+// Team Event Day, Videography, Users) and is added explicitly where allowed below.
+const ORG = ['SuperAdmin', 'Coordinator', 'Chairman', 'Viewer'];
+// Every role that uses the admin area (and so the Home / Welcome page).
+export const ADMIN_AREA_ROLES = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Registrar', 'Accountant', 'Media', 'EventStaff', 'Viewer'];
 
-const NAV_ITEMS = [
+export const NAV_ITEMS = [
+  { to: '/admin/welcome', label: 'Home', icon: Home, active: true, roles: ADMIN_AREA_ROLES },
   { to: '/admin/events', label: 'Events', icon: ListChecks, active: true, roles: ORG },
-  { to: '/admin/registrations', label: 'Registrations', icon: Users, active: true, roles: [...ORG, 'Registrar'] },
+  { to: '/admin/registrations', label: 'Registrations', icon: Users, active: true, roles: [...ORG, 'Admin', 'Registrar'] },
   { to: '/admin/lists', label: 'Lists', icon: ClipboardList, active: true, roles: ORG },
   { to: '/admin/consolidation', label: 'Consolidation', icon: Combine, active: true, roles: ORG },
   { to: '/admin/schedule', label: 'Schedule', icon: CalendarClock, active: true, roles: [...ORG, 'EventStaff'] },
-  { to: '/admin/judging/assignment', label: 'Event assignment', icon: UserCheck, active: true, roles: ['SuperAdmin', 'Chairman'] },
-  { to: '/admin/event-day', label: 'Event Day', icon: ClipboardCheck, active: true, roles: [...ORG, 'EventStaff'] },
-  { to: '/admin/team-event-day', label: 'Team Event Day', icon: ClipboardList, active: true, roles: [...ORG, 'EventStaff'] },
+  { to: '/admin/judging/assignment', label: 'Event assignment', icon: UserCheck, active: true, roles: ['SuperAdmin', 'Admin', 'Chairman'] },
+  { to: '/admin/event-day', label: 'Event Day', icon: ClipboardCheck, active: true, roles: [...ORG, 'Admin', 'EventStaff'] },
+  { to: '/admin/team-event-day', label: 'Team Event Day', icon: ClipboardList, active: true, roles: [...ORG, 'Admin', 'EventStaff'] },
   { to: '/admin/judging/judges', label: 'Judges', icon: Gavel, active: true, roles: ['SuperAdmin', 'Chairman'] },
   { to: '/admin/judging/results', label: 'Results', icon: Award, active: true, roles: ['SuperAdmin', 'Chairman'] },
   { to: '/admin/awards', label: 'Awards', icon: Trophy, active: true, roles: ['SuperAdmin', 'Chairman'] },
   { to: '/admin/media', label: 'Results & posters', icon: Trophy, active: true, roles: ['Media'] },
   { to: '/admin/video', label: 'Videography', icon: Video, active: true, roles: ['Media', 'SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer'] },
-  { to: '/admin/notices', label: 'Notices', icon: Megaphone, active: true, roles: ['SuperAdmin', 'Admin', 'Chairman'] },
-  { to: '/admin/payments', label: 'Payments', icon: BadgeDollarSign, active: true, roles: ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Accountant'] },
-  { to: '/admin/finance', label: 'Finance', icon: Wallet, active: true, roles: ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Viewer', 'Accountant'] },
+  { to: '/admin/notices', label: 'Notices', icon: Megaphone, active: true, roles: ['SuperAdmin', 'Chairman'] },
+  { to: '/admin/payments', label: 'Payments', icon: BadgeDollarSign, active: true, roles: ['SuperAdmin', 'Coordinator', 'Chairman', 'Accountant'] },
+  { to: '/admin/finance', label: 'Finance', icon: Wallet, active: true, roles: ['SuperAdmin', 'Coordinator', 'Chairman', 'Viewer', 'Accountant'] },
   { to: '/admin/users', label: 'Users', icon: UserCog, active: true, roles: ['SuperAdmin', 'Admin'] },
-  { to: '/admin/security', label: 'Security', icon: ShieldAlert, active: true, roles: ['SuperAdmin', 'Admin', 'Chairman'] },
+  { to: '/admin/security', label: 'Security', icon: ShieldAlert, active: true, roles: ['SuperAdmin', 'Chairman'] },
   { to: '/admin/config/year', label: 'Year Setup', icon: Settings, active: true, roles: ORG },
 ];
 
