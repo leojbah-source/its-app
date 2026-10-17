@@ -5,3 +5,6 @@ dirlist.txt
 *.bak
 # Microsoft Office temp/lock files (e.g. ~$TESTER-GUIDE.docx)
 ~$*
+# Database backups (contain personal data — never commit)
+backups/
+*.dump

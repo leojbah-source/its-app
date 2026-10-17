@@ -148,7 +148,7 @@ function Script({ data, sel }) {
             {data.judges.map((j, i) => (
               <div key={i} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
                 <div className="font-semibold text-navy-800">{j.full_name}</div>
-                <p className="mt-0.5 whitespace-pre-line text-sm text-slate-600">{j.detailed_bio || j.bio || 'Bio to be added.'}</p>
+                <p className="mt-0.5 whitespace-pre-line text-lg text-slate-600">{j.detailed_bio || j.bio || 'Bio to be added.'}</p>
               </div>
             ))}
             <p className="text-slate-500">Please join me in giving them a warm welcome.</p>
@@ -157,7 +157,7 @@ function Script({ data, sel }) {
       </ScriptCard>
       <ScriptCard title="Judging criteria">
         <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
-          {criteria.map((c, i) => (<div key={i} className="px-3 py-2 text-sm"><b className="text-navy-700">C{i + 1}</b> {c.label}</div>))}
+          {criteria.map((c, i) => (<div key={i} className="px-3 py-2 text-lg"><b className="text-navy-700">C{i + 1}</b> {c.label}</div>))}
           {criteria.length === 0 && <p className="px-3 py-2 text-sm text-slate-400">No criteria set.</p>}
         </div>
       </ScriptCard>
@@ -171,8 +171,8 @@ function Script({ data, sel }) {
 function ScriptCard({ title, children }) {
   return (
     <div className="rounded-xl bg-white p-4 shadow-sm">
-      <h2 className="mb-1.5 text-sm font-semibold uppercase tracking-wide text-gold-600">{title}</h2>
-      <div className="text-sm leading-relaxed text-slate-700">{children}</div>
+      <h2 className="mb-2 text-base font-semibold uppercase tracking-wide text-gold-600">{title}</h2>
+      <div className="text-lg leading-relaxed text-slate-700">{children}</div>
     </div>
   );
 }
