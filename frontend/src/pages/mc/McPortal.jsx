@@ -147,7 +147,7 @@ function Line({ en, ml, lang }) {
   return (
     <>
       {lang !== 'ml' && <p>{en}</p>}
-      {lang !== 'en' && <p className={lang === 'both' ? 'mt-1 text-navy-900' : 'text-navy-900'} style={MLFONT} lang="ml">{ml}</p>}
+      {lang !== 'en' && <p className={lang === 'both' ? 'mt-1 text-emerald-700' : 'text-navy-900'} style={MLFONT} lang="ml">{ml}</p>}
     </>
   );
 }

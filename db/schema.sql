@@ -403,7 +403,7 @@ CREATE TABLE scores (
     criterion_id           INT NOT NULL REFERENCES event_criteria(id),
     score_value            NUMERIC(5,2) NOT NULL CHECK (score_value >= 0),
     entered_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-    entered_by             INT REFERENCES users(id),
+    entered_by             INT REFERENCES judges(id),  -- judge who entered the score
     updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (judge_assignment_id, registration_id, criterion_id)
 );
