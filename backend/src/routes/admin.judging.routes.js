@@ -88,6 +88,27 @@ async function computeGroup(eventId, ageGroupId, cfg) {
   const regIds = participants.map((p) => p.registration_id);
   const asgIds = judges.map((j) => j.assignment_id);
 
+  // Disqualified participants (rule #22): excluded from ranking and given no
+  // grade or rank points. A reversed disqualification counts as active again.
+  const dqMap = {};
+  if (regIds.length) {
+    const dq = await pool.query(
+      `SELECT registration_id, disqualification_reason FROM event_results
+        WHERE event_id = $1 AND registration_id = ANY($2)
+          AND is_disqualified = TRUE AND dq_reversed = FALSE`, [eventId, regIds]);
+    for (const d of dq.rows) dqMap[d.registration_id] = d.disqualification_reason || 'Disqualified';
+  }
+  // Overtime evidence from the timer (latest timing per registration).
+  const overMap = {};
+  if (regIds.length) {
+    const ov = await pool.query(
+      `SELECT DISTINCT ON (registration_id) registration_id, flag_for_dq
+         FROM participant_timings WHERE registration_id = ANY($1)
+        ORDER BY registration_id, id DESC`, [regIds]);
+    for (const o of ov.rows) overMap[o.registration_id] = !!o.flag_for_dq;
+  }
+  const activeParticipants = participants.filter((p) => !(p.registration_id in dqMap));
+
   let scores = [];
   if (asgIds.length && regIds.length) {
     const r = await pool.query(
@@ -111,19 +132,19 @@ async function computeGroup(eventId, ageGroupId, cfg) {
   const fullyScored = (asg, reg) => (cnt[`${asg}:${reg}`] || 0) === critIds.length && critIds.length > 0;
 
   // completeness: every judge scored every participant fully
-  let complete = judges.length > 0 && participants.length > 0;
-  for (const j of judges) for (const p of participants) if (!fullyScored(j.assignment_id, p.registration_id)) complete = false;
+  let complete = judges.length > 0 && activeParticipants.length > 0;
+  for (const j of judges) for (const p of activeParticipants) if (!fullyScored(j.assignment_id, p.registration_id)) complete = false;
 
   // per-judge ranks of participants (by that judge's total)
   const judgeRank = {}; // `${asg}:${reg}` -> rank
   for (const j of judges) {
-    const rk = rankByDesc(participants, (p) => judgeTotal(j.assignment_id, p.registration_id));
-    for (const p of participants) judgeRank[`${j.assignment_id}:${p.registration_id}`] = rk.get(p);
+    const rk = rankByDesc(activeParticipants, (p) => judgeTotal(j.assignment_id, p.registration_id));
+    for (const p of activeParticipants) judgeRank[`${j.assignment_id}:${p.registration_id}`] = rk.get(p);
   }
 
-  const absThresh = Math.round((participants.length * Number(cfg.divergence_threshold_pct)) / 100);
+  const absThresh = Math.round((activeParticipants.length * Number(cfg.divergence_threshold_pct)) / 100);
 
-  const rows = participants.map((p) => {
+  const rows = activeParticipants.map((p) => {
     const reg = p.registration_id;
     const perJudge = judges.map((j) => ({
       judge: j.full_name,
@@ -157,7 +178,7 @@ async function computeGroup(eventId, ageGroupId, cfg) {
   // fewer than min_entries_threshold → 1st & 2nd only; at/above → full top 3.
   const noPrizeBelow = Number(cfg.no_prize_below) || 0;
   const minEntriesFull = Number(cfg.min_entries_threshold) || 0;
-  const n = participants.length;
+  const n = activeParticipants.length;
   const prizeCap = n < noPrizeBelow ? 0 : (minEntriesFull && n < minEntriesFull ? 2 : 3);
   const maxPlaces = Math.min(prizeCap, n);
 
@@ -199,14 +220,25 @@ async function computeGroup(eventId, ageGroupId, cfg) {
     judges_total: judges.length,
     judges_done: judges.filter((j) => j.done).length,
     all_done: judges.length > 0 && judges.every((j) => j.done),
-    results: ordered.map((r) => ({
-      registration_id: r.registration_id, chest_number: r.chest_number, per_judge: r.perJudge,
-      rank_sum: r.rankSum, avg_pct: r.avgPct, place: r.place, final_rank: r.final_rank, grade: r.grade,
-      tie_flag: r.tie, divergence_flag: r.divergence,
-      exact_tie: r.exactTie, needs_tiebreak: r.needsTiebreak, mark_sum: r.tbMark,
-      rank_points: r.rank_points, grade_points: r.grade_points,
-      participation_bonus_pts: r.participation_bonus_pts, total_points: r.total_points,
-    })),
+    results: [
+      ...ordered.map((r) => ({
+        registration_id: r.registration_id, chest_number: r.chest_number, per_judge: r.perJudge,
+        rank_sum: r.rankSum, avg_pct: r.avgPct, place: r.place, final_rank: r.final_rank, grade: r.grade,
+        tie_flag: r.tie, divergence_flag: r.divergence,
+        exact_tie: r.exactTie, needs_tiebreak: r.needsTiebreak, mark_sum: r.tbMark,
+        rank_points: r.rank_points, grade_points: r.grade_points,
+        participation_bonus_pts: r.participation_bonus_pts, total_points: r.total_points,
+        is_disqualified: false, dq_reason: null, over_time: !!overMap[r.registration_id],
+      })),
+      // Disqualified participants: shown after the ranked list, no place/grade/points (rule #22).
+      ...participants.filter((p) => p.registration_id in dqMap).map((p) => ({
+        registration_id: p.registration_id, chest_number: p.chest_number, per_judge: [],
+        rank_sum: null, avg_pct: null, place: null, final_rank: null, grade: null,
+        tie_flag: false, divergence_flag: false, exact_tie: false, needs_tiebreak: false, mark_sum: 0,
+        rank_points: 0, grade_points: 0, participation_bonus_pts: 0, total_points: 0,
+        is_disqualified: true, dq_reason: dqMap[p.registration_id], over_time: !!overMap[p.registration_id],
+      })),
+    ],
   };
 }
 
@@ -428,6 +460,29 @@ router.post('/results/:event_id/:age_group_id/tiebreak/marks', requireRole(...vi
   } finally { client.release(); }
 });
 
+// Shared: upsert a computed group's rows into event_results. Never touches a
+// published row, and never changes is_disqualified/dq_reversed (those are owned
+// by the disqualify/reinstate endpoints) — so a disqualified participant keeps
+// the flag while their prize/grade/points are forced to none here.
+async function persistResults(client, eventId, results) {
+  for (const r of results) {
+    await client.query(
+      `INSERT INTO event_results
+         (registration_id, event_id, prize_place, grade, rank_points, grade_points,
+          participation_bonus_pts, tie_flag, divergence_flag)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (registration_id) DO UPDATE SET
+         prize_place = EXCLUDED.prize_place, grade = EXCLUDED.grade,
+         rank_points = EXCLUDED.rank_points, grade_points = EXCLUDED.grade_points,
+         participation_bonus_pts = EXCLUDED.participation_bonus_pts,
+         tie_flag = EXCLUDED.tie_flag, divergence_flag = EXCLUDED.divergence_flag,
+         updated_at = NOW()
+       WHERE event_results.is_published = FALSE`,
+      [r.registration_id, eventId, r.place, r.grade, r.rank_points, r.grade_points,
+       r.participation_bonus_pts, r.tie_flag, r.divergence_flag]);
+  }
+}
+
 // ── POST /api/admin/results/:event_id/:age_group_id/compute — persist ────────
 router.post('/results/:event_id/:age_group_id/compute', requireRole(...viewRoles), async (req, res, next) => {
   const client = await pool.connect();
@@ -437,22 +492,7 @@ router.post('/results/:event_id/:age_group_id/compute', requireRole(...viewRoles
     const eventId = Number(req.params.event_id), ag = Number(req.params.age_group_id);
     const data = await computeGroup(eventId, ag, cfg);
     await client.query('BEGIN');
-    for (const r of data.results) {
-      await client.query(
-        `INSERT INTO event_results
-           (registration_id, event_id, prize_place, grade, rank_points, grade_points,
-            participation_bonus_pts, tie_flag, divergence_flag)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-         ON CONFLICT (registration_id) DO UPDATE SET
-           prize_place = EXCLUDED.prize_place, grade = EXCLUDED.grade,
-           rank_points = EXCLUDED.rank_points, grade_points = EXCLUDED.grade_points,
-           participation_bonus_pts = EXCLUDED.participation_bonus_pts,
-           tie_flag = EXCLUDED.tie_flag, divergence_flag = EXCLUDED.divergence_flag,
-           updated_at = NOW()
-         WHERE event_results.is_published = FALSE`,
-        [r.registration_id, eventId, r.place, r.grade, r.rank_points, r.grade_points,
-         r.participation_bonus_pts, r.tie_flag, r.divergence_flag]);
-    }
+    await persistResults(client, eventId, data.results);
     await client.query('COMMIT');
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'COMPUTE_RESULTS', entity: 'events', entityId: eventId, details: { age_group_id: ag, n: data.results.length } });
@@ -461,6 +501,83 @@ router.post('/results/:event_id/:age_group_id/compute', requireRole(...viewRoles
     await client.query('ROLLBACK').catch(() => null);
     next(err);
   } finally { client.release(); }
+});
+
+// ── POST /results/:event_id/:registration_id/disqualify ─────────────────────
+// Chairman/SuperAdmin disqualifies a participant (e.g. time overrun past grace).
+// Quiet/administrative: judges are not notified. The participant keeps their
+// recorded scores but gets NO grade and NO rank points (rule #22) and is removed
+// from the ranking; remaining participants are re-ranked. Reversible on appeal.
+router.post('/results/:event_id/:registration_id/disqualify', requireRole(...viewRoles), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const cfg = await activeCfg();
+    if (!cfg) return res.status(400).json({ error: 'No active year' });
+    const eventId = Number(req.params.event_id), regId = Number(req.params.registration_id);
+    const reason = (req.body.reason || '').trim();
+    if (!reason) return res.status(400).json({ error: 'A disqualification reason is required.' });
+    const { rows: rr } = await pool.query(
+      `SELECT age_group_id FROM registrations WHERE id = $1 AND event_id = $2`, [regId, eventId]);
+    if (!rr[0]) return res.status(404).json({ error: 'Participant not found for this event.' });
+    const ag = rr[0].age_group_id;
+    const { rows: pub } = await pool.query(
+      `SELECT is_published FROM event_results WHERE registration_id = $1`, [regId]);
+    if (pub[0] && pub[0].is_published)
+      return res.status(409).json({ error: 'This result is already published — unpublish it before disqualifying.' });
+    // 1) Set the DQ flag + zero out any existing prize/grade/points (committed so the recompute sees it).
+    await pool.query(
+      `INSERT INTO event_results
+         (registration_id, event_id, is_disqualified, disqualification_reason, disqualified_by, disqualified_at,
+          dq_reversed, prize_place, grade, rank_points, grade_points, participation_bonus_pts)
+       VALUES ($1,$2,TRUE,$3,$4,NOW(),FALSE,NULL,NULL,0,0,0)
+       ON CONFLICT (registration_id) DO UPDATE SET
+         is_disqualified = TRUE, disqualification_reason = $3, disqualified_by = $4, disqualified_at = NOW(),
+         dq_reversed = FALSE, dq_reversal_reason = NULL, dq_reversed_by = NULL, dq_reversed_at = NULL,
+         prize_place = NULL, grade = NULL, rank_points = 0, grade_points = 0, participation_bonus_pts = 0,
+         updated_at = NOW()
+       WHERE event_results.is_published = FALSE`,
+      [regId, eventId, reason, req.user.id]);
+    // 2) Re-rank the group (remaining participants shift up) and persist.
+    const data = await computeGroup(eventId, ag, cfg);
+    await client.query('BEGIN');
+    await persistResults(client, eventId, data.results);
+    await client.query('COMMIT');
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'DISQUALIFY_PARTICIPANT',
+      entity: 'event_results', entityId: regId, details: { event_id: eventId, age_group_id: ag, reason } });
+    res.json({ ok: true });
+  } catch (err) { await client.query('ROLLBACK').catch(() => null); next(err); }
+  finally { client.release(); }
+});
+
+// ── POST /results/:event_id/:registration_id/reinstate ──────────────────────
+// Reverse a disqualification (e.g. on appeal). The participant rejoins the
+// ranking and is scored normally on the next recompute (done here).
+router.post('/results/:event_id/:registration_id/reinstate', requireRole(...viewRoles), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const cfg = await activeCfg();
+    if (!cfg) return res.status(400).json({ error: 'No active year' });
+    const eventId = Number(req.params.event_id), regId = Number(req.params.registration_id);
+    const reason = (req.body.reason || '').trim() || 'Reinstated by Chairman';
+    const { rows: rr } = await pool.query(
+      `SELECT age_group_id FROM registrations WHERE id = $1 AND event_id = $2`, [regId, eventId]);
+    if (!rr[0]) return res.status(404).json({ error: 'Participant not found for this event.' });
+    const ag = rr[0].age_group_id;
+    const { rowCount } = await pool.query(
+      `UPDATE event_results SET dq_reversed = TRUE, dq_reversal_reason = $2,
+              dq_reversed_by = $3, dq_reversed_at = NOW(), updated_at = NOW()
+        WHERE registration_id = $1 AND is_disqualified = TRUE AND is_published = FALSE`,
+      [regId, reason, req.user.id]);
+    if (!rowCount) return res.status(409).json({ error: 'Nothing to reinstate (not disqualified, or already published).' });
+    const data = await computeGroup(eventId, ag, cfg);
+    await client.query('BEGIN');
+    await persistResults(client, eventId, data.results);
+    await client.query('COMMIT');
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'REVERSE_DISQUALIFICATION',
+      entity: 'event_results', entityId: regId, details: { event_id: eventId, age_group_id: ag, reason } });
+    res.json({ ok: true });
+  } catch (err) { await client.query('ROLLBACK').catch(() => null); next(err); }
+  finally { client.release(); }
 });
 
 // ── POST /api/admin/results/:event_id/:age_group_id/finalise (Stage 1) ───────
@@ -558,6 +675,7 @@ router.get('/results/:event_id/:age_group_id/sheet', requireRole(...mediaRoles),
       rank_points: r.rank_points, grade_points: r.grade_points,
       participation_bonus_pts: r.participation_bonus_pts, total_points: r.total_points,
       extra_prize_type: extraMap.get(r.registration_id) || null,
+      is_disqualified: r.is_disqualified, dq_reason: r.dq_reason,
     }));
     res.json({
       branding: brand[0] || null, event: ev[0] || null,

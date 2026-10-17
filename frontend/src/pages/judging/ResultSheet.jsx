@@ -98,13 +98,13 @@ export default function ResultSheet() {
           </thead>
           <tbody>
             {data.results.map((r) => (
-              <tr key={r.chest_number} className={`border-b border-slate-100 ${r.place ? 'bg-gold-50/40' : ''}`}>
-                <td className="px-2 py-1.5 text-slate-500">{r.order}</td>
-                <td className="px-2 py-1.5 font-bold text-navy-800">{r.place || '—'}</td>
+              <tr key={r.chest_number} className={`border-b border-slate-100 ${r.is_disqualified ? 'text-slate-400' : r.place ? 'bg-gold-50/40' : ''}`}>
+                <td className="px-2 py-1.5 text-slate-500">{r.is_disqualified ? '—' : r.order}</td>
+                <td className="px-2 py-1.5 font-bold text-navy-800">{r.is_disqualified ? 'DQ' : (r.place || '—')}</td>
                 <td className="px-2 py-1.5 font-mono">{r.chest_number}</td>
-                <td className="px-2 py-1.5 font-medium">{r.name || '—'}</td>
+                <td className="px-2 py-1.5 font-medium">{r.name || '—'}{r.is_disqualified && <span className="ml-1 text-[10px] font-normal text-red-600">(Disqualified{r.dq_reason ? ` — ${r.dq_reason}` : ''})</span>}</td>
                 <td className="px-2 py-1.5 text-slate-500">{r.school || '—'}</td>
-                <td className="px-2 py-1.5 text-center">{r.grade || '—'}</td>
+                <td className="px-2 py-1.5 text-center">{r.is_disqualified ? '—' : (r.grade || '—')}</td>
                 <td className="px-2 py-1.5 text-center">{r.rank_points}</td>
                 <td className="px-2 py-1.5 text-center">{r.grade_points}</td>
                 <td className="px-2 py-1.5 text-center font-semibold">{r.total_points}</td>

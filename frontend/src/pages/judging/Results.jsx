@@ -104,6 +104,21 @@ export default function Results() {
     try { await resultsApi.reviewDivergence(token, eventId, groupId, row.registration_id, note); setFlash('Divergence reviewed.'); loadResults(); }
     catch (e) { setFlash(e.message); }
   }
+  async function disqualify(row) {
+    const reason = window.prompt(`Disqualify chest ${row.chest_number}? They are removed from the ranking and get NO grade or rank points (rule #22). Judges are not notified. Enter the reason:`, row.over_time ? 'Exceeded time limit and grace period' : '');
+    if (reason == null) return;
+    if (!reason.trim()) { setFlash('A disqualification reason is required.'); return; }
+    setBusy(true); setFlash('');
+    try { await resultsApi.disqualify(token, eventId, row.registration_id, reason.trim()); setFlash(`Chest ${row.chest_number} disqualified.`); loadResults(); loadGroups(); }
+    catch (e) { setFlash(e.message); } finally { setBusy(false); }
+  }
+  async function reinstate(row) {
+    const reason = window.prompt(`Reinstate chest ${row.chest_number} back into the ranking (e.g. appeal upheld)? Enter the reason:`, '');
+    if (reason == null) return;
+    setBusy(true); setFlash('');
+    try { await resultsApi.reinstate(token, eventId, row.registration_id, (reason || '').trim()); setFlash(`Chest ${row.chest_number} reinstated.`); loadResults(); loadGroups(); }
+    catch (e) { setFlash(e.message); } finally { setBusy(false); }
+  }
   const sel = 'rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
 
   return (
@@ -196,12 +211,13 @@ export default function Results() {
                       <th className="px-2 py-2 text-center">Points</th>
                       <th className="px-2 py-2 text-center">Extra</th>
                       <th className="px-2 py-2 text-center">Flags</th>
+                      <th className="px-2 py-2 text-center">DQ</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {data.results.map((r) => (
-                      <tr key={r.registration_id} className={showTiebreak && r.needs_tiebreak ? 'bg-red-50/40' : r.place ? 'bg-gold-50/30' : ''}>
-                        <td className="px-3 py-2">{r.place ? <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-gold-500 text-xs font-bold text-white">{r.place}</span> : <span className="text-slate-300">—</span>}</td>
+                      <tr key={r.registration_id} className={r.is_disqualified ? 'bg-red-50/60 text-slate-400' : showTiebreak && r.needs_tiebreak ? 'bg-red-50/40' : r.place ? 'bg-gold-50/30' : ''}>
+                        <td className="px-3 py-2">{r.is_disqualified ? <span className="rounded bg-red-200 px-1.5 py-0.5 text-[10px] font-bold text-red-800">DQ</span> : r.place ? <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-gold-500 text-xs font-bold text-white">{r.place}</span> : <span className="text-slate-300">—</span>}</td>
                         <td className="px-2 py-2 text-center font-semibold text-navy-800">{r.final_rank ?? '—'}</td>
                         <td className="px-3 py-2"><span className="font-mono font-semibold text-navy-800">{r.chest_number}</span></td>
                         {r.per_judge.map((pj, i) => <td key={i} className="px-2 py-2 text-center text-slate-600" title={`total ${pj.total}`}>{pj.rank}</td>)}
@@ -232,6 +248,17 @@ export default function Results() {
                                 ? <button onClick={() => reviewDiv(r)} title={r.divergence_notes} className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] text-green-700">diverge ✓</button>
                                 : <button onClick={() => reviewDiv(r)} className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700">review diverge</button>)}
                           </div>
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          {r.over_time && !r.is_disqualified && <span className="mr-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Timer: exceeded time + grace period">&#9201; over</span>}
+                          {r.is_disqualified ? (
+                            <span className="inline-flex items-center gap-1">
+                              <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700" title={r.dq_reason || 'Disqualified'}>Disqualified</span>
+                              {isChairman && !state.published && <button onClick={() => reinstate(r)} className="text-[10px] text-navy-600 underline">reinstate</button>}
+                            </span>
+                          ) : (isChairman && !state.published
+                            ? <button onClick={() => disqualify(r)} className="rounded border border-red-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-red-700 hover:bg-red-50">Disqualify</button>
+                            : <span className="text-slate-300">&mdash;</span>)}
                         </td>
                       </tr>
                     ))}
