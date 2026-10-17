@@ -205,11 +205,18 @@ function TeamPayForm({ token, team, config, onPaid }) {
           </button>
         ))}
       </div>
-      {method === 'benefitpay' && config?.benefit_pay_number && (
-        <p className="text-xs text-slate-500">Send to KCA BenefitPay <b>{config.benefit_pay_number}</b>, include the team name in the notes.</p>
+      {method === 'benefitpay' && (
+        <p className="text-xs text-slate-600 bg-slate-50 rounded-lg px-3 py-2">
+          {config?.benefit_pay_number
+            ? <>Send to KCA BenefitPay <b>{config.benefit_pay_number}</b> (or IBAN <b>{config?.kca_iban || 'BH68SBIN02701438520001'}</b>).</>
+            : <>Make BenefitPay to KCA IBAN <b>{config?.kca_iban || 'BH68SBIN02701438520001'}</b>.</>}
+          {' '}Include the team name in the detail, then upload the confirmation screenshot below.
+        </p>
       )}
-      {method === 'bank_transfer' && config?.kca_iban && (
-        <p className="text-xs text-slate-500">Transfer to KCA IBAN <b>{config.kca_iban}</b>, include the team name in the remarks.</p>
+      {method === 'bank_transfer' && (
+        <p className="text-xs text-slate-600 bg-slate-50 rounded-lg px-3 py-2">
+          Transfer to KCA IBAN <b>{config?.kca_iban || 'BH68SBIN02701438520001'}</b>, include the team name in the remarks, then upload the confirmation screenshot below.
+        </p>
       )}
       {method !== 'cash' && (
         <label className={`flex items-center justify-center gap-2 rounded-lg border-2 border-dashed px-3 py-3 text-xs font-medium cursor-pointer ${
