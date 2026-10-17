@@ -697,7 +697,8 @@ router.get('/full-report', requireRole(...staffRoles), async (req, res, next) =>
     const to = ymd.test(req.query.to || '') ? req.query.to : null;
 
     const { rows } = await pool.query(
-      `SELECT s.id AS sched_id, to_char(s.event_date,'YYYY-MM-DD') AS event_date, s.venue,
+      `SELECT s.id AS sched_id, to_char(s.event_date,'YYYY-MM-DD') AS event_date,
+              to_char(s.event_date,'Dy') AS dow, s.venue, s.status,
               to_char(s.start_time,'HH24:MI') AS start_time, to_char(s.end_time,'HH24:MI') AS end_time,
               e.event_code, e.event_name, e.is_stage_event, e.allotted_time_seconds,
               ag.code AS gcode, ag.label AS glabel, ag.sort_order AS gsort,
@@ -716,7 +717,6 @@ router.get('/full-report', requireRole(...staffRoles), async (req, res, next) =>
       [yc.id, from, to]);
 
     const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
-    const fmt = (min) => { if (min == null) return ''; const x = ((min % 1440) + 1440) % 1440; return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
 
     // staggered reporting per (sched row, group)
     const meta = new Map();
@@ -735,38 +735,54 @@ router.get('/full-report', requireRole(...staffRoles), async (req, res, next) =>
       m.order.forEach((g, i) => { repMap.set(`${sid}|${g.code}`, i === 0 ? m.start - 15 : ps - 30); ps += Math.ceil(g.cnt * m.perMin); });
     }
 
+    // 12-hour dotted time, e.g. 6.50pm (the format used on parent notices)
+    const fmt12 = (min) => {
+      if (min == null) return '';
+      const x = ((min % 1440) + 1440) % 1440;
+      let hh = Math.floor(x / 60); const mm = x % 60;
+      const ap = hh < 12 ? 'am' : 'pm'; hh = hh % 12; if (hh === 0) hh = 12;
+      return `${hh}.${String(mm).padStart(2, '0')}${ap}`;
+    };
+
     const ExcelJS = require('exceljs');
     const wb = new ExcelJS.Workbook(); wb.creator = 'KCA ITS'; wb.created = new Date();
-    const ws = wb.addWorksheet('Schedule');
-    ws.columns = [
-      { header: 'Date', key: 'date', width: 13 },
-      { header: 'Start', key: 'start', width: 8 },
-      { header: 'End', key: 'end', width: 8 },
-      { header: 'Venue', key: 'venue', width: 16 },
-      { header: 'Event', key: 'event', width: 34 },
-      { header: 'Group', key: 'group', width: 10 },
-      { header: 'Reporting', key: 'rep', width: 11 },
-      { header: 'Duration (min)', key: 'dur', width: 13 },
-      { header: 'Participants', key: 'cnt', width: 12 },
-    ];
-    for (const r of rows) {
-      const cnt = Number(r.cnt) || 0;
-      // Duration of the EVENT itself = End - Start (minutes), not the sum of all participants' time.
-      let dur = '';
-      if (r.start_time && r.end_time) {
-        const d = toMin(r.end_time) - toMin(r.start_time);
-        dur = d >= 0 ? d : d + 1440;
+
+    // Column order matches the notice sent to parents, then helper columns.
+    const addSheet = (name, subset) => {
+      const ws = wb.addWorksheet(name);
+      ws.columns = [
+        { header: 'Date', key: 'date', width: 10 },
+        { header: 'Day', key: 'day', width: 6 },
+        { header: 'Event', key: 'event', width: 32 },
+        { header: 'Group', key: 'group', width: 7 },
+        { header: 'Time Allowed', key: 'allowed', width: 13 },
+        { header: 'Reporting Time', key: 'rep', width: 14 },
+        { header: 'Venue', key: 'venue', width: 16 },
+        { header: 'Participants', key: 'cnt', width: 12 },
+        { header: 'Start', key: 'start', width: 8 },
+        { header: 'End', key: 'end', width: 8 },
+      ];
+      for (const r of subset) {
+        const cnt = Number(r.cnt) || 0;
+        const per = r.allotted_time_seconds ? Math.round(r.allotted_time_seconds / 60) : null;
+        ws.addRow({
+          date: r.event_date || '', day: r.dow || '', event: r.event_name, group: r.gcode,
+          allowed: per != null ? `${per} min.` : '',
+          rep: fmt12(repMap.get(`${r.sched_id}|${r.gcode}`)),
+          venue: r.venue || '', cnt,
+          start: r.start_time || '', end: r.end_time || '',
+        });
       }
-      ws.addRow({
-        date: r.event_date || '', start: r.start_time || '', end: r.end_time || '',
-        venue: r.venue || '', event: r.event_name, group: r.gcode,
-        rep: fmt(repMap.get(`${r.sched_id}|${r.gcode}`)),
-        dur, cnt,
-      });
-    }
-    const h = ws.getRow(1); h.font = { bold: true };
-    ws.views = [{ state: 'frozen', ySplit: 1 }];
-    ws.autoFilter = { from: 'A1', to: 'I1' };
+      ws.getRow(1).font = { bold: true };
+      ws.views = [{ state: 'frozen', ySplit: 1 }];
+      ws.autoFilter = { from: 'A1', to: 'J1' };
+      return ws;
+    };
+
+    const published = rows.filter((r) => r.status === 'confirmed' || r.status === 'completed');
+    const unpublished = rows.filter((r) => r.status === 'draft');
+    addSheet('Published', published);
+    addSheet('Unpublished', unpublished);
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_FULL_SCHEDULE',
       entity: 'schedule', entityId: yc.id, details: { rows: rows.length, from, to } });
