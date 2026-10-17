@@ -26,7 +26,7 @@ export default function AdminLayout({ title, subtitle, actions, children }) {
       {!collapsed && <Sidebar />}
       <div className="flex h-full flex-1 flex-col overflow-hidden">
         <header className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <button
               onClick={toggleNav}
               className="shrink-0 rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-navy-700"
@@ -35,12 +35,12 @@ export default function AdminLayout({ title, subtitle, actions, children }) {
             >
               <PanelLeft size={18} />
             </button>
-            <div>
-              <h1 className="text-xl font-semibold text-navy-900">{title}</h1>
-              {subtitle && <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>}
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-semibold text-navy-900">{title}</h1>
+              {subtitle && <p className="mt-0.5 truncate text-sm text-slate-500" title={subtitle}>{subtitle}</p>}
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-2">
             {actions}
             <div className="mx-1 h-8 w-px bg-slate-200" />
             <div className="text-right">

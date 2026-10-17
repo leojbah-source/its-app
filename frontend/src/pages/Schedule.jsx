@@ -364,7 +364,7 @@ export default function Schedule() {
   return (
     <AdminLayout
       title="Schedule"
-      subtitle="Auto-generate a draft over the competition window, adjust as needed, then publish. No participant is double-booked or given more than 2 events per day."
+      subtitle="Generate, review and publish the schedule — no clashes, max 2 events per child per day."
       actions={
         <>
           <Button variant="outline" icon={RefreshCw} onClick={load}>Refresh</Button>
