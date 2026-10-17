@@ -313,7 +313,7 @@ export default function EventDay() {
                       <tr>
                         <th className="px-3 py-2 w-20">Chest</th>
                         <th className="px-3 py-2">Name</th>
-                        <th className="px-3 py-2">Status</th>
+                        <th className="px-3 py-2">Contact</th>
                         {videoEligible && <th className="px-3 py-2">Video</th>}
                         <th className="px-3 py-2 text-right">Attendance</th>
                       </tr>
@@ -328,7 +328,12 @@ export default function EventDay() {
                               {canManual && !locked && <button onClick={() => setManual(r)} className="ml-1.5 text-[10px] text-navy-500 underline" title="Manual chest (rule #4)">edit</button>}
                             </td>
                             <td className={`px-3 py-2 font-medium ${absent ? 'text-red-600 line-through' : 'text-slate-800'}`}>{r.name}</td>
-                            <td className="px-3 py-2"><Badge tone={r.status === 'attended' ? 'success' : absent ? 'danger' : 'slate'}>{r.status}</Badge></td>
+                            <td className="px-3 py-2 text-xs leading-tight">
+                              <div>{r.contact_phone
+                                ? <a href={`tel:${r.contact_phone}`} className="font-medium text-navy-700 hover:underline">{r.contact_phone}</a>
+                                : <span className="text-slate-300">—</span>}</div>
+                              {r.whatsapp && <div><a href={`https://wa.me/${String(r.whatsapp).replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="text-green-600 hover:underline">WhatsApp {r.whatsapp}</a></div>}
+                            </td>
                             {videoEligible && (
                               <td className="px-3 py-2">
                                 {absent ? (

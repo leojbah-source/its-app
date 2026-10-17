@@ -22,6 +22,8 @@ router.use(authenticate);
 const MANAGE_ROLES = ['SuperAdmin', 'Admin'];          // who can open this screen
 const STAFF_ROLES  = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Registrar', 'Accountant', 'Media', 'EventStaff']; // shown here
 const ASSIGNABLE   = ['Admin', 'Coordinator', 'Chairman', 'Registrar', 'Accountant', 'Media', 'EventStaff'];  // pickable in UI
+// Also listed here (read-only — MC/Timer are created from Event assignment, not here).
+const LISTABLE_ROLES = [...STAFF_ROLES, 'MC', 'Timer'];
 
 const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || ''));
 
@@ -33,8 +35,13 @@ router.get('/', requireRole(...MANAGE_ROLES), async (req, res, next) => {
               to_char(created_at, 'YYYY-MM-DD') AS created_at
        FROM users
        WHERE role::text = ANY($1)
-       ORDER BY (role = 'SuperAdmin') DESC, (role = 'Admin') DESC, full_name`,
-      [STAFF_ROLES],
+       ORDER BY CASE role::text
+                  WHEN 'SuperAdmin' THEN 1 WHEN 'Admin' THEN 2 WHEN 'Chairman' THEN 3
+                  WHEN 'Coordinator' THEN 4 WHEN 'Registrar' THEN 5 WHEN 'Accountant' THEN 6
+                  WHEN 'Media' THEN 7 WHEN 'EventStaff' THEN 8 WHEN 'MC' THEN 9 WHEN 'Timer' THEN 10
+                  ELSE 99 END,
+                full_name`,
+      [LISTABLE_ROLES],
     );
     res.json(rows);
   } catch (err) { next(err); }

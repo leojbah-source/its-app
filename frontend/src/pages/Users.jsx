@@ -62,6 +62,8 @@ export default function Users() {
   const canManage = (target) => {
     if (target.id === user?.id) return false;                       // not yourself
     if (!isSuper && (target.role === 'Admin' || target.role === 'SuperAdmin')) return false;
+    // MC / Timer are created and managed from Event assignment — listed here read-only.
+    if (target.role === 'MC' || target.role === 'Timer') return false;
     return true;
   };
 

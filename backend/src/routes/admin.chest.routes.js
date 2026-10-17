@@ -73,12 +73,15 @@ router.get('/:event_id/roster', requireRole(...staffRoles), async (req, res, nex
               COALESCE(p.full_name, t.team_name) AS name,
               ag.code AS age_group,
               ca.chest_number,
+              COALESCE(p.guardian_phone, u.phone) AS contact_phone,
+              COALESCE(u.whatsapp_number, u.whatsapp_number_2) AS whatsapp,
               (vr.id IS NOT NULL) AS video_wants,
               vr.payment_method AS video_method,
               vr.amount         AS video_amount,
               vr.recorded       AS video_recorded
        FROM registrations r
        LEFT JOIN participants p ON p.id = r.participant_id
+       LEFT JOIN users u ON u.id = p.created_by
        LEFT JOIN teams t ON t.id = r.team_id
        LEFT JOIN age_groups ag ON ag.id = r.age_group_id
        LEFT JOIN chest_assignments ca ON ca.registration_id = r.id
