@@ -42,6 +42,18 @@ export default function BrandingCard({ config, onChange, onUpload, uploadingFiel
         />
       </div>
 
+      <div className="mb-6">
+        <label className="mb-1 block text-sm font-medium text-slate-700">MC announcements / house rules</label>
+        <p className="mb-1.5 text-xs text-slate-500">Read out by the MC before each event. One per line — e.g. keep silence during performances, phones on silent, no photography or videography, children not to walk around during performances.</p>
+        <textarea
+          rows={6}
+          value={config.mc_rules_text ?? ''}
+          onChange={(e) => onChange({ ...config, mc_rules_text: e.target.value })}
+          placeholder={'Please keep silence during performances.\nKindly keep all phones on silent.\nPhotography and videography are strictly not allowed.\nChildren are requested not to walk around during performances.\nPlease encourage all participants.'}
+          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+        />
+      </div>
+
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <AssetSlot
           field="its_logo"

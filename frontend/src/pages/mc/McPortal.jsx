@@ -136,7 +136,10 @@ function Script({ data, sel }) {
     <div className="space-y-3">
       <ScriptCard title="Welcome">
         <p>Ladies &amp; gentlemen and dear children — <b>good evening</b>. On behalf of KCA and the Organizing Committee, it is my pleasure to welcome you to {data.year?.event_year_label || 'the Indian Talent Scan'}. Today we conduct <b>{ev.event_name}</b>{(sel?.venue || sc.venue) ? ` at ${sel?.venue || sc.venue}` : ''}.</p>
-        <p className="mt-2 text-slate-500">Please encourage all participants, keep silence during performances, and keep phones on silent.</p>
+        <p className="mt-2 text-slate-500">Please join me in encouraging all our participants.</p>
+      </ScriptCard>
+      <ScriptCard title="A few requests to our audience">
+        <p className="whitespace-pre-line text-slate-700">{(data.year?.mc_rules_text || '').trim() || 'Please keep silence during performances.\nKindly keep all phones on silent.\nPhotography and videography are strictly not allowed.\nChildren are requested not to walk around during performances.'}</p>
       </ScriptCard>
       <ScriptCard title="Introducing our judges">
         {(data.judges || []).length === 0 ? <p className="text-slate-400">No judges assigned yet.</p> : (
@@ -154,7 +157,7 @@ function Script({ data, sel }) {
       </ScriptCard>
       <ScriptCard title="Judging criteria">
         <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
-          {criteria.map((c, i) => (<div key={i} className="flex items-center justify-between px-3 py-2 text-sm"><span><b className="text-navy-700">C{i + 1}</b> {c.label}</span><span className="font-mono text-slate-500">{c.max_score}</span></div>))}
+          {criteria.map((c, i) => (<div key={i} className="px-3 py-2 text-sm"><b className="text-navy-700">C{i + 1}</b> {c.label}</div>))}
           {criteria.length === 0 && <p className="px-3 py-2 text-sm text-slate-400">No criteria set.</p>}
         </div>
       </ScriptCard>

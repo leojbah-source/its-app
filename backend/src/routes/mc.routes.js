@@ -61,7 +61,7 @@ router.get('/script/:event_id', async (req, res, next) => {
               string_agg(DISTINCT venue, ', ') AS venue
        FROM schedule WHERE event_id = $1`, [req.params.event_id]);
     const { rows: yc } = await pool.query(
-      `SELECT event_year_label, sponsor_name, sponsors_text FROM year_config WHERE is_active = TRUE LIMIT 1`);
+      `SELECT event_year_label, sponsor_name, sponsors_text, mc_rules_text FROM year_config WHERE is_active = TRUE LIMIT 1`);
     res.json({ event: ev[0], judges, criteria, schedule: sched[0] || {}, year: yc[0] || {} });
   } catch (err) { next(err); }
 });

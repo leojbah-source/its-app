@@ -31,6 +31,8 @@ export function defaultYearConfig(year) {
     team_reg_deadline: '',
     event_year_label: '',
     sponsor_name: '',
+    sponsors_text: '',
+    mc_rules_text: '',
     website_domain: '',
     kca_iban: '',
     benefit_pay_number: '',
@@ -77,6 +79,8 @@ export function mergeYearConfig(year, incoming) {
     // §4.1 identity / payment / limits (blueprint: nothing hard-coded per year)
     event_year_label:       incoming.event_year_label       ?? base.event_year_label,
     sponsor_name:           incoming.sponsor_name           ?? base.sponsor_name,
+    sponsors_text:          incoming.sponsors_text          ?? base.sponsors_text,
+    mc_rules_text:          incoming.mc_rules_text          ?? base.mc_rules_text,
     website_domain:         incoming.website_domain         ?? base.website_domain,
     kca_iban:               incoming.kca_iban               ?? base.kca_iban,
     benefit_pay_number:     incoming.benefit_pay_number     ?? base.benefit_pay_number,
