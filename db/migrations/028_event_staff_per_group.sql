@@ -8,8 +8,18 @@
 
 BEGIN;
 
-DELETE FROM mc_assignments;
-DELETE FROM timer_assignments;
+-- ONE-TIME reset ONLY. This migration re-runs on every server boot, so the
+-- wipe must happen just once — when mc_assignments is still in the old
+-- per-event shape (age_group_id not yet added). Without this guard, every
+-- deploy wiped all MC and Timer assignments.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name = 'mc_assignments' AND column_name = 'age_group_id') THEN
+    DELETE FROM mc_assignments;
+    DELETE FROM timer_assignments;
+  END IF;
+END $$;
 
 ALTER TABLE mc_assignments    ADD COLUMN IF NOT EXISTS age_group_id INT REFERENCES age_groups(id);
 ALTER TABLE timer_assignments ADD COLUMN IF NOT EXISTS age_group_id INT REFERENCES age_groups(id);

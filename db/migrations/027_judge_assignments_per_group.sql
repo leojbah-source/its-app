@@ -13,8 +13,18 @@
 BEGIN;
 
 -- scores reference judge_assignments; clear them first, then the assignments.
-DELETE FROM scores;
-DELETE FROM judge_assignments;
+-- ONE-TIME reset ONLY. This migration re-runs on every server boot, so the
+-- wipe must happen just once — when the table is still in the old per-event
+-- shape (age_group_id not yet added). The guard stops later deploys from
+-- deleting live scores and judge assignments.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name = 'judge_assignments' AND column_name = 'age_group_id') THEN
+    DELETE FROM scores;
+    DELETE FROM judge_assignments;
+  END IF;
+END $$;
 
 ALTER TABLE judge_assignments ADD COLUMN IF NOT EXISTS age_group_id INT REFERENCES age_groups(id);
 
