@@ -298,6 +298,12 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
         {whenLine(current) && <div className="mt-0.5 text-xs text-navy-200">{whenLine(current)}</div>}
         <div className="mt-0.5 inline-block rounded-full bg-gold-500 px-3 py-0.5 text-sm font-semibold">Group {gcode}</div>
       </div>
+      {finalised && (
+        <button onClick={() => setShowResult(true)}
+          className="mb-3 flex w-full animate-pulse items-center justify-center gap-2 rounded-xl bg-gold-500 py-3 text-base font-bold text-white shadow-md hover:bg-gold-600">
+          <Eye size={18} /> Result is ready — tap to preview how the panel ranked this group
+        </button>
+      )}
       {!canScore && <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Scoring opens once all judges agree the weightages on the briefing screen ({ag.agreed}/{ag.total} agreed).</div>}
       {sheet.participants.length === 0 ? <p className="rounded-xl bg-white p-4 text-sm text-slate-500 shadow-sm">No chest numbers assigned for this group yet.</p> : (
         <div className="overflow-x-auto rounded-xl bg-white shadow-sm">

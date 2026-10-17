@@ -17,7 +17,7 @@ import { scheduleApi, resultsApi } from '../../api/client';
 export default function Results() {
   const { token, user } = useAuth();
   const navigate = useNavigate();
-  const isChairman = user?.role === 'Chairman';
+  const isChairman = user?.role === 'Chairman' || user?.role === 'SuperAdmin';
   const [schedule, setSchedule] = useState([]);
   const [date, setDate] = useState('');
   const [eventId, setEventId] = useState('');
@@ -65,6 +65,13 @@ export default function Results() {
   }, [token, eventId, groupId]);
 
   async function act(kind) {
+    if (kind === 'finalise') {
+      const over = (data?.results || []).filter((r) => r.over_time && !r.is_disqualified);
+      if (over.length) {
+        const chests = over.map((r) => `#${r.chest_number}`).join(', ');
+        if (!window.confirm(`${chests} went over time + grace and ${over.length === 1 ? 'has' : 'have'} NOT been disqualified or cleared.\n\nReview the DQ column first — click Disqualify if the rules require it. Finalise anyway?`)) return;
+      }
+    }
     setBusy(true); setFlash('');
     try {
       if (kind === 'compute') { await resultsApi.compute(token, eventId, groupId); setFlash('Results computed & saved.'); }
@@ -79,6 +86,7 @@ export default function Results() {
   const flagged = useMemo(() => (data?.results || []).filter((r) => r.exact_tie || r.divergence_flag).length, [data]);
   const unreviewedDiv = useMemo(() => (data?.results || []).filter((r) => r.divergence_flag && !r.divergence_notes).length, [data]);
   const tieRows = useMemo(() => (data?.results || []).filter((r) => r.needs_tiebreak), [data]);
+  const overUnhandled = useMemo(() => (data?.results || []).filter((r) => r.over_time && !r.is_disqualified), [data]);
   const showTiebreak = Boolean(data?.complete && data?.tiebreak_needed);
 
   // Auto-refresh the live state (judges done, flags, finalise/publish/stale) every
@@ -183,6 +191,7 @@ export default function Results() {
             {state.stale_finalise && <div className="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">A judge changed a score after this group was finalised, so the finalised result is out of date. Click <b>Finalise again</b> before publishing (publishing is blocked until you do).</div>}
             {!data.complete && <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">Not all judges have scored every participant yet — you can compute a preview, but finalising is disabled until scoring is complete.</div>}
             {data.complete && data.judges_total > 0 && !data.all_done && <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">Judges are still finishing — {data.judges_done}/{data.judges_total} have clicked “Done scoring”. Finalise unlocks once all judges mark done.</div>}
+            {overUnhandled.length > 0 && <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">⏱ Chest {overUnhandled.map((r) => r.chest_number).join(', ')} went over time + grace and {overUnhandled.length === 1 ? 'has' : 'have'} not been reviewed. Check the <b>DQ</b> column — <b>Disqualify</b> if the rules require it, or leave it and finalise if allowed.</div>}
             {data.complete && unreviewedDiv > 0 && <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{unreviewedDiv} result(s) have diverging judge ranks — click “review diverge” on each and add a note before finalising.</div>}
             {showTiebreak && (
               <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
