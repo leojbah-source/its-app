@@ -298,7 +298,7 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
   async function saveCell(reg, crit) {
     const key = `${reg}:${crit}`; const raw = vals[key];
     if (raw === '' || raw == null) { if (saved[key] != null) revert(key); return; }
-    const v = Number(raw);
+    const v = Math.round(Number(raw));
     if (!Number.isFinite(v) || v < 0 || v > maxByCrit[crit]) { setFlash(`Score cannot exceed the criterion weightage (max ${maxByCrit[crit]}).`); revert(key); return; }
     setSavingCell(key);
     try { await judgeApi.saveScores(token, current.assignment_id, [{ registration_id: reg, criterion_id: crit, score_value: v }]); setSaved((m) => ({ ...m, [key]: String(v) })); reloadGroups(); }
@@ -348,9 +348,9 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
                   <td className="sticky left-0 z-10 bg-white px-3 py-2"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-navy-100 font-mono text-base font-bold text-navy-800">{p.chest_number}</span></td>
                   {criteria.map((c) => { const key = `${reg}:${c.id}`; return (
                     <td key={c.id} className="px-1 py-1 text-center">
-                      <input type="number" min={0} max={c.max_score} inputMode="numeric" disabled={!canScore || isDone || published} value={vals[key] ?? ''}
-                        onChange={(e) => setVals((m) => ({ ...m, [key]: e.target.value }))} onBlur={() => saveCell(reg, c.id)}
-                        className={`w-14 rounded-md border px-1 py-2 text-center text-base disabled:bg-slate-100 disabled:text-slate-400 ${savingCell === key ? 'border-gold-400' : 'border-slate-300'}`} />
+                      <input type="number" min={0} max={c.max_score} step={1} inputMode="numeric" disabled={!canScore || isDone || published} value={vals[key] ?? ''}
+                        onChange={(e) => setVals((m) => ({ ...m, [key]: e.target.value.replace(/[^0-9]/g, '') }))} onBlur={() => saveCell(reg, c.id)}
+                        className={`w-12 rounded-md border px-1 py-2 text-center text-base disabled:bg-slate-100 disabled:text-slate-400 ${savingCell === key ? 'border-gold-400' : 'border-slate-300'}`} />
                     </td>); })}
                   <td className="px-2 py-2 text-center font-semibold text-navy-800">{total || ''}</td>
                   <td className="px-2 py-2 text-center">{rankMap[reg] ? <span className="inline-block rounded-full bg-gold-100 px-2 py-0.5 text-xs font-bold text-gold-700">{rankMap[reg]}</span> : <span className="text-slate-300">—</span>}</td>
@@ -358,7 +358,7 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
             </tbody>
           </table>
         </div>)}
-      <p className="mt-2 text-xs text-slate-500">Scores can't exceed a criterion's weightage. They save as you leave each box; Total &amp; Rank (only you see it) update live.</p>
+      <p className="mt-2 text-xs text-slate-500">Scores can't exceed a criterion's weightage. Enter whole numbers only. They save as you leave each box; Total &amp; Rank (only you see it) update live.</p>
 
       {published ? (
         <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-50 p-3 text-sm text-slate-600">

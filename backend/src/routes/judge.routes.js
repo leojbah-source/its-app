@@ -352,7 +352,7 @@ router.post('/scores/:assignment_id', async (req, res, next) => {
     for (const s of list) {
       if (!maxByCrit.has(s.criterion_id)) return res.status(400).json({ error: `Criterion ${s.criterion_id} is not part of this event` });
       if (!validRegs.has(s.registration_id)) return res.status(400).json({ error: `Chest/registration ${s.registration_id} is not scorable (attendance + chest required)` });
-      const v = Number(s.score_value);
+      const v = Math.round(Number(s.score_value));
       if (Number.isNaN(v) || v < 0 || v > maxByCrit.get(s.criterion_id))
         return res.status(400).json({ error: `Score for criterion ${s.criterion_id} must be between 0 and ${maxByCrit.get(s.criterion_id)}` });
     }
@@ -365,7 +365,7 @@ router.post('/scores/:assignment_id', async (req, res, next) => {
          VALUES ($1,$2,$3,$4,$5, NOW())
          ON CONFLICT (judge_assignment_id, registration_id, criterion_id)
            DO UPDATE SET score_value = EXCLUDED.score_value, entered_by = EXCLUDED.entered_by, updated_at = NOW()`,
-        [asg.id, s.registration_id, s.criterion_id, Number(s.score_value), req.user.judgeId]);
+        [asg.id, s.registration_id, s.criterion_id, Math.round(Number(s.score_value)), req.user.judgeId]);
       saved++;
     }
     await client.query('COMMIT');
