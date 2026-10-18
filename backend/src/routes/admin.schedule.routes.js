@@ -784,6 +784,55 @@ router.get('/full-report', requireRole(...staffRoles), async (req, res, next) =>
     addSheet('Published', published);
     addSheet('Unpublished', unpublished);
 
+    // ── Not Scheduled: every (event x group) that has confirmed participants ──
+    // but is NOT covered by any schedule row yet, so nothing is missed when the
+    // schedule is built. Date range does not apply here — these rows have no date.
+    const { rows: unscheduled } = await pool.query(
+      `SELECT e.event_code, e.event_name, ag.code AS gcode, ag.label AS glabel,
+              ag.sort_order AS gsort, e.allotted_time_seconds,
+              COUNT(*)::int AS cnt
+         FROM registrations r
+         JOIN events e ON e.id = r.event_id
+         JOIN age_groups ag ON ag.id = r.age_group_id
+         LEFT JOIN participants pr ON pr.id = r.participant_id
+        WHERE e.year_id = $1 AND e.is_cancelled = FALSE
+          AND r.status NOT IN ('withdrawn','swapped')
+          AND (pr.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
+          AND NOT EXISTS (
+            SELECT 1 FROM schedule s
+             WHERE s.year_id = $1 AND s.event_id = e.id
+               AND ag.code = ANY(string_to_array(s.age_groups, ', ')))
+        GROUP BY e.event_code, e.event_name, ag.code, ag.label, ag.sort_order, e.allotted_time_seconds
+        ORDER BY e.event_code, ag.sort_order NULLS LAST, ag.code`, [yc.id]);
+
+    const wsU = wb.addWorksheet('Not Scheduled');
+    wsU.columns = [
+      { header: 'Event Code', key: 'code', width: 12 },
+      { header: 'Event', key: 'event', width: 32 },
+      { header: 'Group', key: 'group', width: 7 },
+      { header: 'Age group', key: 'glabel', width: 18 },
+      { header: 'Time Allowed', key: 'allowed', width: 13 },
+      { header: 'Participants', key: 'cnt', width: 12 },
+    ];
+    let unschedTotal = 0;
+    for (const r of unscheduled) {
+      const per = r.allotted_time_seconds ? Math.round(r.allotted_time_seconds / 60) : null;
+      unschedTotal += Number(r.cnt) || 0;
+      wsU.addRow({
+        code: r.event_code, event: r.event_name, group: r.gcode, glabel: r.glabel || '',
+        allowed: per != null ? `${per} min.` : '', cnt: Number(r.cnt) || 0,
+      });
+    }
+    if (unscheduled.length) {
+      const tot = wsU.addRow({ event: `TOTAL — ${unscheduled.length} event-group(s) not scheduled`, cnt: unschedTotal });
+      tot.font = { bold: true };
+    } else {
+      wsU.addRow({ event: 'All events with participants are already in the schedule.' });
+    }
+    wsU.getRow(1).font = { bold: true };
+    wsU.views = [{ state: 'frozen', ySplit: 1 }];
+    wsU.autoFilter = { from: 'A1', to: 'F1' };
+
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_FULL_SCHEDULE',
       entity: 'schedule', entityId: yc.id, details: { rows: rows.length, from, to } });
 
