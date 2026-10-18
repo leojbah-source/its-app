@@ -97,6 +97,9 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [addCodes, setAddCodes] = useState('');
   const [correctionReason, setCorrectionReason] = useState('');
   const [eligibleEvents, setEligibleEvents] = useState([]);
+  // Cancel-for-non-payment (withdraw all events, no refund rows)
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
 
   // Fee waiver / discount
   const canEditFees = ['SuperAdmin', 'Admin', 'Coordinator', 'Registrar'].includes(user?.role);
@@ -372,6 +375,18 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
       });
       setFlash(`Events corrected — now: ${r.events.join(', ') || 'none'}.`);
       setEditEvents(false);
+      load();
+      onUpdated?.();
+    } catch (err) { setFlash(err.message); }
+    finally { setBusy(''); }
+  }
+
+  async function doCancelNonPayment() {
+    setBusy('cancel'); setFlash('');
+    try {
+      const r = await participantsApi.cancelNonPayment(token, participantId, { reason: cancelReason.trim() });
+      setFlash(r.count ? `Registration cancelled (non-payment) — withdrawn: ${r.withdrawn.join(', ')}.` : 'No active events to cancel.');
+      setCancelOpen(false); setCancelReason('');
       load();
       onUpdated?.();
     } catch (err) { setFlash(err.message); }
@@ -951,9 +966,42 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                 </div>
 
                 {isChairman && !editEvents && (
-                  <Button variant="outline" size="sm" onClick={openEventEdit}>
-                    Correct events (Chairman)
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={openEventEdit}>
+                      Correct events (Chairman)
+                    </Button>
+                    {data.registrations.some((r) => r.status === 'registered') && !cancelOpen && (
+                      <Button variant="outline" size="sm"
+                        className="border-red-300 text-red-600 hover:bg-red-50"
+                        onClick={() => { setCancelOpen(true); setCancelReason(''); }}>
+                        Cancel registration — non-payment
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {isChairman && !editEvents && cancelOpen && (
+                  <div className="mt-2 space-y-2 rounded-lg border border-red-300 bg-red-50/60 p-3">
+                    <p className="text-[11px] text-slate-700">
+                      This withdraws <span className="font-semibold">all</span> of this participant's events for non-payment.
+                      They drop out of entries, chest numbers, judging and results. No refund is recorded. You can re-add the
+                      events later with a Chairman correction if they pay.
+                    </p>
+                    <textarea
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                      rows={2}
+                      placeholder="Reason (required — e.g. 'Fees not paid by the deadline'). Recorded in the audit trail."
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => { setCancelOpen(false); setCancelReason(''); }}>Keep registration</Button>
+                      <Button variant="danger" size="sm" loading={busy === 'cancel'}
+                        disabled={!cancelReason.trim()}
+                        onClick={doCancelNonPayment}>
+                        Cancel registration
+                      </Button>
+                    </div>
+                  </div>
                 )}
                 {editEvents && (
                   <div className="space-y-2 rounded-lg border border-gold-300 bg-gold-50/50 p-3">

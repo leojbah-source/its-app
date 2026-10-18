@@ -1151,6 +1151,49 @@ router.put('/participants/:id/events', requireRole('Chairman', 'SuperAdmin'), as
   } finally { client.release(); }
 });
 
+// ── POST /api/admin/participants/:id/cancel-nonpayment ───────────────────────
+// One-click cancellation of an individual participant's entry for NON-PAYMENT.
+// Withdraws every currently-registered event (status = 'registered') at once,
+// with a mandatory reason recorded in the audit trail. Unlike a Chairman event
+// correction it creates NO refund rows — nothing was paid, so there is nothing
+// to refund. Reversible: re-add the events via a Chairman correction if they pay.
+router.post('/participants/:id/cancel-nonpayment', requireRole('Chairman', 'SuperAdmin'), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { reason } = req.body || {};
+    if (!reason?.trim()) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'A reason is required to cancel a registration' });
+    }
+    const { rows: pRows } = await client.query(`SELECT id FROM participants WHERE id = $1`, [req.params.id]);
+    if (!pRows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Participant not found' }); }
+
+    const { rows: before } = await client.query(
+      `SELECT e.event_code FROM registrations r JOIN events e ON e.id = r.event_id
+       WHERE r.participant_id = $1 AND r.status NOT IN ('withdrawn','swapped') ORDER BY e.event_code`, [req.params.id]);
+
+    const { rows: withdrawn } = await client.query(
+      `UPDATE registrations r SET status = 'withdrawn', updated_at = NOW()
+       FROM events e
+       WHERE r.participant_id = $1 AND r.status = 'registered' AND e.id = r.event_id
+       RETURNING e.event_code`, [req.params.id]);
+
+    await client.query('COMMIT');
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'CANCEL_NONPAYMENT', entity: 'participants', entityId: req.params.id,
+      before: { events: before.map((r) => r.event_code) },
+      details: { withdrawn: withdrawn.map((r) => r.event_code) },
+      reason: reason.trim() });
+
+    res.json({ withdrawn: withdrawn.map((r) => r.event_code), count: withdrawn.length });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
+    next(err);
+  } finally { client.release(); }
+});
+
 // ── GET /api/admin/schools ────────────────────────────────────────────────────
 // Lookup list for school filter dropdowns.
 router.get('/schools', requireRole(...staffRoles), async (req, res, next) => {

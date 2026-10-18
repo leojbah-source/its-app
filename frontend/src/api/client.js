@@ -316,6 +316,9 @@ export const participantsApi = {
   /** Chairman-only event corrections with mandatory reason. */
   chairmanEvents: (token, id, body) =>
     request(`/api/admin/participants/${id}/events`, { method: 'PUT', token, body }),
+  /** Cancel a participant's whole entry for non-payment (withdraws all events, no refund rows). */
+  cancelNonPayment: (token, id, body) =>
+    request(`/api/admin/participants/${id}/cancel-nonpayment`, { method: 'POST', token, body }),
   /** Eligible individual events for Chairman add-corrections. Admin endpoint —
    *  INCLUDES split/merged events (e.g. L07A) so late entries can be placed into them. */
   eligibleEvents: (token, ageGroupId, gender) =>
