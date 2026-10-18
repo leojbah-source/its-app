@@ -8,7 +8,13 @@ import { Mic, LogOut, ChevronLeft, Users, ScrollText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { mcApi } from '../../api/client';
 
-const mmss = (s) => (s == null ? '—' : `${Math.floor(s / 60)}m${s % 60 ? ` ${s % 60}s` : ''}`);
+const mmss = (s) => {
+  if (s == null) return '—';
+  const m = Math.floor(s / 60), sec = s % 60;
+  if (m && sec) return `${m}m ${sec}s`;
+  if (m) return `${m}m`;
+  return `${sec}s`;
+};
 const selKey = (e) => `${e.event_id}:${e.age_group_id}`;
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '');
 
@@ -59,7 +65,7 @@ export default function McPortal() {
       <header className="sticky top-0 z-20 flex items-center justify-between bg-navy-800 px-4 py-3 text-white">
         <div className="flex items-center gap-2"><Mic size={20} className="text-gold-400" /><span className="font-semibold">MC Portal</span></div>
         <div className="flex items-center gap-3 text-sm"><span className="text-navy-200">{user?.full_name || user?.name}</span>
-          <button onClick={logout} className="inline-flex items-center gap-1 text-navy-100 hover:text-white"><LogOut size={16} /> Sign out</button></div>
+          <button onClick={() => { if (window.confirm('Sign out of the MC Portal? You will need to sign in again.')) logout(); }} className="inline-flex items-center gap-1 text-navy-100 hover:text-white"><LogOut size={16} /> Sign out</button></div>
       </header>
 
       <main className="mx-auto max-w-3xl p-4">
@@ -105,7 +111,7 @@ export default function McPortal() {
               </div>
             )}
 
-            {tab === 'script' ? <Script data={script} sel={sel} lang={lang} /> : (
+            {tab === 'script' ? <Script data={script} sel={sel} lang={lang} mcName={user?.full_name || user?.name || ''} /> : (
               !groups ? <p className="py-8 text-center text-sm text-slate-500">Loading…</p>
               : (
                 <div>
@@ -152,9 +158,12 @@ function Line({ en, ml, lang }) {
   );
 }
 
-function Script({ data, sel, lang = 'both' }) {
+function Script({ data, sel, lang = 'both', mcName = '' }) {
   if (!data) return <p className="py-8 text-center text-sm text-slate-500">Loading script…</p>;
   const ev = data.event || {}; const sc = data.schedule || {};
+  const isTeam = ev.event_kind === 'team';
+  const groupTag = sel?.age_group_code || sel?.age_group_label || '';
+  const mcIntro = (mcName && mcName.trim()) ? mcName.trim() : '______';
   const criteria = [...(data.criteria || [])].sort((a, b) => a.sequence_order - b.sequence_order);
   const yearLabel = data.year?.event_year_label || 'the Indian Talent Scan';
   const venue = sel?.venue || sc.venue || '';
@@ -168,8 +177,8 @@ function Script({ data, sel, lang = 'both' }) {
     <div className="space-y-3">
       <ScriptCard en="Welcome" ml="സ്വാഗതം" lang={lang}>
         <Line lang={lang}
-          en={<>Ladies &amp; gentlemen and dear children — <b>good evening</b>. On behalf of KCA and the Organizing Committee, it is my pleasure to welcome you to {yearLabel}. Today we conduct <b>{eventName}</b>{venue ? ` at ${venue}` : ''}.</>}
-          ml={<>മാന്യമഹാജനങ്ങളേ, പ്രിയ കുട്ടികളേ — <b>ശുഭ സന്ധ്യ</b>. കെ.സി.എയുടെയും സംഘാടക സമിതിയുടെയും പേരിൽ, {yearLabel}-ലേക്ക് നിങ്ങളെ സ്വാഗതം ചെയ്യുന്നതിൽ എനിക്ക് അതിയായ സന്തോഷമുണ്ട്. ഇന്ന് നാം {venue ? `${venue}-ൽ ` : ''}<b>{eventName}</b> നടത്തുന്നു.</>} />
+          en={<>Ladies &amp; gentlemen and dear children — <b>good evening</b>. I am <b>{mcIntro}</b>. On behalf of KCA and the Organizing Committee, it is my pleasure to welcome you to {yearLabel}. Today we conduct <b>{eventName}</b>{isTeam ? '' : <> for Group <b>{groupTag}</b></>}.</>}
+          ml={<>മാന്യമഹാജനങ്ങളേ, പ്രിയ കുട്ടികളേ — <b>ശുഭ സന്ധ്യ</b>. ഞാൻ <b>{mcIntro}</b> ആണ്. കെ.സി.എയുടെയും സംഘാടക സമിതിയുടെയും പേരിൽ, {yearLabel}-ലേക്ക് നിങ്ങളെ സ്വാഗതം ചെയ്യുന്നതിൽ എനിക്ക് അതിയായ സന്തോഷമുണ്ട്. ഇന്ന് നാം {isTeam ? '' : <><b>{groupTag}</b> ഗ്രൂപ്പിനായി </>}<b>{eventName}</b> നടത്തുന്നു.</>} />
         <div className="mt-2 text-slate-500">
           <Line lang={lang}
             en={<>Please join me in encouraging all our participants.</>}

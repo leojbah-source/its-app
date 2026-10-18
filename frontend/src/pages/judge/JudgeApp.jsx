@@ -24,6 +24,21 @@ export default function JudgeApp() {
     setFlashRaw(msg);
   }, [logout]);
 
+  // Signing out needs confirmation (default is to stay). A stray browser Back
+  // press (or the tablet's back gesture) must NOT drop a judge out of the
+  // scoring screen mid-event, so we trap Back and ask first instead.
+  const [confirmExit, setConfirmExit] = useState(false);
+  useEffect(() => {
+    window.history.pushState(null, '', window.location.href);
+    const onPop = () => {
+      window.history.pushState(null, '', window.location.href); // cancel the Back, stay put
+      setConfirmExit(true);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  function doSignOut() { setConfirmExit(false); logout(); }
+
   async function openEvent(ev) {
     setCurrent(ev); setPhase('briefing'); setGroups([]); setGroupId(null); setFlash('');
     try { setGroups(await judgeApi.groups(token, ev.assignment_id)); } catch (e) { setFlash(e.message); }
@@ -40,7 +55,7 @@ export default function JudgeApp() {
       <header className="sticky top-0 z-20 flex items-center justify-between bg-navy-800 px-4 py-3 text-white">
         <div className="flex items-center gap-2"><Gavel size={20} className="text-gold-400" /><span className="font-semibold">Judge Scoring</span></div>
         <div className="flex items-center gap-3 text-sm"><span className="text-navy-200">{judge?.name}</span>
-          <button onClick={logout} className="inline-flex items-center gap-1 text-navy-100 hover:text-white"><LogOut size={16} /> Sign out</button></div>
+          <button onClick={() => setConfirmExit(true)} className="inline-flex items-center gap-1 text-navy-100 hover:text-white"><LogOut size={16} /> Sign out</button></div>
       </header>
       <main className="mx-auto max-w-4xl p-4">
         {flash && <div className="mb-3 rounded-md border border-navy-200 bg-white px-3 py-2 text-sm text-navy-700">{flash}</div>}
@@ -50,6 +65,20 @@ export default function JudgeApp() {
           : !groupId ? <GroupPicker current={current} groups={groups} onBack={() => setPhase('briefing')} onPick={setGroupId} />
           : <ScoreGrid token={token} current={current} groupId={groupId} onBack={() => setGroupId(null)} setFlash={setFlash} reloadGroups={reloadGroups} />}
       </main>
+      {confirmExit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-xl">
+            <p className="text-base font-semibold text-navy-900">Are you sure you want to sign out?</p>
+            <p className="mt-2 text-sm text-slate-600">You will need your phone number and a new OTP to sign in again. Your submitted scores are safe.</p>
+            <div className="mt-5 flex gap-2">
+              <button autoFocus onClick={() => setConfirmExit(false)}
+                className="flex-1 rounded-lg bg-navy-600 px-4 py-3 text-sm font-semibold text-white hover:bg-navy-700">Stay signed in</button>
+              <button onClick={doSignOut}
+                className="flex-1 rounded-lg border border-red-300 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50">Sign out</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

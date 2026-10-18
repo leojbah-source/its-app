@@ -1,12 +1,15 @@
 // src/pages/judge/JudgeLogin.jsx
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { Gavel, LogIn, Send } from 'lucide-react';
 import { useJudgeAuth } from '../../context/JudgeAuthContext';
 
 export default function JudgeLogin() {
-  const { login, sendOtp } = useJudgeAuth();
+  const { login, sendOtp, isAuthenticated } = useJudgeAuth();
   const navigate = useNavigate();
+  // Already signed in (e.g. the judge pressed Back to this page)? Go straight
+  // back into scoring instead of making them enter phone + OTP again.
+  if (isAuthenticated) return <Navigate to="/judge" replace />;
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [busy, setBusy] = useState(false);
@@ -24,7 +27,7 @@ export default function JudgeLogin() {
     e.preventDefault();
     if (!phone.trim()) { setErr('Enter your phone number.'); return; }
     setBusy(true); setErr('');
-    try { await login(phone.trim(), otp.trim()); navigate('/judge'); }
+    try { await login(phone.trim(), otp.trim()); navigate('/judge', { replace: true }); }
     catch (e2) { setErr(e2.message); }
     finally { setBusy(false); }
   }

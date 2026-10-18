@@ -44,7 +44,7 @@ router.get('/my-events', async (req, res, next) => {
 router.get('/script/:event_id', async (req, res, next) => {
   try {
     const { rows: ev } = await pool.query(
-      `SELECT e.id, e.event_code, e.event_name, e.is_stage_event,
+      `SELECT e.id, e.event_code, e.event_name, e.is_stage_event, e.event_kind,
               e.allotted_time_seconds, e.grace_period_seconds, e.yellow_alert_seconds,
               c.name AS category_name
        FROM events e LEFT JOIN categories c ON c.id = e.category_id WHERE e.id = $1`, [req.params.event_id]);
