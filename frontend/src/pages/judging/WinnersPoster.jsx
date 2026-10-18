@@ -189,7 +189,10 @@ export default function WinnersPoster() {
   const ev = data.event || {};
   const winners = data.winners || [];
   const byPlace = (p) => winners.find((w) => w.place === p);
-  const first = byPlace(1), second = byPlace(2), third = byPlace(3);
+  const first = byPlace(1), second = byPlace(2);
+  // There is normally one 3rd place, but a rare Additional 3rd is a full
+  // 3rd place too (same place, points and prize) — render every place-3 winner.
+  const thirds = winners.filter((w) => w.place === 3);
   const title = (b.event_year_label || 'KCA Indian Talent Scan').toUpperCase();
   const eventLine = [ev.event_name, ev.age_group_label || (ev.age_group_code ? `Group ${ev.age_group_code}` : '')].filter(Boolean).join(' · ');
 
@@ -228,10 +231,10 @@ export default function WinnersPoster() {
             <div style={{ color: '#fde047', fontWeight: 800, fontSize: 24, textAlign: 'center', marginTop: 10, textShadow: '0 1px 2px rgba(0,0,0,.35)' }}>{eventLine}</div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 28, padding: '34px 24px 10px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'center', gap: 28, padding: '34px 24px 10px' }}>
             {second && <WinnerCard w={second} onReplace={replacePhoto} busyId={busyId} />}
             {first && <WinnerCard w={first} big onReplace={replacePhoto} busyId={busyId} />}
-            {third && <WinnerCard w={third} onReplace={replacePhoto} busyId={busyId} />}
+            {thirds.map((w, i) => <WinnerCard key={w.participant_id || w.chest_number || `t${i}`} w={w} onReplace={replacePhoto} busyId={busyId} />)}
           </div>
 
           <div style={{ color: '#ffffff', fontWeight: 800, fontSize: 40, letterSpacing: 1, textAlign: 'center', marginTop: 18, textShadow: '0 2px 4px rgba(0,0,0,.4)' }}>CONGRATULATIONS</div>
