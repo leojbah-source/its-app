@@ -69,6 +69,11 @@ router.post('/assign', requireRole(...manageRoles), async (req, res, next) => {
     if (!ev[0]) return res.status(404).json({ error: 'Event not found' });
     const { rows: u } = await pool.query(`SELECT role FROM users WHERE id = $1`, [user_id]);
     if (!u[0] || u[0].role !== role) return res.status(400).json({ error: `User must hold the ${role} role` });
+    const { rows: lk } = await pool.query(
+      `SELECT (COUNT(*) > 0 AND COUNT(*) FILTER (WHERE er.is_published) = COUNT(*)) AS locked
+         FROM registrations rr LEFT JOIN event_results er ON er.registration_id = rr.id
+        WHERE rr.event_id = $1 AND rr.age_group_id = $2 AND rr.status = 'attended'`, [event_id, age_group_id]);
+    if (lk[0]?.locked) return res.status(409).json({ error: 'Results for this age group are published — MC/Timer assignments are locked.' });
     try {
       const { rows } = await pool.query(
         `INSERT INTO ${tableFor(role)} (user_id, event_id, age_group_id, year_id, assigned_by) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
@@ -87,6 +92,14 @@ router.post('/assign', requireRole(...manageRoles), async (req, res, next) => {
 router.delete('/assign/:role/:assignmentId', requireRole(...manageRoles), async (req, res, next) => {
   try {
     if (!EVENT_ROLES.includes(req.params.role)) return res.status(400).json({ error: 'bad role' });
+    const { rows: a } = await pool.query(`SELECT event_id, age_group_id FROM ${tableFor(req.params.role)} WHERE id = $1`, [req.params.assignmentId]);
+    if (a[0]) {
+      const { rows: lk } = await pool.query(
+        `SELECT (COUNT(*) > 0 AND COUNT(*) FILTER (WHERE er.is_published) = COUNT(*)) AS locked
+           FROM registrations rr LEFT JOIN event_results er ON er.registration_id = rr.id
+          WHERE rr.event_id = $1 AND rr.age_group_id = $2 AND rr.status = 'attended'`, [a[0].event_id, a[0].age_group_id]);
+      if (lk[0]?.locked) return res.status(409).json({ error: 'Results for this age group are published — MC/Timer assignments are locked.' });
+    }
     const { rowCount } = await pool.query(`DELETE FROM ${tableFor(req.params.role)} WHERE id = $1`, [req.params.assignmentId]);
     if (!rowCount) return res.status(404).json({ error: 'Assignment not found' });
     res.status(204).end();

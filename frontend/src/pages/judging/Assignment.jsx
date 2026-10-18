@@ -55,6 +55,7 @@ export default function Assignment() {
   const visibleRows = useMemo(() => (dateFilter ? rows.filter((r) => r.event_date === dateFilter) : rows), [rows, dateFilter]);
 
   async function openAssign(row) {
+    if (row.results_published) return; // panel locked once results are published
     setModalRow(row); setModalErr(''); setCandidates([]);
     setSelected(new Set(row.judges.map((j) => j.judge_id)));
     try {
@@ -122,6 +123,7 @@ export default function Assignment() {
   }
 
   async function openStaff(ev, role) {
+    if (ev.results_published) return; // MC/Timer locked once results are published
     setMcEvent(ev); setStaffRole(role); setMcPick(''); setNewMc({ full_name: '', email: '', password: '' }); setMcMsg('');
     try { const [d, u] = await Promise.all([eventStaffApi.forEvent(token, ev.event_id, ev.age_group_id), eventStaffApi.users(token, role)]); setMcData(d); setMcUsers(u); }
     catch (e) { setMcMsg(e.message); }
@@ -207,6 +209,7 @@ export default function Assignment() {
                       <td className="px-3 py-2">
                         <span className="rounded bg-navy-50 px-1.5 py-0.5 text-xs font-semibold text-navy-700">{ev.age_group_code}</span>
                         <Badge tone={ev.judges.length === 3 ? 'success' : ev.judges.length > 3 ? 'gold' : 'slate'} className="ml-2">{ev.judges.length}/3</Badge>
+                        {ev.results_published && <span className="ml-2 inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700" title="Results published — assignments are locked">🔒 Published</span>}
                       </td>
                       <td className="px-3 py-2"><Badge tone="navy">{ev.entries ?? 0}</Badge></td>
                       <td className="px-3 py-2 text-xs">{slot(ev.judges, 0)}</td>
@@ -217,16 +220,17 @@ export default function Assignment() {
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap items-center justify-end gap-1.5">
-                          <Button size="sm" variant="outline" icon={UserPlus} onClick={() => openAssign(ev)}>Assign</Button>
+                          <Button size="sm" variant="outline" icon={UserPlus} disabled={ev.results_published} onClick={() => openAssign(ev)}
+                            title={ev.results_published ? 'Results published — assignments locked' : 'Assign judges'}>Assign</Button>
                           <Button size="sm" variant="ghost" icon={KeyRound} loading={sendingId === rowKey(ev)}
                             disabled={ev.judges.length === 0} onClick={() => sendOtps(ev)} title="Send briefing OTPs to this group's judges">OTP</Button>
                           <Button size="sm" variant="ghost" icon={Award} disabled={ev.judges.length === 0}
                             onClick={() => window.open(`/admin/judging/judge-certificates/${ev.event_id}`, '_blank')}
                             title="Print appreciation certificates for this event's judges">Cert</Button>
-                          <Button size="sm" variant={ev.mc_name ? 'gold' : 'ghost'} icon={Mic} onClick={() => openStaff(ev, 'MC')}
-                            title={ev.mc_name ? `MC: ${ev.mc_name}` : 'Assign an MC to this event'}>{ev.mc_name ? 'MC ✓' : 'MC'}</Button>
-                          <Button size="sm" variant={ev.timer_name ? 'gold' : 'ghost'} icon={Timer} onClick={() => openStaff(ev, 'Timer')}
-                            title={ev.timer_name ? `Timer: ${ev.timer_name}` : 'Assign a Timer to this event'}>{ev.timer_name ? 'Timer ✓' : 'Timer'}</Button>
+                          <Button size="sm" variant={ev.mc_name ? 'gold' : 'ghost'} icon={Mic} disabled={ev.results_published} onClick={() => openStaff(ev, 'MC')}
+                            title={ev.results_published ? 'Results published — locked' : ev.mc_name ? `MC: ${ev.mc_name}` : 'Assign an MC to this event'}>{ev.mc_name ? 'MC ✓' : 'MC'}</Button>
+                          <Button size="sm" variant={ev.timer_name ? 'gold' : 'ghost'} icon={Timer} disabled={ev.results_published} onClick={() => openStaff(ev, 'Timer')}
+                            title={ev.results_published ? 'Results published — locked' : ev.timer_name ? `Timer: ${ev.timer_name}` : 'Assign a Timer to this event'}>{ev.timer_name ? 'Timer ✓' : 'Timer'}</Button>
                         </div>
                       </td>
                     </tr>

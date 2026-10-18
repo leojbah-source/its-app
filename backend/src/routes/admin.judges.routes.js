@@ -228,6 +228,15 @@ router.post('/assign', requireRole(...assignRoles), async (req, res, next) => {
     if (!judge_id || !event_id || !age_group_id)
       return res.status(400).json({ error: 'judge_id, event_id and age_group_id are required' });
 
+    // Once results for this age group are published, the panel is locked (no
+    // adding or changing judges). Unpublish the results first if a change is needed.
+    const { rows: lk } = await pool.query(
+      `SELECT (COUNT(*) > 0 AND COUNT(*) FILTER (WHERE er.is_published) = COUNT(*)) AS locked
+         FROM registrations rr LEFT JOIN event_results er ON er.registration_id = rr.id
+        WHERE rr.event_id = $1 AND rr.age_group_id = $2 AND rr.status = 'attended'`, [event_id, age_group_id]);
+    if (lk[0]?.locked)
+      return res.status(409).json({ error: 'Results for this age group are published — judge assignments are locked.' });
+
     const { rows: jr } = await pool.query(`SELECT is_blacklisted FROM judges WHERE id = $1`, [judge_id]);
     if (!jr[0]) return res.status(404).json({ error: 'Judge not found' });
 
@@ -364,7 +373,11 @@ router.get('/event-assignments', requireRole(...staffRoles), async (req, res, ne
               (SELECT string_agg(u.full_name, ', ') FROM mc_assignments ma
                JOIN users u ON u.id = ma.user_id WHERE ma.event_id = e.id AND ma.age_group_id = ag.id) AS mc_name,
               (SELECT string_agg(u.full_name, ', ') FROM timer_assignments tia
-               JOIN users u ON u.id = tia.user_id WHERE tia.event_id = e.id AND tia.age_group_id = ag.id) AS timer_name
+               JOIN users u ON u.id = tia.user_id WHERE tia.event_id = e.id AND tia.age_group_id = ag.id) AS timer_name,
+              -- Results published for this age group → assignments are locked on the UI.
+              (SELECT (COUNT(*) > 0 AND COUNT(*) FILTER (WHERE er.is_published) = COUNT(*))
+                 FROM registrations rr LEFT JOIN event_results er ON er.registration_id = rr.id
+                WHERE rr.event_id = e.id AND rr.age_group_id = ag.id AND rr.status = 'attended') AS results_published
        FROM schedule s
        JOIN events e ON e.id = s.event_id
        LEFT JOIN categories c ON c.id = e.category_id
