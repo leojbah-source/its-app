@@ -65,6 +65,12 @@ export default function Results() {
   }, [token, eventId, groupId]);
 
   async function act(kind) {
+    if (kind === 'publish') {
+      const st = data?.state || {};
+      if (!st.all_agreed) {
+        if (!window.confirm(`Only ${st.judges_agreed ?? 0} of ${st.judges_total ?? 0} judges have agreed this result.\n\nPublish anyway (override)?`)) return;
+      }
+    }
     if (kind === 'finalise') {
       const over = (data?.results || []).filter((r) => r.over_time && !r.is_disqualified);
       if (over.length) {
@@ -189,6 +195,7 @@ export default function Results() {
             </div>
 
             {state.stale_finalise && <div className="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">A judge changed a score after this group was finalised, so the finalised result is out of date. Click <b>Finalise again</b> before publishing (publishing is blocked until you do).</div>}
+            {state.finalised && !state.published && !state.stale_finalise && <div className={`mb-3 rounded-md border px-3 py-2 text-xs font-medium ${state.all_agreed ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-amber-300 bg-amber-50 text-amber-800'}`}>{state.all_agreed ? '✓ All judges have agreed this result — ready to publish.' : `Judges agreed: ${state.judges_agreed ?? 0}/${state.judges_total ?? 0}. Each judge confirms from their screen. You can publish now (override) if needed.`}</div>}
             {!data.complete && <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">Not all judges have scored every participant yet — you can compute a preview, but finalising is disabled until scoring is complete.</div>}
             {data.complete && data.judges_total > 0 && !data.all_done && <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">Judges are still finishing — {data.judges_done}/{data.judges_total} have clicked “Done scoring”. Finalise unlocks once all judges mark done.</div>}
             {overUnhandled.length > 0 && <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">⏱ Chest {overUnhandled.map((r) => r.chest_number).join(', ')} went over time + grace and {overUnhandled.length === 1 ? 'has' : 'have'} not been reviewed. Check the <b>DQ</b> column — <b>Disqualify</b> if the rules require it, or leave it and finalise if allowed.</div>}

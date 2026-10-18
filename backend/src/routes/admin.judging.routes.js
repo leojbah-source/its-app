@@ -267,7 +267,12 @@ async function groupState(eventId, ageGroupId) {
        ) AS x`, [eventId, ageGroupId]);
     stale_finalise = !!st[0].x;
   }
-  return { finalised, published, computed: s.finalised > 0 || s.published > 0, stale_finalise };
+  const { rows: agr } = await pool.query(
+    `SELECT COUNT(*)::int AS total, COUNT(result_agreed_at)::int AS agreed
+       FROM judge_assignments WHERE event_id = $1 AND age_group_id = $2`, [eventId, ageGroupId]);
+  const judges_total = agr[0].total, judges_agreed = agr[0].agreed;
+  return { finalised, published, computed: s.finalised > 0 || s.published > 0, stale_finalise,
+           judges_total, judges_agreed, all_agreed: judges_total > 0 && judges_agreed === judges_total };
 }
 
 // True when a judge changed any score after this group was finalised, so the

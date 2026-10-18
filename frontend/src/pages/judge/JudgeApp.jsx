@@ -359,9 +359,14 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
 // the placement. Available once the Chairman has finalised the group.
 function ResultPreview({ token, current, onBack, onExit, setFlash }) {
   const [data, setData] = useState(null);
-  useEffect(() => {
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
     judgeApi.result(token, current.assignment_id).then(setData).catch((e) => { setFlash(e.message); onBack(); });
   }, [token, current, onBack, setFlash]);
+  useEffect(() => { load(); }, [load]);
+  async function agree() { setBusy(true); try { await judgeApi.agreeResult(token, current.assignment_id); setFlash('You agreed the result.'); load(); } catch (e) { setFlash(e.message); } finally { setBusy(false); } }
+  async function unagree() { setBusy(true); try { await judgeApi.unagreeResult(token, current.assignment_id); load(); } catch (e) { setFlash(e.message); } finally { setBusy(false); } }
+  async function revise() { setBusy(true); try { await judgeApi.undoDone(token, current.assignment_id); setFlash('Scoring reopened — change your marks and submit again.'); onBack(); } catch (e) { setFlash(e.message); } finally { setBusy(false); } }
   if (!data) return <p className="py-10 text-center text-sm text-slate-500">Loading result…</p>;
   const judges = data.judges || [];
   return (
@@ -408,12 +413,25 @@ function ResultPreview({ token, current, onBack, onExit, setFlash }) {
         </table>
       </div>
       <p className="mt-2 text-xs text-slate-500">Chest numbers only. Placement = lowest sum of the panel's ranks. Points = rank + grade (participation is not counted here).</p>
-      {onExit && (
-        <div className="mt-4">
-          <button onClick={onExit} className="inline-flex items-center justify-center gap-1 rounded-xl bg-navy-600 px-5 py-3 text-sm font-semibold text-white hover:bg-navy-700">Proceed to Publish</button>
-          <p className="mt-1.5 text-[11px] text-slate-400">Confirms the panel is done with this group. The Chairman publishes the result from the admin Results screen. Use “Back to scoring” above if you still need to change a mark.</p>
+      {onExit && !data.published && (
+        <div className="mt-4 space-y-2">
+          <div className="text-xs font-medium text-slate-500">{data.agreement?.agreed ?? 0} of {data.agreement?.total ?? 0} judges have agreed this result.</div>
+          {data.agreement?.i_agreed ? (
+            <div className="rounded-xl border border-green-300 bg-green-50 p-3">
+              <div className="text-sm font-semibold text-green-800">You&apos;ve agreed this result ✓</div>
+              <p className="mt-0.5 text-[11px] text-green-700">Waiting for {data.agreement?.all_agreed ? 'the Chairman to publish' : 'the other judges to agree'}.</p>
+              <button onClick={unagree} disabled={busy} className="mt-2 text-[11px] text-navy-600 underline disabled:opacity-60">Change my mind</button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button onClick={agree} disabled={busy} className="inline-flex flex-1 items-center justify-center gap-1 rounded-xl bg-green-600 px-5 py-3 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60"><Check size={16} /> Agree the result</button>
+              <button onClick={revise} disabled={busy} className="inline-flex flex-1 items-center justify-center gap-1 rounded-xl border border-navy-300 bg-white px-5 py-3 text-sm font-semibold text-navy-700 hover:bg-navy-50 disabled:opacity-60">Revise my scores</button>
+            </div>
+          )}
+          <p className="text-[11px] text-slate-400">Agreeing confirms you accept the panel&apos;s combined ranking. &ldquo;Revise my scores&rdquo; reopens your sheet; the Chairman then finalises again. The Chairman publishes from the admin screen.</p>
         </div>
       )}
+      {onExit && data.published && <p className="mt-4 text-sm text-slate-500">This result has been published.</p>}
     </div>
   );
 }

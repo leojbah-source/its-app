@@ -113,6 +113,24 @@ async function doneStatus(eventId, ageGroupId, myAssignmentId) {
   return { total: r.total, done: r.done, i_done: !!r.i_done, all_done: r.total > 0 && r.done === r.total };
 }
 
+// Result-agreement status: which judges have agreed the finalised ranking.
+async function resultAgreement(eventId, ageGroupId, myAssignmentId) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS total, COUNT(result_agreed_at)::int AS agreed,
+            bool_or(id = $3 AND result_agreed_at IS NOT NULL) AS i_agreed
+       FROM judge_assignments WHERE event_id = $1 AND age_group_id = $2`,
+    [eventId, ageGroupId, myAssignmentId]);
+  const r = rows[0];
+  return { total: r.total, agreed: r.agreed, i_agreed: !!r.i_agreed, all_agreed: r.total > 0 && r.agreed === r.total };
+}
+// Any change to a group's scores invalidates every judge's agreement of its ranking.
+async function clearResultAgreements(eventId, ageGroupId) {
+  await pool.query(
+    `UPDATE judge_assignments SET result_agreed_at = NULL
+      WHERE event_id = $1 AND age_group_id = $2 AND result_agreed_at IS NOT NULL`,
+    [eventId, ageGroupId]);
+}
+
 // ── GET /api/judge/events — this judge's assigned events ─────────────────────
 // Each row is one (event, age group) assignment, with per-group progress flags
 // so the portal can mark which are already scored / finalised / published.
@@ -351,6 +369,8 @@ router.post('/scores/:assignment_id', async (req, res, next) => {
       saved++;
     }
     await client.query('COMMIT');
+    // A changed score makes any prior agreement of this group's ranking void.
+    await clearResultAgreements(asg.event_id, asg.age_group_id);
     await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge',
       action: 'ENTER_SCORES', entity: 'scores', entityId: asg.id, details: { saved } });
     res.status(201).json({ saved });
@@ -392,6 +412,7 @@ router.post('/done/:assignment_id/undo', async (req, res, next) => {
     if (state.published)
       return res.status(409).json({ error: 'Results are published — scoring is locked and can no longer be reopened.' });
     await pool.query(`UPDATE judge_assignments SET scoring_done_at = NULL WHERE id = $1`, [asg.id]);
+    await clearResultAgreements(asg.event_id, asg.age_group_id);
     await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge', action: 'SCORING_REOPEN', entity: 'judge_assignments', entityId: asg.id });
     res.json({ done: await doneStatus(asg.event_id, asg.age_group_id, asg.id) });
   } catch (err) { next(err); }
@@ -426,7 +447,35 @@ router.get('/result/:assignment_id', async (req, res, next) => {
         rank_sum: r.rank_sum, avg_pct: r.avg_pct, grade: r.grade, total_points: r.total_points,
         tie_flag: r.tie_flag, exact_tie: r.exact_tie, divergence_flag: r.divergence_flag,
       })),
+      agreement: await resultAgreement(asg.event_id, asg.age_group_id, asg.id),
     });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/judge/result/:assignment_id/agree — this judge agrees the result ─
+router.post('/result/:assignment_id/agree', async (req, res, next) => {
+  try {
+    const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
+    if (!asg) return res.status(404).json({ error: 'Assignment not found' });
+    const state = await groupResultState(asg.event_id, asg.age_group_id);
+    if (state.published) return res.status(409).json({ error: 'Results are already published.' });
+    if (!state.finalised) return res.status(409).json({ error: 'The result is not finalised yet.' });
+    await pool.query(`UPDATE judge_assignments SET result_agreed_at = NOW() WHERE id = $1`, [asg.id]);
+    await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge', action: 'AGREE_RESULT', entity: 'judge_assignments', entityId: asg.id });
+    res.json({ agreement: await resultAgreement(asg.event_id, asg.age_group_id, asg.id) });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/judge/result/:assignment_id/unagree — withdraw agreement ─────────
+router.post('/result/:assignment_id/unagree', async (req, res, next) => {
+  try {
+    const asg = await loadOwnAssignment(req.params.assignment_id, req.user.judgeId);
+    if (!asg) return res.status(404).json({ error: 'Assignment not found' });
+    const state = await groupResultState(asg.event_id, asg.age_group_id);
+    if (state.published) return res.status(409).json({ error: 'Results are already published — agreement can no longer change.' });
+    await pool.query(`UPDATE judge_assignments SET result_agreed_at = NULL WHERE id = $1`, [asg.id]);
+    await logAudit({ actorId: req.user.judgeId, actorRole: 'Judge', action: 'WITHDRAW_RESULT_AGREEMENT', entity: 'judge_assignments', entityId: asg.id });
+    res.json({ agreement: await resultAgreement(asg.event_id, asg.age_group_id, asg.id) });
   } catch (err) { next(err); }
 });
 
