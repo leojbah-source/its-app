@@ -69,7 +69,8 @@ async function computeGroup(eventId, ageGroupId, cfg) {
      ORDER BY ca.chest_number`, [eventId, ageGroupId]);
   const { rows: judges } = await pool.query(
     `SELECT ja.id AS assignment_id, ja.judge_id, j.full_name,
-            (ja.scoring_done_at IS NOT NULL) AS done FROM judge_assignments ja
+            (ja.scoring_done_at IS NOT NULL) AS done,
+            (ja.result_agreed_at IS NOT NULL) AS agreed FROM judge_assignments ja
      JOIN judges j ON j.id = ja.judge_id
      WHERE ja.event_id = $1 AND ja.age_group_id = $2 ORDER BY j.full_name`, [eventId, ageGroupId]);
   // Per-age-group effective weightages (override where set, else event default).
@@ -106,6 +107,14 @@ async function computeGroup(eventId, ageGroupId, cfg) {
          FROM participant_timings WHERE registration_id = ANY($1)
         ORDER BY registration_id, id DESC`, [regIds]);
     for (const o of ov.rows) overMap[o.registration_id] = !!o.flag_for_dq;
+  }
+  // Extra/consolation prizes (additional_3rd shows '3' and earns 3rd-place points).
+  const extraMap = {};
+  if (regIds.length) {
+    const ex = await pool.query(
+      `SELECT registration_id, extra_prize_type FROM event_results
+        WHERE event_id = $1 AND registration_id = ANY($2) AND extra_prize_type IS NOT NULL`, [eventId, regIds]);
+    for (const x of ex.rows) extraMap[x.registration_id] = x.extra_prize_type;
   }
   const activeParticipants = participants.filter((p) => !(p.registration_id in dqMap));
 
@@ -204,6 +213,16 @@ async function computeGroup(eventId, ageGroupId, cfg) {
     r.rank_points = Number(rp) || 0;
     r.grade_points = Number(gp) || 0;
     r.participation_bonus_pts = Number(cfg.participation_bonus_pts) || 0;
+    // An Additional 3rd is a shared 3rd place: it carries the 3rd-place rank
+    // points and shows '3' in the Place column (its stored prize_place stays
+    // empty so it doesn't collide with the main 3rd placer).
+    r.extra_prize_type = extraMap[r.registration_id] || null;
+    if (!r.place && r.extra_prize_type === 'additional_3rd') {
+      r.rank_points = Number(cfg.rank_pts_third) || 0;
+      r.display_place = 3;
+    } else {
+      r.display_place = r.place;
+    }
     // Participation bonus is NOT added to the participant's total (it feeds the
     // school award only — rule #16). Individual total = rank + grade.
     r.total_points = r.rank_points + r.grade_points;
@@ -212,7 +231,7 @@ async function computeGroup(eventId, ageGroupId, cfg) {
   return {
     event_id: eventId, age_group_id: ageGroupId,
     judges: judges.map((j) => j.full_name),
-    judge_meta: judges.map((j) => ({ judge_id: j.judge_id, name: j.full_name })),
+    judge_meta: judges.map((j) => ({ judge_id: j.judge_id, name: j.full_name, agreed: !!j.agreed })),
     criteria, participant_count: participants.length,
     complete, divergence_threshold_pct: Number(cfg.divergence_threshold_pct), absolute_threshold: absThresh,
     prize_cap: prizeCap, no_prize_below: noPrizeBelow, min_entries_threshold: minEntriesFull,
@@ -229,6 +248,7 @@ async function computeGroup(eventId, ageGroupId, cfg) {
         rank_points: r.rank_points, grade_points: r.grade_points,
         participation_bonus_pts: r.participation_bonus_pts, total_points: r.total_points,
         is_disqualified: false, dq_reason: null, over_time: !!overMap[r.registration_id],
+        extra_prize_type: r.extra_prize_type || null, display_place: r.display_place ?? r.place,
       })),
       // Disqualified participants: shown after the ranked list, no place/grade/points (rule #22).
       ...participants.filter((p) => p.registration_id in dqMap).map((p) => ({
@@ -360,9 +380,6 @@ router.post('/results/:event_id/:age_group_id/divergence', requireRole(...viewRo
 const EXTRA_TYPES = ['additional_3rd', 'consolation'];
 router.post('/results/:event_id/:age_group_id/extra-prize', requireRole(...viewRoles), async (req, res, next) => {
   try {
-    if (req.user.role !== 'Chairman') {
-      return res.status(403).json({ error: 'Only the Chairman may award an extra/consolation prize (rule #14).' });
-    }
     const { registration_id } = req.body;
     let { extra_prize_type } = req.body;
     if (!registration_id) return res.status(400).json({ error: 'registration_id required' });
@@ -674,7 +691,7 @@ router.get('/results/:event_id/:age_group_id/sheet', requireRole(...mediaRoles),
     }
     // data.results is already in ranked (placement) order
     const results = data.results.map((r, i) => ({
-      order: i + 1, place: r.place, chest_number: r.chest_number,
+      order: i + 1, place: r.display_place ?? r.place, chest_number: r.chest_number,
       name: nameMap.get(r.registration_id) || null, school: schoolMap.get(r.registration_id) || null,
       rank_sum: r.rank_sum, avg_pct: r.avg_pct, grade: r.grade,
       rank_points: r.rank_points, grade_points: r.grade_points,

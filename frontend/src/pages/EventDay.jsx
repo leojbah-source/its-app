@@ -33,7 +33,7 @@ function DrawOverlay({ items, onClose }) {
   const [i, setI] = useState(0);
   useEffect(() => {
     if (i >= items.length) return;
-    const t = setTimeout(() => setI(i + 1), 1200);
+    const t = setTimeout(() => setI(i + 1), 2500);
     return () => clearTimeout(t);
   }, [i, items.length]);
   const current = i > 0 ? items[i - 1] : null;
