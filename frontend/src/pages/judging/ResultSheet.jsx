@@ -108,7 +108,8 @@ export default function ResultSheet() {
                 <td className="px-2 py-1.5 text-center">{r.rank_points}</td>
                 <td className="px-2 py-1.5 text-center">{r.grade_points}</td>
                 <td className="px-2 py-1.5 text-center font-semibold">{r.total_points}</td>
-                <td className="px-2 py-1.5 text-navy-700">{r.extra_prize_type ? EXTRA_LABEL[r.extra_prize_type] : ''}</td>
+                {/* An Additional 3rd is a full 3rd place, shown identically to the main 3rd (no tag). */}
+                <td className="px-2 py-1.5 text-navy-700">{r.extra_prize_type === 'consolation' ? EXTRA_LABEL.consolation : ''}</td>
               </tr>
             ))}
             {data.results.length === 0 && (

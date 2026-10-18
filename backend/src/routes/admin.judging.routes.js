@@ -213,15 +213,12 @@ async function computeGroup(eventId, ageGroupId, cfg) {
     r.rank_points = Number(rp) || 0;
     r.grade_points = Number(gp) || 0;
     r.participation_bonus_pts = Number(cfg.participation_bonus_pts) || 0;
-    // An Additional 3rd is a shared 3rd place: it carries the 3rd-place rank
-    // points and shows '3' in the Place column (its stored prize_place stays
-    // empty so it doesn't collide with the main 3rd placer).
+    // An Additional 3rd (rare, at the Chairman's discretion) is a FULL 3rd place
+    // in every respect — same place, same rank points, same prize as the main 3rd.
     r.extra_prize_type = extraMap[r.registration_id] || null;
     if (!r.place && r.extra_prize_type === 'additional_3rd') {
+      r.place = 3;
       r.rank_points = Number(cfg.rank_pts_third) || 0;
-      r.display_place = 3;
-    } else {
-      r.display_place = r.place;
     }
     // Participation bonus is NOT added to the participant's total (it feeds the
     // school award only — rule #16). Individual total = rank + grade.
@@ -248,7 +245,7 @@ async function computeGroup(eventId, ageGroupId, cfg) {
         rank_points: r.rank_points, grade_points: r.grade_points,
         participation_bonus_pts: r.participation_bonus_pts, total_points: r.total_points,
         is_disqualified: false, dq_reason: null, over_time: !!overMap[r.registration_id],
-        extra_prize_type: r.extra_prize_type || null, display_place: r.display_place ?? r.place,
+        extra_prize_type: r.extra_prize_type || null,
       })),
       // Disqualified participants: shown after the ranked list, no place/grade/points (rule #22).
       ...participants.filter((p) => p.registration_id in dqMap).map((p) => ({
@@ -392,11 +389,12 @@ router.post('/results/:event_id/:age_group_id/extra-prize', requireRole(...viewR
     if (st.published) return res.status(409).json({ error: 'Results already published — extra prizes must be added before publishing (rule #14).' });
 
     const { rows: reg } = await pool.query(
-      `SELECT r.event_id, er.prize_place, er.id AS result_id
+      `SELECT r.event_id, er.prize_place, er.extra_prize_type, er.id AS result_id
        FROM registrations r LEFT JOIN event_results er ON er.registration_id = r.id
        WHERE r.id = $1`, [registration_id]);
     if (!reg[0]) return res.status(404).json({ error: 'Registration not found' });
-    if (extra_prize_type !== null && reg[0].prize_place) {
+    // Block only a genuine ranked winner; a place that came from a prior extra is fine to change.
+    if (extra_prize_type !== null && reg[0].prize_place && !reg[0].extra_prize_type) {
       return res.status(409).json({ error: 'This chest already holds a main prize place — an extra prize is for non-winners.' });
     }
 
@@ -691,7 +689,7 @@ router.get('/results/:event_id/:age_group_id/sheet', requireRole(...mediaRoles),
     }
     // data.results is already in ranked (placement) order
     const results = data.results.map((r, i) => ({
-      order: i + 1, place: r.display_place ?? r.place, chest_number: r.chest_number,
+      order: i + 1, place: r.place, chest_number: r.chest_number,
       name: nameMap.get(r.registration_id) || null, school: schoolMap.get(r.registration_id) || null,
       rank_sum: r.rank_sum, avg_pct: r.avg_pct, grade: r.grade,
       rank_points: r.rank_points, grade_points: r.grade_points,

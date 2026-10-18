@@ -238,7 +238,7 @@ export default function Results() {
                   <tbody className="divide-y divide-slate-100">
                     {data.results.map((r) => (
                       <tr key={r.registration_id} className={r.is_disqualified ? 'bg-red-50/60 text-slate-400' : showTiebreak && r.needs_tiebreak ? 'bg-red-50/40' : r.place ? 'bg-gold-50/30' : ''}>
-                        <td className="px-3 py-2">{r.is_disqualified ? <span className="rounded bg-red-200 px-1.5 py-0.5 text-[10px] font-bold text-red-800">DQ</span> : r.place ? <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-gold-500 text-xs font-bold text-white">{r.place}</span> : (r.extra_prize_type === 'additional_3rd' && r.display_place) ? <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border-2 border-gold-500 text-xs font-bold text-gold-700" title="Additional 3rd">{r.display_place}</span> : <span className="text-slate-300">—</span>}</td>
+                        <td className="px-3 py-2">{r.is_disqualified ? <span className="rounded bg-red-200 px-1.5 py-0.5 text-[10px] font-bold text-red-800">DQ</span> : r.place ? <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-gold-500 text-xs font-bold text-white">{r.place}</span> : <span className="text-slate-300">—</span>}</td>
                         <td className="px-2 py-2 text-center font-semibold text-navy-800">{r.final_rank ?? '—'}</td>
                         <td className="px-3 py-2"><span className="font-mono font-semibold text-navy-800">{r.chest_number}</span></td>
                         {r.per_judge.map((pj, i) => <td key={i} className="px-2 py-2 text-center text-slate-600" title={`total ${pj.total}`}>{pj.rank}</td>)}
