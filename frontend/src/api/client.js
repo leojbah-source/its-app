@@ -311,6 +311,15 @@ export const registrationsApi = {
   /** Count of confirmed participants with a parent email (for the schedule email). */
   scheduleEmailRecipients: (token) =>
     request('/api/admin/registrations/schedule-email/recipients', { token }),
+  /** Spot-check sample: first N recipients with their own event summary. */
+  scheduleEmailSample: (token, limit = 10) =>
+    request(`/api/admin/registrations/schedule-email/sample?limit=${limit}`, { token }),
+  /** Rendered HTML preview for one participant (no email sent). */
+  scheduleEmailPreview: (token, participantId) =>
+    request(`/api/admin/registrations/schedule-email/preview${participantId ? `?participant_id=${participantId}` : ''}`, { token }),
+  /** Send ONE test email to a chosen address (uses a real participant's schedule). */
+  scheduleEmailTest: (token, to, participantId) =>
+    request('/api/admin/registrations/schedule-email/test', { method: 'POST', token, body: { to, participant_id: participantId } }),
   /** Email every confirmed participant their published schedule + PWA links + WA group invite. */
   scheduleEmailSend: (token) =>
     request('/api/admin/registrations/schedule-email/send', { method: 'POST', token, body: {} }),

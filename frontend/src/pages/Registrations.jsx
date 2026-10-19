@@ -136,10 +136,32 @@ export default function Registrations() {
   const [emailInfo, setEmailInfo] = useState(null);
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailResult, setEmailResult] = useState(null);
+  const [emailSample, setEmailSample] = useState(null);     // spot-check rows
+  const [testTo, setTestTo] = useState(user?.email || '');
+  const [testBusy, setTestBusy] = useState(false);
+  const [testMsg, setTestMsg] = useState('');
+  const [confirmSend, setConfirmSend] = useState(false);    // must tick before the real send
   async function openEmailSchedule() {
-    setEmailResult(null); setEmailInfo(null); setEmailOpen(true);
+    setEmailResult(null); setEmailInfo(null); setEmailSample(null); setTestMsg(''); setConfirmSend(false);
+    setTestTo(user?.email || ''); setEmailOpen(true);
     try { setEmailInfo(await registrationsApi.scheduleEmailRecipients(token)); }
     catch (e) { setEmailInfo({ error: e.message }); }
+    try { setEmailSample(await registrationsApi.scheduleEmailSample(token, 10)); }
+    catch { setEmailSample([]); }
+  }
+  async function sendTestEmail() {
+    if (!testTo.trim()) { setTestMsg('Enter an email address for the test.'); return; }
+    setTestBusy(true); setTestMsg('');
+    try { const r = await registrationsApi.scheduleEmailTest(token, testTo.trim()); setTestMsg(`✓ Test sent to ${r.to} (using ${r.sample_of}'s schedule). Open it and check it's correct.`); }
+    catch (e) { setTestMsg(e.message || 'Could not send the test.'); }
+    finally { setTestBusy(false); }
+  }
+  async function openPreview(participantId) {
+    try {
+      const r = await registrationsApi.scheduleEmailPreview(token, participantId);
+      const w = window.open('', '_blank');
+      if (w) { w.document.open(); w.document.write(r.html); w.document.close(); }
+    } catch (e) { setTestMsg(e.message || 'Could not open preview.'); }
   }
   async function sendScheduleEmails() {
     setEmailBusy(true);
@@ -443,13 +465,14 @@ export default function Registrations() {
 
       {emailOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !emailBusy && setEmailOpen(false)}>
-          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-base font-semibold text-navy-900">Email the schedule to parents</h3>
             {!emailResult ? (
               <>
                 <p className="mt-2 text-sm text-slate-600">
-                  Sends each confirmed participant's parent an email with their events &amp; reporting times
-                  (the published schedule), the app (PWA) links, and the WhatsApp group invite.
+                  Each parent gets an email with <b>only their own child's</b> events &amp; reporting times
+                  (the published schedule), the app (PWA) links, and the WhatsApp group invite. Please verify
+                  the sample below and send yourself a test before sending to everyone.
                 </p>
                 {emailInfo?.error ? (
                   <p className="mt-3 text-sm text-red-600">{emailInfo.error}</p>
@@ -461,9 +484,60 @@ export default function Registrations() {
                     {!emailInfo.wa_group_link_set && <div className="mt-2 text-amber-700">No WhatsApp group link is set in Year Setup — the email will go out without the group invite. Add it in Year Setup → Identity &amp; branding to include it.</div>}
                   </div>
                 )}
+
+                {/* Spot-check: a sample of recipients with their OWN events */}
+                <div className="mt-4">
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Spot-check — sample recipients (each shows only their own events)</p>
+                  {!emailSample ? <p className="text-sm text-slate-400">Loading sample…</p>
+                    : emailSample.length === 0 ? <p className="text-sm text-slate-400">No recipients to sample.</p> : (
+                    <div className="overflow-x-auto rounded-lg border border-slate-200">
+                      <table className="min-w-full text-xs">
+                        <thead className="bg-slate-50 text-slate-500">
+                          <tr><th className="px-2 py-1.5 text-left">Participant</th><th className="px-2 py-1.5 text-left">Grp</th><th className="px-2 py-1.5 text-left">Their events</th><th className="px-2 py-1.5 text-left">Parent email</th><th className="px-2 py-1.5"></th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {emailSample.map((r) => (
+                            <tr key={r.participant_id} className="align-top">
+                              <td className="px-2 py-1.5 whitespace-nowrap font-medium text-slate-800">{r.participant_name}<div className="text-[10px] font-normal text-slate-400">CPR …{r.cpr_last4}</div></td>
+                              <td className="px-2 py-1.5 text-slate-600">{r.age_group || '—'}</td>
+                              <td className="px-2 py-1.5 text-slate-600">
+                                {r.events.map((e, i) => (
+                                  <div key={i}><span className="font-mono text-navy-700">{e.event_code}</span> {e.event_name} — <span className="text-slate-500">{e.when}{e.venue ? ` · ${e.venue}` : ''}</span></div>
+                                ))}
+                              </td>
+                              <td className="px-2 py-1.5 whitespace-nowrap text-slate-600">{r.parent_email}</td>
+                              <td className="px-2 py-1.5"><button onClick={() => openPreview(r.participant_id)} className="text-navy-600 hover:underline whitespace-nowrap">Preview</button></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <p className="mt-1 text-[11px] text-slate-400">Preview opens the exact email that parent would receive, in a new tab.</p>
+                </div>
+
+                {/* Test send */}
+                <div className="mt-4 rounded-lg border border-slate-200 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Send a test to yourself first</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <input value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="you@example.com" type="email"
+                      className="flex-1 min-w-[200px] rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
+                    <button onClick={sendTestEmail} disabled={testBusy}
+                      className="rounded-md border border-navy-300 bg-white px-3 py-1.5 text-sm font-medium text-navy-700 hover:bg-navy-50 disabled:opacity-50">
+                      {testBusy ? 'Sending…' : 'Send test'}
+                    </button>
+                  </div>
+                  {testMsg && <p className="mt-2 text-xs text-slate-600">{testMsg}</p>}
+                </div>
+
+                <label className="mt-4 flex items-start gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={confirmSend} onChange={(e) => setConfirmSend(e.target.checked)} className="mt-0.5 h-4 w-4" />
+                  <span>I've checked the sample (and/or a test email) and the schedules shown are correct for each participant.</span>
+                </label>
+
                 <div className="mt-4 flex justify-end gap-2">
                   <button onClick={() => setEmailOpen(false)} disabled={emailBusy} className="rounded-md border border-slate-300 px-4 py-1.5 text-sm">Cancel</button>
-                  <button onClick={sendScheduleEmails} disabled={emailBusy || !emailInfo || !!emailInfo.error || !emailInfo.with_email}
+                  <button onClick={sendScheduleEmails} disabled={emailBusy || !emailInfo || !!emailInfo.error || !emailInfo.with_email || !confirmSend}
                     className="rounded-md bg-navy-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-navy-700 disabled:bg-navy-300">
                     {emailBusy ? 'Sending…' : `Send to ${emailInfo?.with_email ?? ''} parent(s)`}
                   </button>
