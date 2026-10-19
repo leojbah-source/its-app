@@ -320,9 +320,18 @@ export const registrationsApi = {
   /** Send ONE test email to a chosen address (uses a real participant's schedule). */
   scheduleEmailTest: (token, to, participantId, note) =>
     request('/api/admin/registrations/schedule-email/test', { method: 'POST', token, body: { to, participant_id: participantId, note } }),
-  /** Email every confirmed participant their published schedule + PWA links + WA group invite. */
-  scheduleEmailSend: (token, note) =>
-    request('/api/admin/registrations/schedule-email/send', { method: 'POST', token, body: { note } }),
+  /** Email participants their published schedule. mode: 'only_unsent' | 'all'. */
+  scheduleEmailSend: (token, note, mode = 'only_unsent') =>
+    request('/api/admin/registrations/schedule-email/send', { method: 'POST', token, body: { note, mode } }),
+  /** Send-log summary (how many sent / still failing). */
+  scheduleEmailLog: (token) =>
+    request('/api/admin/registrations/schedule-email/log', { token }),
+  /** Download the send log CSV (who was sent / failed + error). Returns a Blob. */
+  scheduleEmailLogExport: async (token) => {
+    const res = await fetch(`${API_BASE}/api/admin/registrations/schedule-email/log/export`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
+    return res.blob();
+  },
   /** Bulk WhatsApp reminders to in-progress parents (5-day gate, server-side). */
   sendReminders: (token) =>
     request('/api/admin/registrations/reminders/send-bulk', { method: 'POST', token }),

@@ -2225,10 +2225,14 @@ router.get('/registrations/schedule-email/recipients', requireRole(...SCHEDULE_E
     if (!yc) return res.status(400).json({ error: 'No active year' });
     const { rows } = await pool.query(
       `SELECT COUNT(*)::int AS confirmed,
-              COUNT(*) FILTER (WHERE u.email IS NOT NULL AND btrim(u.email) <> '')::int AS with_email
+              COUNT(*) FILTER (WHERE u.email IS NOT NULL AND btrim(u.email) <> '')::int AS with_email,
+              COUNT(*) FILTER (WHERE u.email IS NOT NULL AND btrim(u.email) <> ''
+                               AND EXISTS (SELECT 1 FROM schedule_email_log l
+                                            WHERE l.year_id = $1 AND l.participant_id = p.id AND l.status = 'sent'))::int AS already_sent
          FROM participants p LEFT JOIN users u ON u.id = p.created_by
         WHERE p.year_id = $1 AND p.confirmed_at IS NOT NULL`, [yc.id]);
     res.json({ confirmed: rows[0].confirmed, with_email: rows[0].with_email,
+               already_sent: rows[0].already_sent, unsent: rows[0].with_email - rows[0].already_sent,
                wa_group_link_set: !!(yc.wa_group_link && yc.wa_group_link.trim()) });
   } catch (err) { next(err); }
 });
@@ -2288,30 +2292,88 @@ router.post('/registrations/schedule-email/test', requireRole(...SCHEDULE_EMAIL_
   } catch (err) { next(err); }
 });
 
-// POST send the schedule emails to everyone in scope.
+// POST send the schedule emails. mode: 'only_unsent' (default) sends only to
+// participants with no prior successful send; 'all' sends to everyone in scope.
+// Every recipient's outcome is logged so you can see who/why and resend later.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 router.post('/registrations/schedule-email/send', requireRole(...SCHEDULE_EMAIL_ROLES), async (req, res, next) => {
   try {
     const yc = await activeYearRow();
     if (!yc) return res.status(400).json({ error: 'No active year' });
-    const recipients = await buildScheduleRecipients(yc);
-    const subject = scheduleSubject(yc);
+    const mode = req.body?.mode === 'all' ? 'all' : 'only_unsent';
     const note = req.body?.note != null ? String(req.body.note) : DEFAULT_SCHEDULE_NOTE;
+    const subject = scheduleSubject(yc);
+
+    let recipients = await buildScheduleRecipients(yc);
+    if (mode === 'only_unsent') {
+      const { rows: done } = await pool.query(
+        `SELECT DISTINCT participant_id FROM schedule_email_log WHERE year_id = $1 AND status = 'sent'`, [yc.id]);
+      const sentSet = new Set(done.map((r) => r.participant_id));
+      recipients = recipients.filter((r) => !sentSet.has(r.participant_id));
+    }
 
     let sent = 0, failed = 0, notConfigured = false, idx = 0;
     const worker = async () => {
       while (idx < recipients.length) {
         const pr = recipients[idx++];
-        const out = await sendEmail({ to: pr.parent_email, subject, html: renderScheduleEmail(yc, pr, note) });
+        let out = await sendEmail({ to: pr.parent_email, subject, html: renderScheduleEmail(yc, pr, note) });
+        // One retry on a transient failure (not a config problem) — helps with
+        // brief provider throttling ("421 try again later").
+        if (!out.sent && out.error !== 'EMAIL_NOT_CONFIGURED') { await sleep(1500); out = await sendEmail({ to: pr.parent_email, subject, html: renderScheduleEmail(yc, pr, note) }); }
         if (out.sent) sent++; else { failed++; if (out.error === 'EMAIL_NOT_CONFIGURED') notConfigured = true; }
+        try {
+          await pool.query(
+            `INSERT INTO schedule_email_log (year_id, participant_id, email, status, error, sent_by)
+             VALUES ($1,$2,$3,$4,$5,$6)`,
+            [yc.id, pr.participant_id, pr.parent_email, out.sent ? 'sent' : 'failed',
+             out.sent ? null : (out.error || 'send failed'), req.user.id]);
+        } catch { /* logging is best-effort */ }
       }
     };
-    await Promise.all(Array.from({ length: 6 }, worker));
+    await Promise.all(Array.from({ length: 3 }, worker));
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'EMAIL_SCHEDULE', entity: 'year_config', entityId: yc.id,
-      details: { recipients: recipients.length, sent, failed } });
+      details: { mode, recipients: recipients.length, sent, failed } });
 
-    res.json({ recipients: recipients.length, sent, failed, email_configured: !notConfigured });
+    res.json({ recipients: recipients.length, sent, failed, email_configured: !notConfigured, mode });
+  } catch (err) { next(err); }
+});
+
+// GET send-log summary for the active year.
+router.get('/registrations/schedule-email/log', requireRole(...SCHEDULE_EMAIL_ROLES), async (req, res, next) => {
+  try {
+    const yc = await activeYearRow();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+    const { rows } = await pool.query(
+      `SELECT COUNT(DISTINCT participant_id) FILTER (WHERE status = 'sent')::int AS sent_participants,
+              COUNT(DISTINCT participant_id) FILTER (WHERE participant_id NOT IN
+                    (SELECT participant_id FROM schedule_email_log WHERE year_id = $1 AND status = 'sent'))::int AS failed_only_participants,
+              COUNT(*)::int AS attempts,
+              MAX(created_at) AS last_attempt
+         FROM schedule_email_log WHERE year_id = $1`, [yc.id]);
+    res.json(rows[0] || { sent_participants: 0, failed_only_participants: 0, attempts: 0, last_attempt: null });
+  } catch (err) { next(err); }
+});
+
+// GET CSV of the latest outcome per participant (who was sent / failed + why).
+router.get('/registrations/schedule-email/log/export', requireRole(...SCHEDULE_EMAIL_ROLES), async (req, res, next) => {
+  try {
+    const yc = await activeYearRow();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+    const { rows } = await pool.query(
+      `SELECT DISTINCT ON (l.participant_id)
+              p.full_name AS participant, p.cpr_number, l.email AS parent_email,
+              l.status, l.error, to_char(l.created_at, 'YYYY-MM-DD HH24:MI') AS attempted_at
+         FROM schedule_email_log l JOIN participants p ON p.id = l.participant_id
+        WHERE l.year_id = $1
+        ORDER BY l.participant_id, l.created_at DESC`, [yc.id]);
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const cols = ['participant', 'cpr_number', 'parent_email', 'status', 'error', 'attempted_at'];
+    const csv = [cols.join(','), ...rows.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="schedule-email-log.csv"');
+    res.send(csv);
   } catch (err) { next(err); }
 });
 

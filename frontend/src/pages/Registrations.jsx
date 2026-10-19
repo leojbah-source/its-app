@@ -139,13 +139,14 @@ export default function Registrations() {
   const [emailSample, setEmailSample] = useState(null);     // spot-check rows
   const DEFAULT_SCHED_NOTE = 'Please note the reporting time for each event and reach the venue a little early. Some events are still being scheduled — those show "To be announced" below; please keep checking the app for the latest timings.';
   const [emailNote, setEmailNote] = useState(DEFAULT_SCHED_NOTE);
+  const [sendMode, setSendMode] = useState('only_unsent');
   const [testTo, setTestTo] = useState(user?.email || '');
   const [testBusy, setTestBusy] = useState(false);
   const [testMsg, setTestMsg] = useState('');
   const [confirmSend, setConfirmSend] = useState(false);    // must tick before the real send
   async function openEmailSchedule() {
     setEmailResult(null); setEmailInfo(null); setEmailSample(null); setTestMsg(''); setConfirmSend(false);
-    setTestTo(user?.email || ''); setEmailNote(DEFAULT_SCHED_NOTE); setEmailOpen(true);
+    setTestTo(user?.email || ''); setEmailNote(DEFAULT_SCHED_NOTE); setSendMode('only_unsent'); setEmailOpen(true);
     try { setEmailInfo(await registrationsApi.scheduleEmailRecipients(token)); }
     catch (e) { setEmailInfo({ error: e.message }); }
     try { setEmailSample(await registrationsApi.scheduleEmailSample(token, 10)); }
@@ -167,9 +168,19 @@ export default function Registrations() {
   }
   async function sendScheduleEmails() {
     setEmailBusy(true);
-    try { setEmailResult(await registrationsApi.scheduleEmailSend(token, emailNote)); }
+    try { setEmailResult(await registrationsApi.scheduleEmailSend(token, emailNote, sendMode)); }
     catch (e) { setEmailResult({ error: e.message }); }
     finally { setEmailBusy(false); }
+  }
+  async function downloadSendLog() {
+    try {
+      const blob = await registrationsApi.scheduleEmailLogExport(token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'schedule-email-log.csv';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) { setTestMsg(e.message || 'Could not download the log.'); }
   }
 
   async function sendReminders() {
@@ -482,7 +493,16 @@ export default function Registrations() {
                   <p className="mt-3 text-sm text-slate-400">Checking recipients…</p>
                 ) : (
                   <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                    <div><b>{emailInfo.with_email}</b> parent email(s) will be sent{emailInfo.confirmed > emailInfo.with_email ? ` (of ${emailInfo.confirmed} confirmed; ${emailInfo.confirmed - emailInfo.with_email} have no email on file)` : ''}.</div>
+                    <div><b>{emailInfo.with_email}</b> parent email(s) in scope{emailInfo.confirmed > emailInfo.with_email ? ` (of ${emailInfo.confirmed} confirmed; ${emailInfo.confirmed - emailInfo.with_email} have no email on file)` : ''}.</div>
+                    {emailInfo.already_sent > 0 && (
+                      <div className="mt-1">Already sent: <b>{emailInfo.already_sent}</b> · Not yet sent: <b>{emailInfo.unsent}</b></div>
+                    )}
+                    {emailInfo.already_sent > 0 && (
+                      <div className="mt-2 flex flex-col gap-1">
+                        <label className="flex items-center gap-2"><input type="radio" name="sendmode" checked={sendMode === 'only_unsent'} onChange={() => setSendMode('only_unsent')} /> Send only to the <b>{emailInfo.unsent}</b> not yet sent (recommended)</label>
+                        <label className="flex items-center gap-2"><input type="radio" name="sendmode" checked={sendMode === 'all'} onChange={() => setSendMode('all')} /> Send to everyone ({emailInfo.with_email}) — re-sends to those already emailed</label>
+                      </div>
+                    )}
                     {!emailInfo.wa_group_link_set && <div className="mt-2 text-amber-700">No WhatsApp group link is set in Year Setup — the email will go out without the group invite. Add it in Year Setup → Identity &amp; branding to include it.</div>}
                   </div>
                 )}
@@ -550,7 +570,7 @@ export default function Registrations() {
                   <button onClick={() => setEmailOpen(false)} disabled={emailBusy} className="rounded-md border border-slate-300 px-4 py-1.5 text-sm">Cancel</button>
                   <button onClick={sendScheduleEmails} disabled={emailBusy || !emailInfo || !!emailInfo.error || !emailInfo.with_email || !confirmSend}
                     className="rounded-md bg-navy-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-navy-700 disabled:bg-navy-300">
-                    {emailBusy ? 'Sending…' : `Send to ${emailInfo?.with_email ?? ''} parent(s)`}
+                    {emailBusy ? 'Sending…' : `Send to ${(emailInfo && emailInfo.already_sent > 0 && sendMode === 'only_unsent') ? emailInfo.unsent : (emailInfo?.with_email ?? '')} parent(s)`}
                   </button>
                 </div>
                 {emailBusy && <p className="mt-2 text-xs text-slate-400">This can take a minute for many recipients — please keep this window open.</p>}
@@ -563,9 +583,11 @@ export default function Registrations() {
                   <div className="mt-3 text-sm text-slate-700">
                     <p><b>{emailResult.sent}</b> sent{emailResult.failed ? `, ${emailResult.failed} failed` : ''} (of {emailResult.recipients}).</p>
                     {emailResult.email_configured === false && <p className="mt-2 text-amber-700">Email isn't configured on the server (SMTP), so nothing was sent. Set up SMTP and try again.</p>}
+                    {emailResult.failed > 0 && <p className="mt-2 text-slate-600">Download the log to see exactly who failed and why, then re-open this dialog and choose “only those not yet sent” to retry the rest.</p>}
                   </div>
                 )}
-                <div className="mt-4 flex justify-end">
+                <div className="mt-4 flex items-center justify-between">
+                  <button onClick={downloadSendLog} className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-navy-700 hover:bg-slate-50"><Download size={14} /> Download send log</button>
                   <button onClick={() => { setEmailOpen(false); setEmailResult(null); }} className="rounded-md border border-slate-300 px-4 py-1.5 text-sm">Done</button>
                 </div>
               </>

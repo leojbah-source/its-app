@@ -17,6 +17,13 @@ function getTransporter() {
       auth: process.env.SMTP_USER
         ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD }
         : undefined,
+      // Pool + rate-limit so a bulk run (e.g. schedule emails) doesn't open a
+      // burst of connections and get throttled/blocked by the provider.
+      pool: true,
+      maxConnections: Number(process.env.SMTP_MAX_CONNECTIONS || 3),
+      maxMessages: Number(process.env.SMTP_MAX_MESSAGES || 50),
+      rateDelta: Number(process.env.SMTP_RATE_DELTA_MS || 1000),
+      rateLimit: Number(process.env.SMTP_RATE_LIMIT || 6),
     });
   }
   return transporter;
