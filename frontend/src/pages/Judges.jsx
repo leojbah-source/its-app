@@ -4,7 +4,7 @@
 // on the Schedule page (event level), where 3 judges are picked per event from
 // those whose expertise matches the event's category.
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Plus, Gavel, Ban, ShieldCheck, Trash2, Save, ClipboardCheck } from 'lucide-react';
+import { RefreshCw, Plus, Gavel, Ban, ShieldCheck, Trash2, Save, ClipboardCheck, MailPlus } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -123,9 +123,14 @@ export default function Judges() {
       title="Judges"
       subtitle="Judge profiles and fields of expertise. Assign judges to events (and send briefing OTPs) from the Schedule page."
       actions={(
-        <Button variant="outline" icon={ClipboardCheck} onClick={() => navigate('/admin/judging/judge-review')}>
-          Judge review
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" icon={MailPlus} onClick={() => navigate('/admin/judging/judge-invite')}>
+            Invite a judge
+          </Button>
+          <Button variant="outline" icon={ClipboardCheck} onClick={() => navigate('/admin/judging/judge-review')}>
+            Judge review
+          </Button>
+        </div>
       )}
     >
       <div className="mb-4 flex items-center justify-between gap-2">
