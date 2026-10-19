@@ -14,14 +14,28 @@ const VENUE_SUFFIX = 'KCA, Segayya';
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
 const rowKey = (r) => `${r.event_id}:${r.age_group_id}:${r.event_date}`;
 const venueFull = (v) => (v ? `${v}, ${VENUE_SUFFIX}` : VENUE_SUFFIX);
-const groupLabel = (r) => r.age_group_label || (r.age_group_code ? `Group ${r.age_group_code}` : '');
 const uniq = (a) => a.filter((x, i) => x && a.indexOf(x) === i);
 const joinAnd = (a) => (a.length <= 1 ? (a[0] || '') : `${a.slice(0, -1).join(', ')} & ${a[a.length - 1]}`);
+// Just the number of an age group ("Group 3" -> "3") for the compact "Age groups 3, 4 & 5" phrasing.
+const groupNum = (r) => {
+  const m = String(r.age_group_label || r.age_group_code || '').match(/\d+/);
+  return m ? m[0] : (r.age_group_label || r.age_group_code || '');
+};
+const groupsPhrase = (sessions) => {
+  const nums = uniq(sessions.map(groupNum));
+  return nums.length > 1 ? `Age groups ${joinAnd(nums)}` : `Group ${nums[0] || ''}`.trim();
+};
 const fmtDate = (d) => {
   if (!d) return '';
   const dt = new Date(d);
   if (isNaN(dt)) return String(d);
   return dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+};
+const fmtDateShort = (d) => {
+  if (!d) return '';
+  const dt = new Date(d);
+  if (isNaN(dt)) return String(d);
+  return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 const fmt12 = (t) => {
   if (!t) return '';
@@ -65,21 +79,23 @@ export default function JudgeInvite() {
 
   const yearLabel = cfg?.event_year_label || 'KCA Indian Talent Scan';
 
-  // Selected sessions, grouped by event (in schedule order).
+  // Selected sessions, grouped by event (schedule order); within each event,
+  // sessions sharing the same date+time+venue collapse into one slot.
   const groups = [];
   const idx = {};
   for (const r of rows) {
     if (!keys.includes(rowKey(r))) continue;
-    if (idx[r.event_id] == null) { idx[r.event_id] = groups.length; groups.push({ event: r, sessions: [] }); }
-    groups[idx[r.event_id]].sessions.push(r);
+    if (idx[r.event_id] == null) { idx[r.event_id] = groups.length; groups.push({ event: r, sessions: [], slots: [], sidx: {} }); }
+    const g = groups[idx[r.event_id]];
+    g.sessions.push(r);
+    const sk = `${r.event_date}|${r.start_time}|${r.venue}`;
+    if (g.sidx[sk] == null) { g.sidx[sk] = g.slots.length; g.slots.push({ ref: r, members: [] }); }
+    g.slots[g.sidx[sk]].members.push(r);
   }
   const hasSel = groups.length > 0;
 
-  // "Speech – Malayalam (Group 2, Group 3 & Group 4)" and "Classical Dance (Group 1)" joined with &.
-  const eventsPhrase = joinAnd(groups.map((g) => {
-    const ag = joinAnd(uniq(g.sessions.map(groupLabel)));
-    return `${g.event.event_name}${ag ? ` (${ag})` : ''}`;
-  }));
+  // "Speech – Malayalam (Age groups 3, 4 & 5)" and "Classical Dance (Group 1)" joined with &.
+  const eventsPhrase = joinAnd(groups.map((g) => `${g.event.event_name} (${groupsPhrase(g.sessions)})`));
 
   const toggle = (k) => setKeys((cur) => (cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]));
 
@@ -105,11 +121,6 @@ export default function JudgeInvite() {
   }
 
   const NAVY = '#0f2f5f', GOLD = '#b8860b', INK = '#3a2a16';
-
-  const sessionLine = (s) => {
-    const parts = [fmtDate(s.event_date), fmt12(s.start_time), venueFull(s.venue)].filter(Boolean);
-    return parts.join(' · ');
-  };
 
   return (
     <div className="min-h-screen bg-slate-100 py-6">
@@ -140,7 +151,7 @@ export default function JudgeInvite() {
                   return (
                     <label key={k} className="flex cursor-pointer items-start gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50">
                       <input type="checkbox" checked={keys.includes(k)} onChange={() => toggle(k)} className="mt-0.5" />
-                      <span>{r.event_code} · {r.event_name} · {groupLabel(r)}{r.event_date ? ` · ${r.event_date}` : ''}</span>
+                      <span>{r.event_code} · {r.event_name} · Gr {groupNum(r)}{r.event_date ? ` · ${fmtDateShort(r.event_date)}` : ''}</span>
                     </label>
                   );
                 })}
@@ -164,13 +175,13 @@ export default function JudgeInvite() {
         {/* ── Invitation (captured) ── */}
         <div ref={ref} style={{ width: 800, margin: '0 auto', background: 'linear-gradient(180deg,#fbf3e2 0%,#f6e8cf 100%)', fontFamily: 'Georgia, "Times New Roman", serif', color: INK, padding: 14 }}>
           <div style={{ border: `2px solid ${GOLD}`, padding: 2 }}>
-            <div style={{ border: `1px solid ${GOLD}`, padding: '28px 40px 34px' }}>
+            <div style={{ border: `1px solid ${GOLD}`, padding: '26px 40px 34px' }}>
 
-              {/* Logos */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <SafeImg src={asset(cfg?.kca_logo_url)} fallback={<div style={{ width: 86 }} />} style={{ height: 78, objectFit: 'contain' }} />
-                <SafeImg src={asset(cfg?.its_logo_url)} fallback={<div />} style={{ height: 104, objectFit: 'contain' }} />
-                <SafeImg src={asset(cfg?.sponsor_logo_url)} fallback={cfg?.sponsor_name ? <div style={{ width: 86, textAlign: 'right', fontWeight: 700, color: NAVY, fontSize: 13 }}>{cfg.sponsor_name}</div> : <div style={{ width: 86 }} />} style={{ height: 66, objectFit: 'contain' }} />
+              {/* Logos — on a white band so the logos' white backgrounds blend in */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, background: '#ffffff', border: '1px solid #ece2cb', borderRadius: 10, padding: '14px 22px', marginBottom: 18 }}>
+                <SafeImg src={asset(cfg?.kca_logo_url)} fallback={<div style={{ width: 86 }} />} style={{ height: 76, objectFit: 'contain' }} />
+                <SafeImg src={asset(cfg?.its_logo_url)} fallback={<div />} style={{ height: 96, objectFit: 'contain' }} />
+                <SafeImg src={asset(cfg?.sponsor_logo_url)} fallback={cfg?.sponsor_name ? <div style={{ width: 86, textAlign: 'right', fontWeight: 700, color: NAVY, fontSize: 13 }}>{cfg.sponsor_name}</div> : <div style={{ width: 86 }} />} style={{ height: 62, objectFit: 'contain' }} />
               </div>
 
               <div style={{ textAlign: 'center', color: NAVY, fontSize: 24, fontWeight: 700, letterSpacing: 0.5, lineHeight: 1.2 }}>{yearLabel}</div>
@@ -188,15 +199,20 @@ export default function JudgeInvite() {
 
               {/* Event details */}
               {hasSel && (
-                <div style={{ border: `1px solid ${GOLD}`, background: 'rgba(255,255,255,0.55)', borderRadius: 6, padding: '12px 16px', margin: '4px 0 16px' }}>
+                <div style={{ border: `1px solid ${GOLD}`, background: 'rgba(255,255,255,0.6)', borderRadius: 6, padding: '12px 16px', margin: '4px 0 16px' }}>
                   <div style={{ color: GOLD, fontSize: 12, fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: 'uppercase' }}>Event details</div>
                   {groups.map((g, gi) => (
-                    <div key={g.event.event_id} style={{ marginTop: gi ? 12 : 0 }}>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: NAVY }}>{g.event.event_code} — {g.event.event_name}</div>
-                      {g.event.category_name && <div style={{ fontSize: 13.5, color: '#7a6a52', marginBottom: 4 }}>{g.event.category_name}</div>}
-                      {g.sessions.map((s) => (
-                        <div key={rowKey(s)} style={{ fontSize: 14.5, color: INK, padding: '2px 0' }}>
-                          <b style={{ color: NAVY }}>{groupLabel(s)}</b>{sessionLine(s) ? <> — {sessionLine(s)}</> : null}
+                    <div key={g.event.event_id} style={{ marginTop: gi ? 14 : 0 }}>
+                      <div style={{ fontSize: 17, fontWeight: 700, color: NAVY }}>{g.event.event_name}</div>
+                      {g.event.category_name && <div style={{ fontSize: 13.5, color: '#7a6a52', marginBottom: 6 }}>{g.event.category_name}</div>}
+                      {g.slots.map((slot) => (
+                        <div key={`${slot.ref.event_date}|${slot.ref.start_time}|${slot.ref.venue}`} style={{ marginBottom: 6 }}>
+                          <div style={{ fontSize: 15.5, color: INK }}>
+                            <b style={{ color: NAVY }}>{groupsPhrase(slot.members)}</b>
+                            {slot.ref.event_date ? <>  ·  {fmtDate(slot.ref.event_date)}</> : null}
+                            {slot.ref.start_time ? <>  ·  {fmt12(slot.ref.start_time)}</> : null}
+                          </div>
+                          <div style={{ fontSize: 14, color: '#5c4a30' }}>{venueFull(slot.ref.venue)}</div>
                         </div>
                       ))}
                     </div>
