@@ -1,7 +1,8 @@
 // src/pages/judging/JudgeInvite.jsx
 // Warm, one-page invitation to a prospective judge. Enter the invitee's name,
-// pick an event from the schedule — the event, date, age group and venue fill
-// in automatically — then download it as a JPEG (KCA + ITS logos, ITS blurb).
+// tick one or more sessions from the schedule — a judge may cover the same
+// event across several age groups, or more than one event — and the details
+// fill in automatically. Download it as a one-page JPEG (KCA + ITS logos).
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import html2canvas from 'html2canvas';
@@ -9,8 +10,13 @@ import { ArrowLeft, Download, Printer, Loader2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { judgesApi, yearConfigApi, API_BASE } from '../../api/client';
 
+const VENUE_SUFFIX = 'KCA, Segayya';
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
 const rowKey = (r) => `${r.event_id}:${r.age_group_id}:${r.event_date}`;
+const venueFull = (v) => (v ? `${v}, ${VENUE_SUFFIX}` : VENUE_SUFFIX);
+const groupLabel = (r) => r.age_group_label || (r.age_group_code ? `Group ${r.age_group_code}` : '');
+const uniq = (a) => a.filter((x, i) => x && a.indexOf(x) === i);
+const joinAnd = (a) => (a.length <= 1 ? (a[0] || '') : `${a.slice(0, -1).join(', ')} & ${a[a.length - 1]}`);
 const fmtDate = (d) => {
   if (!d) return '';
   const dt = new Date(d);
@@ -25,11 +31,11 @@ const fmt12 = (t) => {
 };
 
 const DEFAULT_ABOUT =
-  'The Indian Talent Scan (ITS) is the flagship youth cultural talent competition of the '
-  + 'Kerala Catholic Association (KCA), Bahrain. Held annually, it brings together hundreds of '
-  + 'young participants across dance, music, arts and literary events, offering them a professional '
-  + 'stage to showcase their creativity and grow in confidence. Adjudicated by distinguished artists '
-  + 'and educators, ITS celebrates excellence and nurtures the next generation of talent in our community.';
+  'Now in its 26th year, the Indian Talent Scan (ITS) is the flagship youth cultural talent '
+  + 'competition of the Kerala Catholic Association (KCA), Bahrain. Held annually, it brings together '
+  + 'hundreds of young participants across dance, music, arts and literary events, offering them a '
+  + 'professional stage to showcase their creativity and grow in confidence. Adjudicated by distinguished '
+  + 'artists and educators, ITS celebrates excellence and nurtures the next generation of talent in our community.';
 
 function SafeImg({ src, style, fallback = null }) {
   const [failed, setFailed] = useState(false);
@@ -48,7 +54,7 @@ export default function JudgeInvite() {
   const [busy, setBusy] = useState('');
 
   const [name, setName] = useState('');
-  const [sel, setSel] = useState('');
+  const [keys, setKeys] = useState([]);           // selected rowKeys (one or more sessions)
   const [note, setNote] = useState('');
   const [about, setAbout] = useState(DEFAULT_ABOUT);
 
@@ -57,8 +63,25 @@ export default function JudgeInvite() {
     yearConfigApi.get(token).then(setCfg).catch(() => {});
   }, [token]);
 
-  const ev = rows.find((r) => rowKey(r) === sel) || null;
   const yearLabel = cfg?.event_year_label || 'KCA Indian Talent Scan';
+
+  // Selected sessions, grouped by event (in schedule order).
+  const groups = [];
+  const idx = {};
+  for (const r of rows) {
+    if (!keys.includes(rowKey(r))) continue;
+    if (idx[r.event_id] == null) { idx[r.event_id] = groups.length; groups.push({ event: r, sessions: [] }); }
+    groups[idx[r.event_id]].sessions.push(r);
+  }
+  const hasSel = groups.length > 0;
+
+  // "Speech – Malayalam (Group 2, Group 3 & Group 4)" and "Classical Dance (Group 1)" joined with &.
+  const eventsPhrase = joinAnd(groups.map((g) => {
+    const ag = joinAnd(uniq(g.sessions.map(groupLabel)));
+    return `${g.event.event_name}${ag ? ` (${ag})` : ''}`;
+  }));
+
+  const toggle = (k) => setKeys((cur) => (cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]));
 
   const fileName = `ITS-Judge-Invitation${name ? '-' + name.replace(/\s+/g, '_') : ''}.jpg`;
 
@@ -82,12 +105,11 @@ export default function JudgeInvite() {
   }
 
   const NAVY = '#0f2f5f', GOLD = '#b8860b', INK = '#3a2a16';
-  const detailRow = (label, value) => value ? (
-    <tr>
-      <td style={{ padding: '4px 10px', color: '#7a6a52', whiteSpace: 'nowrap', verticalAlign: 'top', fontSize: 15 }}>{label}</td>
-      <td style={{ padding: '4px 10px', fontWeight: 700, color: NAVY, fontSize: 15 }}>{value}</td>
-    </tr>
-  ) : null;
+
+  const sessionLine = (s) => {
+    const parts = [fmtDate(s.event_date), fmt12(s.start_time), venueFull(s.venue)].filter(Boolean);
+    return parts.join(' · ');
+  };
 
   return (
     <div className="min-h-screen bg-slate-100 py-6">
@@ -98,7 +120,7 @@ export default function JudgeInvite() {
             <button onClick={() => navigate('/admin/judging/judges')} className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-navy-700 hover:bg-slate-50"><ArrowLeft size={16} /> Back to judges</button>
             <div className="flex-1" />
             <button onClick={() => window.print()} className="inline-flex items-center gap-1 rounded-md border border-navy-300 bg-white px-3 py-1.5 text-sm font-medium text-navy-700 hover:bg-navy-50"><Printer size={16} /> Print</button>
-            <button onClick={download} disabled={!!busy || !name.trim() || !ev}
+            <button onClick={download} disabled={!!busy || !name.trim() || !hasSel}
               className="inline-flex items-center gap-1 rounded-md bg-navy-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-navy-700 disabled:opacity-60">
               {busy === 'dl' ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Download JPEG
             </button>
@@ -106,23 +128,27 @@ export default function JudgeInvite() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Invitee's name</label>
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mrs. Smitha Balan"
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mrs. Pretty Roy"
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Event (from the schedule)</label>
-              <select value={sel} onChange={(e) => setSel(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
-                <option value="">Select an event…</option>
-                {rows.map((r) => (
-                  <option key={rowKey(r)} value={rowKey(r)}>
-                    {r.event_code} · {r.event_name} · {r.age_group_code}{r.event_date ? ` · ${r.event_date}` : ''}
-                  </option>
-                ))}
-              </select>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Sessions to judge — tick one or more</label>
+              <div className="max-h-56 overflow-y-auto rounded-md border border-slate-300 p-1">
+                {rows.length === 0 && <div className="px-2 py-2 text-xs text-slate-400">No scheduled sessions yet.</div>}
+                {rows.map((r) => {
+                  const k = rowKey(r);
+                  return (
+                    <label key={k} className="flex cursor-pointer items-start gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50">
+                      <input type="checkbox" checked={keys.includes(k)} onChange={() => toggle(k)} className="mt-0.5" />
+                      <span>{r.event_code} · {r.event_name} · {groupLabel(r)}{r.event_date ? ` · ${r.event_date}` : ''}</span>
+                    </label>
+                  );
+                })}
+              </div>
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Personal line (optional)</label>
-              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Your rich experience in classical music would be invaluable to our young artists."
+              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Your experience in classical music would be invaluable to our young artists."
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
             </div>
             <div className="sm:col-span-2">
@@ -132,7 +158,7 @@ export default function JudgeInvite() {
             </div>
           </div>
           {err && <p className="mt-2 text-xs text-red-600">{err}</p>}
-          {(!name.trim() || !ev) && <p className="mt-2 text-xs text-slate-400">Enter the invitee's name and pick an event to enable download.</p>}
+          {(!name.trim() || !hasSel) && <p className="mt-2 text-xs text-slate-400">Enter the invitee's name and tick at least one session to enable download.</p>}
         </div>
 
         {/* ── Invitation (captured) ── */}
@@ -155,25 +181,26 @@ export default function JudgeInvite() {
 
               <p style={{ fontSize: 16, lineHeight: 1.6, margin: '0 0 14px', textAlign: 'justify' }}>
                 It is our privilege to invite you to grace the <b>{yearLabel}</b> as a <b>Judge</b>
-                {ev ? <> for <b style={{ color: NAVY }}>{ev.event_name}</b>{ev.age_group_label ? <> ({ev.age_group_label})</> : ev.age_group_code ? <> (Group {ev.age_group_code})</> : null}</> : null}.
-                Your discerning eye and distinguished experience would greatly enrich the adjudication and inspire our young participants to give their very best.
+                {hasSel ? <> for <b style={{ color: NAVY }}>{eventsPhrase}</b></> : null}.
+                We would be grateful for your time and guidance, which would mean a great deal to our young participants.
                 {note ? ` ${note}` : ''}
               </p>
 
               {/* Event details */}
-              {ev && (
-                <div style={{ border: `1px solid ${GOLD}`, background: 'rgba(255,255,255,0.55)', borderRadius: 6, padding: '12px 14px', margin: '4px 0 16px' }}>
-                  <div style={{ color: GOLD, fontSize: 12, fontWeight: 700, letterSpacing: 1, marginBottom: 4, textTransform: 'uppercase' }}>Event details</div>
-                  <table style={{ borderCollapse: 'collapse' }}>
-                    <tbody>
-                      {detailRow('Event', `${ev.event_code} — ${ev.event_name}`)}
-                      {detailRow('Category', ev.category_name)}
-                      {detailRow('Age group', ev.age_group_label || ev.age_group_code)}
-                      {detailRow('Date', fmtDate(ev.event_date))}
-                      {detailRow('Time', fmt12(ev.start_time))}
-                      {detailRow('Venue', ev.venue)}
-                    </tbody>
-                  </table>
+              {hasSel && (
+                <div style={{ border: `1px solid ${GOLD}`, background: 'rgba(255,255,255,0.55)', borderRadius: 6, padding: '12px 16px', margin: '4px 0 16px' }}>
+                  <div style={{ color: GOLD, fontSize: 12, fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: 'uppercase' }}>Event details</div>
+                  {groups.map((g, gi) => (
+                    <div key={g.event.event_id} style={{ marginTop: gi ? 12 : 0 }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: NAVY }}>{g.event.event_code} — {g.event.event_name}</div>
+                      {g.event.category_name && <div style={{ fontSize: 13.5, color: '#7a6a52', marginBottom: 4 }}>{g.event.category_name}</div>}
+                      {g.sessions.map((s) => (
+                        <div key={rowKey(s)} style={{ fontSize: 14.5, color: INK, padding: '2px 0' }}>
+                          <b style={{ color: NAVY }}>{groupLabel(s)}</b>{sessionLine(s) ? <> — {sessionLine(s)}</> : null}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
                 </div>
               )}
 
