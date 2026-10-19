@@ -379,17 +379,27 @@ router.get('/refunds/export', requireRole(...staffRoles), async (req, res, next)
   try {
     const { year_id } = req.query;
     const { rows } = await pool.query(
-      `SELECT p.full_name AS participant, rf.events_withdrawn, rf.reason,
-              rf.original_amount, rf.refund_amount, to_char(rf.refunded_at, 'YYYY-MM-DD') AS date,
-              rf.method, rf.status
+      `SELECT p.full_name AS participant, p.cpr_number,
+              ag.code AS age_group, s.name AS school, p.guardian_name,
+              u.full_name AS parent_name, u.phone AS parent_phone,
+              u.whatsapp_number AS parent_whatsapp, u.email AS parent_email,
+              rf.events_withdrawn, rf.reason,
+              rf.original_amount, rf.refund_amount, rf.method, rf.status,
+              to_char(rf.created_at, 'YYYY-MM-DD') AS requested_on,
+              to_char(rf.refunded_at, 'YYYY-MM-DD') AS refunded_on
        FROM refunds rf
        JOIN participants p ON p.id = rf.participant_id
+       LEFT JOIN users u ON u.id = p.created_by
+       LEFT JOIN age_groups ag ON ag.id = p.age_group_id
+       LEFT JOIN schools s ON s.id = p.school_id
        WHERE ($1::int IS NULL OR rf.year_id = $1)
        ORDER BY rf.created_at`,
       [year_id || null]
     );
-    const csv = toCsv(rows, ['participant', 'events_withdrawn', 'reason',
-      'original_amount', 'refund_amount', 'date', 'method', 'status']);
+    const csv = toCsv(rows, ['participant', 'cpr_number', 'age_group', 'school', 'guardian_name',
+      'parent_name', 'parent_phone', 'parent_whatsapp', 'parent_email',
+      'events_withdrawn', 'reason', 'original_amount', 'refund_amount', 'method', 'status',
+      'requested_on', 'refunded_on']);
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="refunds-report.csv"');
     res.send(csv);

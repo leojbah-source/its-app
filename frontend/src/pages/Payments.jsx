@@ -3,7 +3,7 @@
 // process refunds from withdrawn events. Confirming a payment is what finally
 // clears a participant's balance; rejecting frees a bad/duplicate submission.
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Check, X, Wallet, Undo2, ExternalLink } from 'lucide-react';
+import { RefreshCw, Check, X, Wallet, Undo2, ExternalLink, Download } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -72,6 +72,17 @@ export default function Payments() {
     catch (e) { setFlash(e.message); }
   }
 
+  async function downloadRefunds() {
+    try {
+      const blob = await paymentsApi.refundsExport(token, yearId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'refunds-report.csv';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) { setFlash(e.message || 'Could not download the refunds report.'); }
+  }
+
   const sel = 'rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
   const TabBtn = ({ id, icon: Icon, label }) => (
     <button onClick={() => { setTab(id); setStatus('pending'); }}
@@ -96,6 +107,9 @@ export default function Payments() {
           <form onSubmit={(e) => { e.preventDefault(); load(yearId, tab, status, q); }}>
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name / CPR" className={sel} />
           </form>
+        )}
+        {tab === 'refunds' && (
+          <Button variant="outline" icon={Download} onClick={downloadRefunds}>Download report</Button>
         )}
         <Button variant="outline" icon={RefreshCw} onClick={() => load(yearId, tab, status, q)}>Refresh</Button>
       </div>

@@ -147,6 +147,12 @@ export const financeApi = {
 // Payment & refund verification (accountant / Chairman / Admin).
 export const paymentsApi = {
   list: (token, { yearId, status, q } = {}) => request(`/api/admin/payments${qs({ year_id: yearId, status, q })}`, { token }),
+  /** Refunds report CSV (participant + parent contact, reason, amounts). Returns a Blob. */
+  refundsExport: async (token, yearId) => {
+    const res = await fetch(`${API_BASE}/api/admin/refunds/export${yearId ? `?year_id=${yearId}` : ''}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
+    return res.blob();
+  },
   confirm: (token, id) => request(`/api/admin/payments/${id}/confirm`, { method: 'POST', token, body: {} }),
   reject: (token, id, reason, notify = true) => request(`/api/admin/payments/${id}/reject`, { method: 'POST', token, body: { reason, notify } }),
   updateAmount: (token, id, amount, reason) => request(`/api/admin/payments/${id}/amount`, { method: 'PUT', token, body: { amount, reason } }),
