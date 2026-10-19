@@ -202,13 +202,18 @@ function registrationConfirmationHtml({ yearLabel, rulesUrl, logoUrl, parent, pa
 
 /** Per-participant "published schedule of your events" email: their events +
  *  reporting times, the PWA links, and the WhatsApp group invite. */
-function scheduleEmailHtml({ yearLabel, logoUrl, parentName, participantName, ageGroup, events = [], waGroupLink, pwaUsername }) {
+function scheduleEmailHtml({ yearLabel, logoUrl, parentName, participantName, ageGroup, events = [], waGroupLink, pwaUsername, note }) {
   const logoHref = logoUrl ? (/^https?:\/\//.test(logoUrl) ? logoUrl : `${SITE}${logoUrl}`) : null;
   const fmtDate = (d) => {
     if (!d) return '';
     const x = new Date(d);
     return isNaN(x) ? esc(String(d)) : x.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', timeZone: 'UTC' });
   };
+  // Parents sometimes paste the whole WhatsApp share text; pull out the real URL.
+  const waMatch = String(waGroupLink || '').match(/https?:\/\/\S+/i);
+  const waUrl = waMatch ? waMatch[0] : null;
+  const noteHtml = (note && String(note).trim())
+    ? esc(String(note).trim()).replace(/\n/g, '<br/>') : '';
   const anyScheduled = events.some((e) => e.scheduled);
 
   const eventRows = events.map((e) => {
@@ -243,9 +248,10 @@ function scheduleEmailHtml({ yearLabel, logoUrl, parentName, participantName, ag
     <div style="border:1px solid #e2e8f0;border-top:none;padding:20px;border-radius:0 0 8px 8px">
       <p style="margin:0 0 12px">Dear ${esc(parentName || 'Parent / Guardian')},</p>
       <p style="margin:0 0 12px">
-        Here is the schedule for <strong>${esc(participantName)}</strong>${ageGroup ? ` (Group ${esc(ageGroup)})` : ''}
-        at the Indian Talent Scan. Please note the reporting time for each event and reach the venue a little early.
+        Here is the current schedule for <strong>${esc(participantName)}</strong>${ageGroup ? ` (Group ${esc(ageGroup)})` : ''}
+        at the Indian Talent Scan.
       </p>
+      ${noteHtml ? `<p style="margin:0 0 12px;padding:10px 12px;background:#fff8e1;border:1px solid #f2e2a8;border-radius:6px">${noteHtml}</p>` : ''}
 
       ${sectionTitle('Your events')}
       <table style="border-collapse:collapse;width:100%">
@@ -256,7 +262,6 @@ function scheduleEmailHtml({ yearLabel, logoUrl, parentName, participantName, ag
         </tr>
         ${eventRows || '<tr><td colspan="3" style="padding:8px 10px;color:#64748b">No active events found.</td></tr>'}
       </table>
-      ${anyScheduled ? '' : `<p style="margin:8px 0 0;font-size:13px;color:#b45309">The schedule for your events is being finalised &mdash; please check the app for the latest timings.</p>`}
 
       ${sectionTitle('Follow your schedule, notices &amp; results')}
       <p style="margin:0 0 10px">
@@ -265,13 +270,13 @@ function scheduleEmailHtml({ yearLabel, logoUrl, parentName, participantName, ag
         &#8226; <a href="${PWA_BOARD}" style="color:${NAVY};font-weight:600">Public schedule &amp; results board</a>
       </p>
 
-      ${waGroupLink ? `
+      ${waUrl ? `
       ${sectionTitle('Join the WhatsApp group')}
       <p style="margin:0 0 10px">For reminders and last-minute updates, please join the official WhatsApp group:</p>
       <p style="margin:0 0 6px">
-        <a href="${esc(waGroupLink)}" style="display:inline-block;background:#25D366;color:#fff;font-weight:700;text-decoration:none;padding:10px 18px;border-radius:6px">Join the WhatsApp group</a>
+        <a href="${esc(waUrl)}" style="display:inline-block;background:#25D366;color:#fff;font-weight:700;text-decoration:none;padding:10px 18px;border-radius:6px">Join the WhatsApp group</a>
       </p>
-      <p style="margin:0;font-size:12px;color:#64748b;word-break:break-all">Or open: <a href="${esc(waGroupLink)}" style="color:${NAVY}">${esc(waGroupLink)}</a></p>
+      <p style="margin:0;font-size:12px;color:#64748b;word-break:break-all">Or open: <a href="${esc(waUrl)}" style="color:${NAVY}">${esc(waUrl)}</a></p>
       ` : ''}
 
       <p style="margin:16px 0 0">

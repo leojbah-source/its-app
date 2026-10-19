@@ -137,13 +137,15 @@ export default function Registrations() {
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailResult, setEmailResult] = useState(null);
   const [emailSample, setEmailSample] = useState(null);     // spot-check rows
+  const DEFAULT_SCHED_NOTE = 'Please note the reporting time for each event and reach the venue a little early. Some events are still being scheduled — those show "To be announced" below; please keep checking the app for the latest timings.';
+  const [emailNote, setEmailNote] = useState(DEFAULT_SCHED_NOTE);
   const [testTo, setTestTo] = useState(user?.email || '');
   const [testBusy, setTestBusy] = useState(false);
   const [testMsg, setTestMsg] = useState('');
   const [confirmSend, setConfirmSend] = useState(false);    // must tick before the real send
   async function openEmailSchedule() {
     setEmailResult(null); setEmailInfo(null); setEmailSample(null); setTestMsg(''); setConfirmSend(false);
-    setTestTo(user?.email || ''); setEmailOpen(true);
+    setTestTo(user?.email || ''); setEmailNote(DEFAULT_SCHED_NOTE); setEmailOpen(true);
     try { setEmailInfo(await registrationsApi.scheduleEmailRecipients(token)); }
     catch (e) { setEmailInfo({ error: e.message }); }
     try { setEmailSample(await registrationsApi.scheduleEmailSample(token, 10)); }
@@ -152,20 +154,20 @@ export default function Registrations() {
   async function sendTestEmail() {
     if (!testTo.trim()) { setTestMsg('Enter an email address for the test.'); return; }
     setTestBusy(true); setTestMsg('');
-    try { const r = await registrationsApi.scheduleEmailTest(token, testTo.trim()); setTestMsg(`✓ Test sent to ${r.to} (using ${r.sample_of}'s schedule). Open it and check it's correct.`); }
+    try { const r = await registrationsApi.scheduleEmailTest(token, testTo.trim(), null, emailNote); setTestMsg(`✓ Test sent to ${r.to} (using ${r.sample_of}'s schedule). Open it and check it's correct.`); }
     catch (e) { setTestMsg(e.message || 'Could not send the test.'); }
     finally { setTestBusy(false); }
   }
   async function openPreview(participantId) {
     try {
-      const r = await registrationsApi.scheduleEmailPreview(token, participantId);
+      const r = await registrationsApi.scheduleEmailPreview(token, participantId, emailNote);
       const w = window.open('', '_blank');
       if (w) { w.document.open(); w.document.write(r.html); w.document.close(); }
     } catch (e) { setTestMsg(e.message || 'Could not open preview.'); }
   }
   async function sendScheduleEmails() {
     setEmailBusy(true);
-    try { setEmailResult(await registrationsApi.scheduleEmailSend(token)); }
+    try { setEmailResult(await registrationsApi.scheduleEmailSend(token, emailNote)); }
     catch (e) { setEmailResult({ error: e.message }); }
     finally { setEmailBusy(false); }
   }
@@ -484,6 +486,15 @@ export default function Registrations() {
                     {!emailInfo.wa_group_link_set && <div className="mt-2 text-amber-700">No WhatsApp group link is set in Year Setup — the email will go out without the group invite. Add it in Year Setup → Identity &amp; branding to include it.</div>}
                   </div>
                 )}
+
+                {/* Editable message shown in every email */}
+                <div className="mt-4">
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Message to parents (editable)</p>
+                  <textarea value={emailNote} onChange={(e) => setEmailNote(e.target.value)} rows={3}
+                    placeholder="Optional note shown in the email, e.g. not all schedules are out yet."
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                  <p className="mt-1 text-[11px] text-slate-400">Shown as a highlighted note under the greeting. Each event still shows its own date/time, or “To be announced” if not scheduled yet. Preview/Test reflect this text.</p>
+                </div>
 
                 {/* Spot-check: a sample of recipients with their OWN events */}
                 <div className="mt-4">

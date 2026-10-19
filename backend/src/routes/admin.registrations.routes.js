@@ -2201,13 +2201,19 @@ async function buildScheduleRecipients(yc, { participantId = null, limit = null 
   return out;
 }
 
-function renderScheduleEmail(yc, pr) {
+const DEFAULT_SCHEDULE_NOTE =
+  "Please note the reporting time for each event and reach the venue a little early. "
+  + "Some events are still being scheduled — those show \"To be announced\" below; "
+  + "please keep checking the app for the latest timings.";
+
+function renderScheduleEmail(yc, pr, note) {
   return scheduleEmailHtml({
     yearLabel: yc.event_year_label,
     logoUrl: yc.its_logo_url || yc.kca_logo_url || null,
     parentName: pr.parent_name, participantName: pr.participant_name,
     ageGroup: pr.age_group, events: pr.events,
     waGroupLink: (yc.wa_group_link || '').trim() || null, pwaUsername: pr.pwa_username,
+    note,
   });
 }
 const scheduleSubject = (yc) => `Your event schedule — ${yc.event_year_label || 'Indian Talent Scan'}`;
@@ -2257,8 +2263,9 @@ router.get('/registrations/schedule-email/preview', requireRole(...SCHEDULE_EMAI
     const recs = await buildScheduleRecipients(yc, pid ? { participantId: pid } : { limit: 1 });
     if (!recs[0]) return res.status(404).json({ error: 'No matching confirmed participant with a parent email.' });
     const pr = recs[0];
+    const note = req.query.note != null ? String(req.query.note) : DEFAULT_SCHEDULE_NOTE;
     res.json({ participant_name: pr.participant_name, parent_email: pr.parent_email,
-               subject: scheduleSubject(yc), html: renderScheduleEmail(yc, pr) });
+               subject: scheduleSubject(yc), html: renderScheduleEmail(yc, pr, note) });
   } catch (err) { next(err); }
 });
 
@@ -2274,7 +2281,8 @@ router.post('/registrations/schedule-email/test', requireRole(...SCHEDULE_EMAIL_
     const recs = await buildScheduleRecipients(yc, pid ? { participantId: pid } : { limit: 1 });
     if (!recs[0]) return res.status(404).json({ error: 'No confirmed participant with a parent email to build a sample from.' });
     const pr = recs[0];
-    const out = await sendEmail({ to, subject: `[TEST] ${scheduleSubject(yc)}`, html: renderScheduleEmail(yc, pr) });
+    const note = req.body?.note != null ? String(req.body.note) : DEFAULT_SCHEDULE_NOTE;
+    const out = await sendEmail({ to, subject: `[TEST] ${scheduleSubject(yc)}`, html: renderScheduleEmail(yc, pr, note) });
     if (!out.sent) return res.status(out.error === 'EMAIL_NOT_CONFIGURED' ? 400 : 502).json({ error: out.error === 'EMAIL_NOT_CONFIGURED' ? 'Email (SMTP) is not configured on the server.' : (out.error || 'Send failed') });
     res.json({ sent: true, sample_of: pr.participant_name, to });
   } catch (err) { next(err); }
@@ -2287,12 +2295,13 @@ router.post('/registrations/schedule-email/send', requireRole(...SCHEDULE_EMAIL_
     if (!yc) return res.status(400).json({ error: 'No active year' });
     const recipients = await buildScheduleRecipients(yc);
     const subject = scheduleSubject(yc);
+    const note = req.body?.note != null ? String(req.body.note) : DEFAULT_SCHEDULE_NOTE;
 
     let sent = 0, failed = 0, notConfigured = false, idx = 0;
     const worker = async () => {
       while (idx < recipients.length) {
         const pr = recipients[idx++];
-        const out = await sendEmail({ to: pr.parent_email, subject, html: renderScheduleEmail(yc, pr) });
+        const out = await sendEmail({ to: pr.parent_email, subject, html: renderScheduleEmail(yc, pr, note) });
         if (out.sent) sent++; else { failed++; if (out.error === 'EMAIL_NOT_CONFIGURED') notConfigured = true; }
       }
     };

@@ -83,6 +83,7 @@ export function mergeYearConfig(year, incoming) {
     sponsors_text:          incoming.sponsors_text          ?? base.sponsors_text,
     mc_rules_text:          incoming.mc_rules_text          ?? base.mc_rules_text,
     website_domain:         incoming.website_domain         ?? base.website_domain,
+    wa_group_link:          incoming.wa_group_link          ?? base.wa_group_link,
     kca_iban:               incoming.kca_iban               ?? base.kca_iban,
     benefit_pay_number:     incoming.benefit_pay_number     ?? base.benefit_pay_number,
     member_subscription_upto: incoming.member_subscription_upto ?? base.member_subscription_upto,

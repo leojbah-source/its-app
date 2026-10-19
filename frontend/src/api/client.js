@@ -315,14 +315,14 @@ export const registrationsApi = {
   scheduleEmailSample: (token, limit = 10) =>
     request(`/api/admin/registrations/schedule-email/sample?limit=${limit}`, { token }),
   /** Rendered HTML preview for one participant (no email sent). */
-  scheduleEmailPreview: (token, participantId) =>
-    request(`/api/admin/registrations/schedule-email/preview${participantId ? `?participant_id=${participantId}` : ''}`, { token }),
+  scheduleEmailPreview: (token, participantId, note) =>
+    request(`/api/admin/registrations/schedule-email/preview?${participantId ? `participant_id=${participantId}&` : ''}note=${encodeURIComponent(note ?? '')}`, { token }),
   /** Send ONE test email to a chosen address (uses a real participant's schedule). */
-  scheduleEmailTest: (token, to, participantId) =>
-    request('/api/admin/registrations/schedule-email/test', { method: 'POST', token, body: { to, participant_id: participantId } }),
+  scheduleEmailTest: (token, to, participantId, note) =>
+    request('/api/admin/registrations/schedule-email/test', { method: 'POST', token, body: { to, participant_id: participantId, note } }),
   /** Email every confirmed participant their published schedule + PWA links + WA group invite. */
-  scheduleEmailSend: (token) =>
-    request('/api/admin/registrations/schedule-email/send', { method: 'POST', token, body: {} }),
+  scheduleEmailSend: (token, note) =>
+    request('/api/admin/registrations/schedule-email/send', { method: 'POST', token, body: { note } }),
   /** Bulk WhatsApp reminders to in-progress parents (5-day gate, server-side). */
   sendReminders: (token) =>
     request('/api/admin/registrations/reminders/send-bulk', { method: 'POST', token }),

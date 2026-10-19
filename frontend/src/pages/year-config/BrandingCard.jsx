@@ -30,7 +30,7 @@ export default function BrandingCard({ config, onChange, onUpload, uploadingFiel
         />
         <Input
           label="WhatsApp group invite link"
-          hint="chat.whatsapp.com/… — included in the schedule email to parents"
+          hint="Paste only the invite link (https://chat.whatsapp.com/…). Included in the schedule email."
           value={config.wa_group_link ?? ''}
           onChange={(e) => onChange({ ...config, wa_group_link: e.target.value })}
         />
