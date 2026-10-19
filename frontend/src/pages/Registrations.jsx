@@ -5,7 +5,7 @@
 //   3. Summary        — counts per event/age group for split-merge monitoring
 
 import { useEffect, useState, useCallback } from 'react';
-import { Download, RefreshCw, Users, ClipboardList, BarChart2, FileUp } from 'lucide-react';
+import { Download, RefreshCw, Users, ClipboardList, BarChart2, FileUp, Mail } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AdminLayout from '../components/layout/AdminLayout';
 import { useAuth } from '../context/AuthContext';
@@ -27,7 +27,7 @@ const TABS = [
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Registrations() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [regTab, setRegTab] = useTabState('individual');
   const [activeTab, setActiveTab] = useState('registrations');
   const [completeReg, setCompleteReg] = useState(null);
@@ -131,6 +131,23 @@ export default function Registrations() {
       .map((r) => `p${r.participant_id}`),
   ).size;
   const dueCount = reminderDue != null ? reminderDue : eligibleReminderCount;
+  const canEmailSchedule = ['SuperAdmin', 'Admin', 'Chairman'].includes(user?.role);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailInfo, setEmailInfo] = useState(null);
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailResult, setEmailResult] = useState(null);
+  async function openEmailSchedule() {
+    setEmailResult(null); setEmailInfo(null); setEmailOpen(true);
+    try { setEmailInfo(await registrationsApi.scheduleEmailRecipients(token)); }
+    catch (e) { setEmailInfo({ error: e.message }); }
+  }
+  async function sendScheduleEmails() {
+    setEmailBusy(true);
+    try { setEmailResult(await registrationsApi.scheduleEmailSend(token)); }
+    catch (e) { setEmailResult({ error: e.message }); }
+    finally { setEmailBusy(false); }
+  }
+
   async function sendReminders() {
     if (!window.confirm(`Send a WhatsApp reminder to ${dueCount} in-progress parent(s) not messaged in the last 5 days?`)) return;
     try {
@@ -225,6 +242,15 @@ export default function Registrations() {
             <Download size={14} />
             Export Excel
           </button>
+          {canEmailSchedule && (
+            <button
+              onClick={openEmailSchedule}
+              className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition"
+            >
+              <Mail size={14} />
+              Email schedule
+            </button>
+          )}
         </div>
       </div>
 
@@ -413,6 +439,54 @@ export default function Registrations() {
           onClose={() => setCompleteReg(null)}
           onCompleted={() => { setCompleteReg(null); loadRegistrations(); }}
         />
+      )}
+
+      {emailOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !emailBusy && setEmailOpen(false)}>
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-navy-900">Email the schedule to parents</h3>
+            {!emailResult ? (
+              <>
+                <p className="mt-2 text-sm text-slate-600">
+                  Sends each confirmed participant's parent an email with their events &amp; reporting times
+                  (the published schedule), the app (PWA) links, and the WhatsApp group invite.
+                </p>
+                {emailInfo?.error ? (
+                  <p className="mt-3 text-sm text-red-600">{emailInfo.error}</p>
+                ) : !emailInfo ? (
+                  <p className="mt-3 text-sm text-slate-400">Checking recipients…</p>
+                ) : (
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                    <div><b>{emailInfo.with_email}</b> parent email(s) will be sent{emailInfo.confirmed > emailInfo.with_email ? ` (of ${emailInfo.confirmed} confirmed; ${emailInfo.confirmed - emailInfo.with_email} have no email on file)` : ''}.</div>
+                    {!emailInfo.wa_group_link_set && <div className="mt-2 text-amber-700">No WhatsApp group link is set in Year Setup — the email will go out without the group invite. Add it in Year Setup → Identity &amp; branding to include it.</div>}
+                  </div>
+                )}
+                <div className="mt-4 flex justify-end gap-2">
+                  <button onClick={() => setEmailOpen(false)} disabled={emailBusy} className="rounded-md border border-slate-300 px-4 py-1.5 text-sm">Cancel</button>
+                  <button onClick={sendScheduleEmails} disabled={emailBusy || !emailInfo || !!emailInfo.error || !emailInfo.with_email}
+                    className="rounded-md bg-navy-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-navy-700 disabled:bg-navy-300">
+                    {emailBusy ? 'Sending…' : `Send to ${emailInfo?.with_email ?? ''} parent(s)`}
+                  </button>
+                </div>
+                {emailBusy && <p className="mt-2 text-xs text-slate-400">This can take a minute for many recipients — please keep this window open.</p>}
+              </>
+            ) : (
+              <>
+                {emailResult.error ? (
+                  <p className="mt-3 text-sm text-red-600">{emailResult.error}</p>
+                ) : (
+                  <div className="mt-3 text-sm text-slate-700">
+                    <p><b>{emailResult.sent}</b> sent{emailResult.failed ? `, ${emailResult.failed} failed` : ''} (of {emailResult.recipients}).</p>
+                    {emailResult.email_configured === false && <p className="mt-2 text-amber-700">Email isn't configured on the server (SMTP), so nothing was sent. Set up SMTP and try again.</p>}
+                  </div>
+                )}
+                <div className="mt-4 flex justify-end">
+                  <button onClick={() => { setEmailOpen(false); setEmailResult(null); }} className="rounded-md border border-slate-300 px-4 py-1.5 text-sm">Done</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
     </AdminLayout>

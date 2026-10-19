@@ -34,6 +34,7 @@ export function defaultYearConfig(year) {
     sponsors_text: '',
     mc_rules_text: '',
     website_domain: '',
+    wa_group_link: '',
     kca_iban: '',
     benefit_pay_number: '',
     member_subscription_upto: '',

@@ -85,6 +85,7 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
     const photo_crop_width        = n(req.body.photo_crop_width);
     const photo_crop_height       = n(req.body.photo_crop_height);
     const website_domain          = n(req.body.website_domain);
+    const wa_group_link           = n(req.body.wa_group_link);
     const member_subscription_upto = n(req.body.member_subscription_upto);
     const team_size_min           = n(req.body.team_size_min);
     const team_size_max           = n(req.body.team_size_max);
@@ -133,8 +134,9 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
          sponsors_text            = COALESCE($39, sponsors_text),
          video_fee                = COALESCE($40, video_fee),
          mc_rules_text            = COALESCE($41, mc_rules_text),
+         wa_group_link            = COALESCE($42, wa_group_link),
          updated_at               = NOW()
-       WHERE id = $42 RETURNING *`,
+       WHERE id = $43 RETURNING *`,
       [event_year_label, event_start_date, event_end_date,
        kca_logo_url, its_logo_url, sponsor_logo_url, sponsor_name, kca_iban, benefit_pay_number,
        max_individual_events, category_cap, kca_special_min_points,
@@ -147,6 +149,7 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
        website_domain, team_size_min, team_size_max, member_subscription_upto,
        rules_pdf_url, sponsors_text, video_fee,
        mc_rules_text,
+       wa_group_link,
        config.id]
     );
     // Upsert age groups by (year_id, code). A blanket DELETE would violate

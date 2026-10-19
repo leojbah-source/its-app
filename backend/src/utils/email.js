@@ -200,4 +200,89 @@ function registrationConfirmationHtml({ yearLabel, rulesUrl, logoUrl, parent, pa
   </div>`;
 }
 
-module.exports = { sendEmail, registrationConfirmationHtml };
+/** Per-participant "published schedule of your events" email: their events +
+ *  reporting times, the PWA links, and the WhatsApp group invite. */
+function scheduleEmailHtml({ yearLabel, logoUrl, parentName, participantName, ageGroup, events = [], waGroupLink, pwaUsername }) {
+  const logoHref = logoUrl ? (/^https?:\/\//.test(logoUrl) ? logoUrl : `${SITE}${logoUrl}`) : null;
+  const fmtDate = (d) => {
+    if (!d) return '';
+    const x = new Date(d);
+    return isNaN(x) ? esc(String(d)) : x.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', timeZone: 'UTC' });
+  };
+  const anyScheduled = events.some((e) => e.scheduled);
+
+  const eventRows = events.map((e) => {
+    const when = e.scheduled
+      ? `${esc(fmtDate(e.event_date))}${e.report ? ` &middot; report by <b>${esc(e.report)}</b>` : ''}`
+      : '<span style="color:#b45309">To be announced</span>';
+    const venue = e.scheduled && e.venue ? esc(e.venue) : '&mdash;';
+    return `<tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #eee">${esc(e.event_name)}${e.is_team_event ? ' <span style="font-size:11px;color:#64748b">(team)</span>' : ''}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #eee">${when}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #eee">${venue}</td>
+    </tr>`;
+  }).join('');
+
+  const sectionTitle = (t) => `<h3 style="color:${NAVY};font-size:15px;margin:22px 0 8px">${t}</h3>`;
+
+  return `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:auto;color:#1e293b;font-size:14px;line-height:1.5">
+    ${logoHref ? `
+    <div style="border-top:5px solid ${GOLD};background:#ffffff;text-align:center;padding:16px;border:1px solid #e2e8f0;border-bottom:none;border-radius:8px 8px 0 0">
+      <img src="${logoHref}" alt="Indian Talent Scan" width="150" style="width:150px;max-width:60%;height:auto;display:inline-block" />
+    </div>
+    <div style="background:${NAVY};color:#fff;padding:16px 20px">
+      <div style="font-size:18px;font-weight:700">${esc(yearLabel || 'KCA Indian Talent Scan')}</div>
+      <div style="font-size:13px;opacity:.85;margin-top:2px">Your event schedule</div>
+    </div>` : `
+    <div style="border-top:5px solid ${GOLD};background:${NAVY};color:#fff;padding:18px 20px;border-radius:8px 8px 0 0">
+      <div style="font-size:18px;font-weight:700">${esc(yearLabel || 'KCA Indian Talent Scan')}</div>
+      <div style="font-size:13px;opacity:.85;margin-top:2px">Your event schedule</div>
+    </div>`}
+
+    <div style="border:1px solid #e2e8f0;border-top:none;padding:20px;border-radius:0 0 8px 8px">
+      <p style="margin:0 0 12px">Dear ${esc(parentName || 'Parent / Guardian')},</p>
+      <p style="margin:0 0 12px">
+        Here is the schedule for <strong>${esc(participantName)}</strong>${ageGroup ? ` (Group ${esc(ageGroup)})` : ''}
+        at the Indian Talent Scan. Please note the reporting time for each event and reach the venue a little early.
+      </p>
+
+      ${sectionTitle('Your events')}
+      <table style="border-collapse:collapse;width:100%">
+        <tr>
+          <th align="left" style="padding:6px 10px;border-bottom:2px solid ${NAVY}">Event</th>
+          <th align="left" style="padding:6px 10px;border-bottom:2px solid ${NAVY}">Date &amp; reporting</th>
+          <th align="left" style="padding:6px 10px;border-bottom:2px solid ${NAVY}">Venue</th>
+        </tr>
+        ${eventRows || '<tr><td colspan="3" style="padding:8px 10px;color:#64748b">No active events found.</td></tr>'}
+      </table>
+      ${anyScheduled ? '' : `<p style="margin:8px 0 0;font-size:13px;color:#b45309">The schedule for your events is being finalised &mdash; please check the app for the latest timings.</p>`}
+
+      ${sectionTitle('Follow your schedule, notices &amp; results')}
+      <p style="margin:0 0 10px">
+        &#8226; <a href="${PWA_LOGIN}" style="color:${NAVY};font-weight:600">Your schedule &amp; results</a>
+        &mdash; sign in${pwaUsername ? ` as <b>${esc(pwaUsername)}</b>` : ''} with your child's details (first 4 letters of the name + last 4 digits of the CPR).<br/>
+        &#8226; <a href="${PWA_BOARD}" style="color:${NAVY};font-weight:600">Public schedule &amp; results board</a>
+      </p>
+
+      ${waGroupLink ? `
+      ${sectionTitle('Join the WhatsApp group')}
+      <p style="margin:0 0 10px">For reminders and last-minute updates, please join the official WhatsApp group:</p>
+      <p style="margin:0 0 6px">
+        <a href="${esc(waGroupLink)}" style="display:inline-block;background:#25D366;color:#fff;font-weight:700;text-decoration:none;padding:10px 18px;border-radius:6px">Join the WhatsApp group</a>
+      </p>
+      <p style="margin:0;font-size:12px;color:#64748b;word-break:break-all">Or open: <a href="${esc(waGroupLink)}" style="color:${NAVY}">${esc(waGroupLink)}</a></p>
+      ` : ''}
+
+      <p style="margin:16px 0 0">
+        For any help, message us on WhatsApp at <strong>${HELP_WHATSAPP}</strong> or visit
+        <a href="${KCA_SITE}" style="color:${NAVY};font-weight:600">kcabah.com</a>.
+      </p>
+      <p style="font-size:12px;color:#94a3b8;margin:16px 0 0">
+        This is an automated message &mdash; please do not reply to this email.
+      </p>
+    </div>
+  </div>`;
+}
+
+module.exports = { sendEmail, registrationConfirmationHtml, scheduleEmailHtml };

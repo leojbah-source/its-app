@@ -28,6 +28,12 @@ export default function BrandingCard({ config, onChange, onUpload, uploadingFiel
           value={config.website_domain ?? ''}
           onChange={(e) => onChange({ ...config, website_domain: e.target.value })}
         />
+        <Input
+          label="WhatsApp group invite link"
+          hint="chat.whatsapp.com/… — included in the schedule email to parents"
+          value={config.wa_group_link ?? ''}
+          onChange={(e) => onChange({ ...config, wa_group_link: e.target.value })}
+        />
       </div>
 
       <div className="mb-6">

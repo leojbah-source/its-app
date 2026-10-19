@@ -308,6 +308,12 @@ export const registrationsApi = {
   /** How many in-progress parents the bulk send will reach right now. */
   remindersEligible: (token) =>
     request('/api/admin/registrations/reminders/eligible', { token }),
+  /** Count of confirmed participants with a parent email (for the schedule email). */
+  scheduleEmailRecipients: (token) =>
+    request('/api/admin/registrations/schedule-email/recipients', { token }),
+  /** Email every confirmed participant their published schedule + PWA links + WA group invite. */
+  scheduleEmailSend: (token) =>
+    request('/api/admin/registrations/schedule-email/send', { method: 'POST', token, body: {} }),
   /** Bulk WhatsApp reminders to in-progress parents (5-day gate, server-side). */
   sendReminders: (token) =>
     request('/api/admin/registrations/reminders/send-bulk', { method: 'POST', token }),

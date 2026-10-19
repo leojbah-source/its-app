@@ -20,7 +20,7 @@ const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { sendWhatsApp, sendWhatsAppImage, sendWhatsAppImageMany, sendWhatsAppMany } = require('../utils/notify');
-const { sendEmail, registrationConfirmationHtml } = require('../utils/email');
+const { sendEmail, registrationConfirmationHtml, scheduleEmailHtml } = require('../utils/email');
 const bcrypt = require('bcrypt');
 const multer = require('multer');
 const {
@@ -2117,5 +2117,125 @@ payments_recorded: paymentsRecorded, parents_created: parentsCreated,
   } finally { client.release(); }
 });
 
+
+// ── Email the published schedule to parents ──────────────────────────────────
+// One personalised email per confirmed participant that has a parent email:
+// their events + reporting times (the published schedule), the PWA links, and
+// the WhatsApp group invite. Scope: ALL confirmed participants; no resend
+// tracking (each run emails everyone in scope again).
+const SCHEDULE_EMAIL_ROLES = ['SuperAdmin', 'Admin', 'Chairman'];
+
+async function activeYearRow() {
+  const { rows } = await pool.query(`SELECT * FROM year_config WHERE is_active = TRUE LIMIT 1`);
+  return rows[0] || null;
+}
+
+// GET recipient counts (and whether the WA group link is set).
+router.get('/registrations/schedule-email/recipients', requireRole(...SCHEDULE_EMAIL_ROLES), async (req, res, next) => {
+  try {
+    const yc = await activeYearRow();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::int AS confirmed,
+              COUNT(*) FILTER (WHERE u.email IS NOT NULL AND btrim(u.email) <> '')::int AS with_email
+         FROM participants p LEFT JOIN users u ON u.id = p.created_by
+        WHERE p.year_id = $1 AND p.confirmed_at IS NOT NULL`, [yc.id]);
+    res.json({ confirmed: rows[0].confirmed, with_email: rows[0].with_email,
+               wa_group_link_set: !!(yc.wa_group_link && yc.wa_group_link.trim()) });
+  } catch (err) { next(err); }
+});
+
+// POST send the schedule emails.
+router.post('/registrations/schedule-email/send', requireRole(...SCHEDULE_EMAIL_ROLES), async (req, res, next) => {
+  try {
+    const yc = await activeYearRow();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+
+    const { rows } = await pool.query(
+      `SELECT p.id AS participant_id, p.full_name AS participant_name, p.pwa_username,
+              pag.code AS p_age_code,
+              u.full_name AS parent_name, u.email AS parent_email,
+              e.event_name, (e.event_kind = 'team') AS is_team_event,
+              ag.code AS my_code, ag.label AS age_group,
+              e.is_stage_event, e.allotted_time_seconds,
+              s.venue, to_char(s.event_date,'YYYY-MM-DD') AS event_date,
+              to_char(s.start_time,'HH24:MI') AS start_time, s.age_groups,
+              (SELECT json_agg(json_build_object('code', ag2.code, 'cnt',
+                        (SELECT COUNT(*) FROM registrations r2
+                           LEFT JOIN participants pr2 ON pr2.id = r2.participant_id
+                          WHERE r2.event_id = e.id AND r2.status NOT IN ('withdrawn','swapped')
+                            AND (pr2.confirmed_at IS NOT NULL OR r2.team_id IS NOT NULL)
+                            AND r2.age_group_id = ag2.id)) ORDER BY ag2.sort_order)
+                 FROM age_groups ag2
+                WHERE ag2.year_id = p.year_id AND s.age_groups IS NOT NULL
+                  AND ag2.code = ANY(string_to_array(s.age_groups, ', '))) AS sched_groups
+         FROM participants p
+         JOIN registrations r ON r.participant_id = p.id AND r.status NOT IN ('withdrawn','swapped')
+         JOIN events e ON e.id = r.event_id
+         LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+         LEFT JOIN age_groups pag ON pag.id = p.age_group_id
+         LEFT JOIN users u ON u.id = p.created_by
+         LEFT JOIN LATERAL (
+           SELECT venue, event_date, start_time, age_groups
+             FROM schedule sd
+            WHERE sd.event_id = r.event_id AND sd.year_id = p.year_id
+              AND sd.status IN ('confirmed','completed')
+              AND ag.code = ANY(string_to_array(sd.age_groups, ', '))
+            ORDER BY sd.event_date, sd.start_time LIMIT 1) s ON TRUE
+        WHERE p.year_id = $1 AND p.confirmed_at IS NOT NULL
+          AND u.email IS NOT NULL AND btrim(u.email) <> ''
+        ORDER BY p.id, s.event_date NULLS LAST, s.start_time NULLS LAST, e.event_name`, [yc.id]);
+
+    const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+    const fmt = (min) => { if (min == null) return null; const x = ((min % 1440) + 1440) % 1440; return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
+    const reportFor = (r) => {
+      if (!r.start_time) return null;
+      const start = toMin(r.start_time);
+      const perMin = r.allotted_time_seconds ? r.allotted_time_seconds / 60 : 5;
+      const groups = Array.isArray(r.sched_groups) ? r.sched_groups : [];
+      const idx = groups.findIndex((g) => g.code === r.my_code);
+      if (!r.is_stage_event || groups.length <= 1 || idx <= 0) return fmt(start - 15);
+      let earlier = 0; for (let i = 0; i < idx; i++) earlier += Math.ceil((Number(groups[i].cnt) || 0) * perMin);
+      return fmt(start + earlier - 30);
+    };
+
+    const byP = new Map();
+    for (const r of rows) {
+      if (!byP.has(r.participant_id)) byP.set(r.participant_id, {
+        participant_name: r.participant_name, parent_name: r.parent_name,
+        parent_email: r.parent_email, pwa_username: r.pwa_username, age_group: r.p_age_code, events: [] });
+      byP.get(r.participant_id).events.push({
+        event_name: r.event_name, is_team_event: r.is_team_event, venue: r.venue,
+        event_date: r.event_date, scheduled: !!r.start_time, report: reportFor(r),
+      });
+    }
+
+    const recipients = [...byP.values()];
+    const logoUrl = yc.its_logo_url || yc.kca_logo_url || null;
+    const waLink = (yc.wa_group_link || '').trim() || null;
+    const subject = `Your event schedule — ${yc.event_year_label || 'Indian Talent Scan'}`;
+
+    let sent = 0, failed = 0, notConfigured = false, idx = 0;
+    const worker = async () => {
+      while (idx < recipients.length) {
+        const pr = recipients[idx++];
+        const html = scheduleEmailHtml({
+          yearLabel: yc.event_year_label, logoUrl, parentName: pr.parent_name,
+          participantName: pr.participant_name, ageGroup: pr.age_group, events: pr.events,
+          waGroupLink: waLink, pwaUsername: pr.pwa_username,
+        });
+        const out = await sendEmail({ to: pr.parent_email, subject, html });
+        if (out.sent) sent++; else { failed++; if (out.error === 'EMAIL_NOT_CONFIGURED') notConfigured = true; }
+      }
+    };
+    await Promise.all(Array.from({ length: 6 }, worker));
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'EMAIL_SCHEDULE', entity: 'year_config', entityId: yc.id,
+      details: { recipients: recipients.length, sent, failed } });
+
+    res.json({ recipients: recipients.length, sent, failed, email_configured: !notConfigured });
+  } catch (err) { next(err); }
+});
 
 module.exports = router;
