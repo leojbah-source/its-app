@@ -308,21 +308,31 @@ export const registrationsApi = {
   /** How many in-progress parents the bulk send will reach right now. */
   remindersEligible: (token) =>
     request('/api/admin/registrations/reminders/eligible', { token }),
-  /** Count of confirmed participants with a parent email (for the schedule email). */
-  scheduleEmailRecipients: (token) =>
-    request('/api/admin/registrations/schedule-email/recipients', { token }),
-  /** Spot-check sample: first N recipients with their own event summary. */
-  scheduleEmailSample: (token, limit = 10) =>
-    request(`/api/admin/registrations/schedule-email/sample?limit=${limit}`, { token }),
-  /** Rendered HTML preview for one participant (no email sent). */
-  scheduleEmailPreview: (token, participantId, note) =>
-    request(`/api/admin/registrations/schedule-email/preview?${participantId ? `participant_id=${participantId}&` : ''}note=${encodeURIComponent(note ?? '')}`, { token }),
-  /** Send ONE test email to a chosen address (uses a real participant's schedule). */
-  scheduleEmailTest: (token, to, participantId, note) =>
-    request('/api/admin/registrations/schedule-email/test', { method: 'POST', token, body: { to, participant_id: participantId, note } }),
-  /** Email participants their published schedule. mode: 'only_unsent' | 'all'. */
-  scheduleEmailSend: (token, note, mode = 'only_unsent') =>
-    request('/api/admin/registrations/schedule-email/send', { method: 'POST', token, body: { note, mode } }),
+  /** Audience options with recipient counts (all / each age group / teams). */
+  scheduleEmailAudiences: (token) =>
+    request('/api/admin/registrations/schedule-email/audiences', { token }),
+  /** Recipient counts for an audience (in scope / already sent / not yet). */
+  scheduleEmailRecipients: (token, audience = 'all') =>
+    request(`/api/admin/registrations/schedule-email/recipients?audience=${encodeURIComponent(audience)}`, { token }),
+  /** Spot-check sample for an audience. */
+  scheduleEmailSample: (token, audience = 'all', limit = 10) =>
+    request(`/api/admin/registrations/schedule-email/sample?audience=${encodeURIComponent(audience)}&limit=${limit}`, { token }),
+  /** Rendered HTML preview for one recipient (no email sent). opts: {kind,id,audience,note,customText}. */
+  scheduleEmailPreview: (token, { kind, id, audience = 'all', note, customText } = {}) => {
+    const q = new URLSearchParams();
+    if (kind) q.set('kind', kind);
+    if (id) q.set('id', String(id));
+    if (audience) q.set('audience', audience);
+    if (note != null) q.set('note', note);
+    if (customText != null) q.set('custom_text', customText);
+    return request(`/api/admin/registrations/schedule-email/preview?${q.toString()}`, { token });
+  },
+  /** Send ONE test email to a chosen address. opts: {kind,id,audience,note,customText,subject}. */
+  scheduleEmailTest: (token, to, opts = {}) =>
+    request('/api/admin/registrations/schedule-email/test', { method: 'POST', token, body: { to, kind: opts.kind, id: opts.id, audience: opts.audience, note: opts.note, custom_text: opts.customText, subject: opts.subject } }),
+  /** Email an audience. opts: {audience,note,customText,subject,mode}. */
+  scheduleEmailSend: (token, opts = {}) =>
+    request('/api/admin/registrations/schedule-email/send', { method: 'POST', token, body: { audience: opts.audience, note: opts.note, custom_text: opts.customText, subject: opts.subject, mode: opts.mode || 'only_unsent' } }),
   /** Send-log summary (how many sent / still failing). */
   scheduleEmailLog: (token) =>
     request('/api/admin/registrations/schedule-email/log', { token }),

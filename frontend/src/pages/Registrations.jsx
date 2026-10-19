@@ -144,31 +144,47 @@ export default function Registrations() {
   const [testBusy, setTestBusy] = useState(false);
   const [testMsg, setTestMsg] = useState('');
   const [confirmSend, setConfirmSend] = useState(false);    // must tick before the real send
-  async function openEmailSchedule() {
-    setEmailResult(null); setEmailInfo(null); setEmailSample(null); setTestMsg(''); setConfirmSend(false);
-    setTestTo(user?.email || ''); setEmailNote(DEFAULT_SCHED_NOTE); setSendMode('only_unsent'); setEmailOpen(true);
-    try { setEmailInfo(await registrationsApi.scheduleEmailRecipients(token)); }
+  const [audiences, setAudiences] = useState([]);           // [{value,label,count}]
+  const [audience, setAudience] = useState('all');
+  const [bodyMode, setBodyMode] = useState('standard');     // 'standard' | 'custom'
+  const [customSubject, setCustomSubject] = useState('');
+  const [customText, setCustomText] = useState('');
+  const emailBody = () => (bodyMode === 'custom'
+    ? { customText, note: null, subject: customSubject }
+    : { customText: null, note: emailNote, subject: null });
+  async function loadForAudience(aud) {
+    setEmailInfo(null); setEmailSample(null); setConfirmSend(false);
+    try { setEmailInfo(await registrationsApi.scheduleEmailRecipients(token, aud)); }
     catch (e) { setEmailInfo({ error: e.message }); }
-    try { setEmailSample(await registrationsApi.scheduleEmailSample(token, 10)); }
+    try { setEmailSample(await registrationsApi.scheduleEmailSample(token, aud, 10)); }
     catch { setEmailSample([]); }
   }
+  async function openEmailSchedule() {
+    setEmailResult(null); setEmailInfo(null); setEmailSample(null); setTestMsg(''); setConfirmSend(false);
+    setTestTo(user?.email || ''); setEmailNote(DEFAULT_SCHED_NOTE); setSendMode('only_unsent');
+    setBodyMode('standard'); setCustomText(''); setCustomSubject(''); setAudience('all'); setEmailOpen(true);
+    try { const a = await registrationsApi.scheduleEmailAudiences(token); setAudiences(a.options || []); }
+    catch { setAudiences([]); }
+    loadForAudience('all');
+  }
+  function changeAudience(aud) { setAudience(aud); loadForAudience(aud); }
   async function sendTestEmail() {
     if (!testTo.trim()) { setTestMsg('Enter an email address for the test.'); return; }
     setTestBusy(true); setTestMsg('');
-    try { const r = await registrationsApi.scheduleEmailTest(token, testTo.trim(), null, emailNote); setTestMsg(`✓ Test sent to ${r.to} (using ${r.sample_of}'s schedule). Open it and check it's correct.`); }
+    try { const r = await registrationsApi.scheduleEmailTest(token, testTo.trim(), { audience, ...emailBody() }); setTestMsg(`✓ Test sent to ${r.to} (using ${r.sample_of}). Open it and check it's correct.`); }
     catch (e) { setTestMsg(e.message || 'Could not send the test.'); }
     finally { setTestBusy(false); }
   }
-  async function openPreview(participantId) {
+  async function openPreview(row) {
     try {
-      const r = await registrationsApi.scheduleEmailPreview(token, participantId, emailNote);
+      const r = await registrationsApi.scheduleEmailPreview(token, { kind: row?.kind, id: row?.id, audience, ...emailBody() });
       const w = window.open('', '_blank');
       if (w) { w.document.open(); w.document.write(r.html); w.document.close(); }
     } catch (e) { setTestMsg(e.message || 'Could not open preview.'); }
   }
   async function sendScheduleEmails() {
     setEmailBusy(true);
-    try { setEmailResult(await registrationsApi.scheduleEmailSend(token, emailNote, sendMode)); }
+    try { setEmailResult(await registrationsApi.scheduleEmailSend(token, { audience, mode: sendMode, ...emailBody() })); }
     catch (e) { setEmailResult({ error: e.message }); }
     finally { setEmailBusy(false); }
   }
@@ -483,10 +499,19 @@ export default function Registrations() {
             {!emailResult ? (
               <>
                 <p className="mt-2 text-sm text-slate-600">
-                  Each parent gets an email with <b>only their own child's</b> events &amp; reporting times
-                  (the published schedule), the app (PWA) links, and the WhatsApp group invite. Please verify
-                  the sample below and send yourself a test before sending to everyone.
+                  Send to a chosen group (one age group, team entries, or everyone) so large lists go out
+                  in smaller batches. Each recipient gets <b>only their own</b> details. Verify the sample
+                  and send yourself a test before sending for real.
                 </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Send to:</span>
+                  <select value={audience} onChange={(e) => changeAudience(e.target.value)}
+                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm">
+                    {(audiences.length ? audiences : [{ value: 'all', label: 'All individuals' }]).map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
                 {emailInfo?.error ? (
                   <p className="mt-3 text-sm text-red-600">{emailInfo.error}</p>
                 ) : !emailInfo ? (
@@ -507,13 +532,31 @@ export default function Registrations() {
                   </div>
                 )}
 
-                {/* Editable message shown in every email */}
+                {/* Body: standard schedule note, or a fully custom message */}
                 <div className="mt-4">
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Message to parents (editable)</p>
-                  <textarea value={emailNote} onChange={(e) => setEmailNote(e.target.value)} rows={3}
-                    placeholder="Optional note shown in the email, e.g. not all schedules are out yet."
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
-                  <p className="mt-1 text-[11px] text-slate-400">Shown as a highlighted note under the greeting. Each event still shows its own date/time, or “To be announced” if not scheduled yet. Preview/Test reflect this text.</p>
+                  <div className="mb-2 flex flex-wrap gap-3 text-sm">
+                    <label className="flex items-center gap-1.5"><input type="radio" name="bodymode" checked={bodyMode === 'standard'} onChange={() => setBodyMode('standard')} /> Standard schedule email</label>
+                    <label className="flex items-center gap-1.5"><input type="radio" name="bodymode" checked={bodyMode === 'custom'} onChange={() => setBodyMode('custom')} /> Write my own message</label>
+                  </div>
+                  {bodyMode === 'standard' ? (
+                    <>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Message to parents (editable)</p>
+                      <textarea value={emailNote} onChange={(e) => setEmailNote(e.target.value)} rows={3}
+                        placeholder="Optional note shown in the email, e.g. not all schedules are out yet."
+                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                      <p className="mt-1 text-[11px] text-slate-400">Shown as a highlighted note under the greeting; the events table, PWA links and WhatsApp invite are added automatically. Each event shows its own date/time, or “To be announced”.</p>
+                    </>
+                  ) : (
+                    <>
+                      <input value={customSubject} onChange={(e) => setCustomSubject(e.target.value)}
+                        placeholder="Email subject (e.g. Indian Talent Scan — important update)"
+                        className="mb-2 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
+                      <textarea value={customText} onChange={(e) => setCustomText(e.target.value)} rows={8}
+                        placeholder={'Dear Parent,\n\nWrite your full message here for {name}...\n\nRegards,\nKCA ITS'}
+                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono" />
+                      <p className="mt-1 text-[11px] text-slate-400">This replaces the whole body (you control everything). Placeholders filled per recipient: <b>{'{name}'}</b> = participant/team name, <b>{'{first_name}'}</b>, <b>{'{group}'}</b> = age group, <b>{'{events}'}</b> = their events list with dates/times. Links you paste become clickable. Only the branded header/footer are added.</p>
+                    </>
+                  )}
                 </div>
 
                 {/* Spot-check: a sample of recipients with their OWN events */}
@@ -537,7 +580,7 @@ export default function Registrations() {
                                 ))}
                               </td>
                               <td className="px-2 py-1.5 whitespace-nowrap text-slate-600">{r.parent_email}</td>
-                              <td className="px-2 py-1.5"><button onClick={() => openPreview(r.participant_id)} className="text-navy-600 hover:underline whitespace-nowrap">Preview</button></td>
+                              <td className="px-2 py-1.5"><button onClick={() => openPreview(r)} className="text-navy-600 hover:underline whitespace-nowrap">Preview</button></td>
                             </tr>
                           ))}
                         </tbody>
@@ -563,12 +606,12 @@ export default function Registrations() {
 
                 <label className="mt-4 flex items-start gap-2 text-sm text-slate-700">
                   <input type="checkbox" checked={confirmSend} onChange={(e) => setConfirmSend(e.target.checked)} className="mt-0.5 h-4 w-4" />
-                  <span>I've checked the sample (and/or a test email) and the schedules shown are correct for each participant.</span>
+                  <span>I've checked the sample (and/or a test email) and the content is correct for each recipient.</span>
                 </label>
 
                 <div className="mt-4 flex justify-end gap-2">
                   <button onClick={() => setEmailOpen(false)} disabled={emailBusy} className="rounded-md border border-slate-300 px-4 py-1.5 text-sm">Cancel</button>
-                  <button onClick={sendScheduleEmails} disabled={emailBusy || !emailInfo || !!emailInfo.error || !emailInfo.with_email || !confirmSend}
+                  <button onClick={sendScheduleEmails} disabled={emailBusy || !emailInfo || !!emailInfo.error || !emailInfo.with_email || !confirmSend || (bodyMode === 'custom' && !customText.trim())}
                     className="rounded-md bg-navy-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-navy-700 disabled:bg-navy-300">
                     {emailBusy ? 'Sending…' : `Send to ${(emailInfo && emailInfo.already_sent > 0 && sendMode === 'only_unsent') ? emailInfo.unsent : (emailInfo?.with_email ?? '')} parent(s)`}
                   </button>

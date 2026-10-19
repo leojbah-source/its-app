@@ -297,4 +297,29 @@ function scheduleEmailHtml({ yearLabel, logoUrl, parentName, participantName, ag
   </div>`;
 }
 
-module.exports = { sendEmail, registrationConfirmationHtml, scheduleEmailHtml };
+/** A fully custom email: the branded shell (logo + year + footer) wrapped
+ *  around caller-supplied body HTML (already escaped/substituted by the route). */
+function customEmailHtml({ yearLabel, logoUrl, bodyHtml }) {
+  const logoHref = logoUrl ? (/^https?:\/\//.test(logoUrl) ? logoUrl : `${SITE}${logoUrl}`) : null;
+  return `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:auto;color:#1e293b;font-size:14px;line-height:1.5">
+    ${logoHref ? `
+    <div style="border-top:5px solid ${GOLD};background:#ffffff;text-align:center;padding:16px;border:1px solid #e2e8f0;border-bottom:none;border-radius:8px 8px 0 0">
+      <img src="${logoHref}" alt="Indian Talent Scan" width="150" style="width:150px;max-width:60%;height:auto;display:inline-block" />
+    </div>
+    <div style="background:${NAVY};color:#fff;padding:16px 20px">
+      <div style="font-size:18px;font-weight:700">${esc(yearLabel || 'KCA Indian Talent Scan')}</div>
+    </div>` : `
+    <div style="border-top:5px solid ${GOLD};background:${NAVY};color:#fff;padding:18px 20px;border-radius:8px 8px 0 0">
+      <div style="font-size:18px;font-weight:700">${esc(yearLabel || 'KCA Indian Talent Scan')}</div>
+    </div>`}
+    <div style="border:1px solid #e2e8f0;border-top:none;padding:20px;border-radius:0 0 8px 8px">
+      ${bodyHtml}
+      <p style="font-size:12px;color:#94a3b8;margin:18px 0 0">
+        This is an automated message &mdash; please do not reply to this email.
+      </p>
+    </div>
+  </div>`;
+}
+
+module.exports = { sendEmail, registrationConfirmationHtml, scheduleEmailHtml, customEmailHtml };
