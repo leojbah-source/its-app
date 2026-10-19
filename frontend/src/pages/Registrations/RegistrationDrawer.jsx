@@ -126,6 +126,11 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [teamMsg, setTeamMsg] = useState('');
   const [teamNotifyBusy, setTeamNotifyBusy] = useState(false);
   const [teamNoteOpen, setTeamNoteOpen] = useState(false);
+  const reloadTeam = useCallback(async () => {
+    if (!teamId) return;
+    try { setTeam(await teamsApi.members(token, teamId)); }
+    catch (e) { setTeamErr(e.message || 'Failed to load team'); }
+  }, [token, teamId]);
 
   const load = useCallback(async () => {
     if (!participantId) { setLoading(false); return; }
@@ -257,7 +262,7 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
         : 'Payment rejected — parent notified.');
       setRejectFor(null);
       setRejectReason('');
-      load();
+      if (isTeam) reloadTeam(); else load();
     } catch (err) { setFlash(err.message); }
     finally { setBusy(''); }
   }
@@ -428,6 +433,16 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                     {team.team.event_name}{team.team.age_group_code ? ` · ${team.team.age_group_code}` : ''}
                   </p>
                 )}
+                {team.team && (
+                  <div className="mb-4 grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <Field label="Team leader / contact" value={team.team.contact_name} />
+                    <Field label="Mobile" value={team.team.contact_phone} />
+                    <Field label="WhatsApp" value={team.team.contact_whatsapp || team.team.contact_whatsapp_2} />
+                    <Field label="Email" value={team.team.contact_email} />
+                    <Field label="School" value={team.team.school_name} />
+                    <Field label="KCA member" value={team.team.kca_member_no ? `${team.team.kca_member_no}${team.team.kca_membership ? ` (${team.team.kca_membership})` : ''}` : '—'} />
+                  </div>
+                )}
                 <h3 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">Team members</h3>
                 <p className="mb-3 text-xs text-slate-500">
                   {(team.members || []).length} member(s) · {(team.members || []).filter((m) => m.cpr_verified).length} verified — tick each as you confirm their CPR, name and date of birth.
@@ -462,6 +477,49 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                       )}
                     </tbody>
                   </table>
+                </div>
+
+                <div className="mt-4">
+                  <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">Payment</h4>
+                  <div className="rounded-lg border border-slate-200">
+                    <div className="flex items-center justify-between px-3 py-2 text-sm">
+                      <span className="text-slate-600">Team fee</span>
+                      <span className="font-semibold text-navy-800">BD {Number(team.team?.fee_total || 0).toFixed(3)}</span>
+                    </div>
+                    {(team.payments || []).length === 0 ? (
+                      <p className="border-t border-slate-100 px-3 py-3 text-sm text-slate-400">No payment recorded yet.</p>
+                    ) : (team.payments || []).map((pay) => (
+                      <div key={pay.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-3 py-2 text-sm">
+                        <div>
+                          <span className="font-medium text-slate-800">BD {Number(pay.amount || 0).toFixed(3)}</span>
+                          <span className="ml-2 text-xs text-slate-500">{({ cash: 'Cash', benefitpay: 'BenefitPay', bank_transfer: 'Bank transfer' }[pay.method]) || pay.method}{pay.reference ? ` · ${pay.reference}` : ''}</span>
+                          {pay.proof_url && <a href={pay.proof_url} target="_blank" rel="noreferrer" className="ml-2 text-xs text-navy-600 underline">proof</a>}
+                          <div className="text-[11px] text-slate-400">{pay.created_at}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge tone={PAY_TONE[pay.status] || 'slate'}>{pay.status}</Badge>
+                          {canRecordPayment && pay.status === 'pending' && rejectFor !== pay.id && (
+                            <>
+                              <button onClick={() => doPayment(pay.id, 'confirm')} disabled={busy === `pay${pay.id}`}
+                                className="rounded-md bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50">Confirm</button>
+                              <button onClick={() => { setRejectFor(pay.id); setRejectReason(''); }}
+                                className="rounded-md border border-red-300 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50">Reject</button>
+                            </>
+                          )}
+                        </div>
+                        {rejectFor === pay.id && (
+                          <div className="mt-1 flex w-full items-center gap-2">
+                            <input value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Reason (the parent is notified)"
+                              className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-xs" />
+                            <button onClick={() => doPayment(pay.id, 'reject')} disabled={!rejectReason.trim() || busy === `pay${pay.id}`}
+                              className="rounded-md bg-red-600 px-2.5 py-1 text-xs text-white disabled:opacity-50">Confirm reject</button>
+                            <button onClick={() => { setRejectFor(null); setRejectReason(''); }}
+                              className="rounded-md border border-slate-300 px-2.5 py-1 text-xs">Cancel</button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 {(team.documents || []).length > 0 && (

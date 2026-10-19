@@ -872,12 +872,22 @@ router.get('/teams/:id/members', requireRole(...staffRoles), async (req, res, ne
        FROM team_documents td LEFT JOIN users u ON u.id = td.uploaded_by
        WHERE td.team_id = $1 ORDER BY td.uploaded_at`, [req.params.id]);
     const { rows: meta } = await pool.query(
-      `SELECT t.team_name, e.event_code, e.event_name, ag.code AS age_group_code, s.name AS school_name
+      `SELECT t.team_name, to_char(t.created_at,'YYYY-MM-DD') AS created_on,
+              e.event_code, e.event_name, ag.code AS age_group_code, s.name AS school_name,
+              u.full_name AS contact_name, u.phone AS contact_phone,
+              u.whatsapp_number AS contact_whatsapp, u.whatsapp_number_2 AS contact_whatsapp_2,
+              u.email AS contact_email, u.kca_member_no, u.membership_status AS kca_membership,
+              (SELECT COALESCE(SUM(r.fee_amount),0) FROM registrations r
+                 WHERE r.team_id = t.id AND r.status NOT IN ('withdrawn','swapped')) AS fee_total
          FROM teams t JOIN events e ON e.id = t.event_id
          LEFT JOIN age_groups ag ON ag.id = t.age_group_id
          LEFT JOIN schools s ON s.id = t.school_id
+         LEFT JOIN users u ON u.id = t.created_by
         WHERE t.id = $1`, [req.params.id]);
-    res.json({ team: meta[0] || null, members: rows, documents });
+    const { rows: payments } = await pool.query(
+      `SELECT id, amount, method, status, reference, proof_url, to_char(created_at,'YYYY-MM-DD HH24:MI') AS created_at
+         FROM payments WHERE team_id = $1 ORDER BY created_at`, [req.params.id]);
+    res.json({ team: meta[0] || null, members: rows, documents, payments });
   } catch (err) { next(err); }
 });
 
