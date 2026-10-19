@@ -46,13 +46,15 @@ router.get('/script/:event_id', async (req, res, next) => {
     const { rows: ev } = await pool.query(
       `SELECT e.id, e.event_code, e.event_name, e.is_stage_event, e.event_kind,
               e.allotted_time_seconds, e.grace_period_seconds, e.yellow_alert_seconds,
-              c.name AS category_name
+              c.name AS category_name, c.code AS category_code
        FROM events e LEFT JOIN categories c ON c.id = e.category_id WHERE e.id = $1`, [req.params.event_id]);
     if (!ev[0]) return res.status(404).json({ error: 'Event not found' });
     const { rows: judges } = await pool.query(
-      `SELECT DISTINCT j.full_name, j.detailed_bio, j.bio, j.expertise
+      `SELECT DISTINCT j.full_name,
+              COALESCE(NULLIF(btrim(j.category_bios->>$2), ''), j.detailed_bio, j.bio) AS detailed_bio,
+              j.bio, j.expertise
        FROM judge_assignments ja JOIN judges j ON j.id = ja.judge_id
-       WHERE ja.event_id = $1 ORDER BY j.full_name`, [req.params.event_id]);
+       WHERE ja.event_id = $1 ORDER BY j.full_name`, [req.params.event_id, ev[0].category_code || null]);
     const { rows: criteria } = await pool.query(
       `SELECT criterion_name AS label, max_score, sequence_order
        FROM event_criteria WHERE event_id = $1 ORDER BY sequence_order, id`, [req.params.event_id]);

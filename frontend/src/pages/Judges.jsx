@@ -17,7 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { judgesApi, categoriesApi } from '../api/client';
 
 const MANAGE_ROLES = ['SuperAdmin', 'Chairman'];
-const blank = () => ({ full_name: '', bio: '', detailed_bio: '', expertise: [], phone: '', whatsapp: '', email: '' });
+const blank = () => ({ full_name: '', bio: '', detailed_bio: '', category_bios: {}, expertise: [], phone: '', whatsapp: '', email: '' });
 
 function ExpertisePicker({ categories, value, onChange }) {
   const toggle = (code) => {
@@ -84,6 +84,7 @@ export default function Judges() {
   function openEdit(j) {
     setDraft({
       full_name: j.full_name || '', bio: j.bio || '', detailed_bio: j.detailed_bio || '',
+      category_bios: (j.category_bios && typeof j.category_bios === 'object') ? j.category_bios : {},
       expertise: Array.isArray(j.expertise) ? j.expertise : [],
       phone: j.phone || '', whatsapp: j.whatsapp || '', email: j.email || '',
     });
@@ -210,6 +211,23 @@ export default function Judges() {
           <Textarea label="Brief bio" hint="Short blurb for public judge lists." value={draft.bio} onChange={(e) => setDraft({ ...draft, bio: e.target.value })} />
           <Textarea label="Detailed bio (MC introduction)" hint="Read aloud by the MCs to introduce the judge; the MC script pulls this for the 3 judges on an event." value={draft.detailed_bio} onChange={(e) => setDraft({ ...draft, detailed_bio: e.target.value })} />
           <ExpertisePicker categories={categories} value={draft.expertise} onChange={(expertise) => setDraft({ ...draft, expertise })} />
+          {draft.expertise.length > 0 && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-navy-800">Category-specific MC introductions (optional)</label>
+              <p className="mb-2 text-xs text-slate-500">If filled, the MC script uses this instead of the general detailed bio when introducing the judge for an event in that category. Leave blank to use the general one above.</p>
+              <div className="space-y-3">
+                {draft.expertise.map((code) => (
+                  <div key={code}>
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">{catName(code)}</label>
+                    <textarea rows={3} value={(draft.category_bios && draft.category_bios[code]) || ''}
+                      onChange={(e) => setDraft((d) => ({ ...d, category_bios: { ...(d.category_bios || {}), [code]: e.target.value } }))}
+                      placeholder="Leave blank to use the general detailed bio above."
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <Input label="Phone" hint="Used for the briefing login OTP (sent from the Schedule page)." value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} />
           <Input label="WhatsApp" value={draft.whatsapp} onChange={(e) => setDraft({ ...draft, whatsapp: e.target.value })} />
           <Input label="Email" type="email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} />

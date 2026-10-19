@@ -36,7 +36,7 @@ router.get('/', requireRole(...staffRoles), async (req, res, next) => {
   try {
     const withContact = canSeeContact(req.user.role);
     const { rows } = await pool.query(
-      `SELECT j.id, j.full_name, j.bio, j.detailed_bio, j.expertise,
+      `SELECT j.id, j.full_name, j.bio, j.detailed_bio, j.category_bios, j.expertise,
               j.is_blacklisted, j.blacklist_reason, j.blacklist_date,
               (j.phone IS NOT NULL OR j.whatsapp IS NOT NULL OR j.email IS NOT NULL) AS has_contact,
               j.otp_sent_at, (j.active_session IS NOT NULL) AS session_active,
@@ -97,12 +97,13 @@ router.get('/:id/assignments', requireRole(...staffRoles), async (req, res, next
 // ── POST /api/admin/judges — create (SuperAdmin/Chairman) ────────────────────
 router.post('/', requireRole(...manageRoles), async (req, res, next) => {
   try {
-    const { full_name, bio, detailed_bio, expertise, phone, whatsapp, email } = req.body;
+    const { full_name, bio, detailed_bio, expertise, phone, whatsapp, email, category_bios } = req.body;
     if (!full_name?.trim()) return res.status(400).json({ error: 'full_name is required' });
+    const catBios = (category_bios && typeof category_bios === 'object') ? JSON.stringify(category_bios) : '{}';
     const { rows } = await pool.query(
-      `INSERT INTO judges (full_name, bio, detailed_bio, expertise, phone, whatsapp, email)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [full_name.trim(), n(bio), n(detailed_bio), arr(expertise) || [], n(phone), n(whatsapp), n(email)]);
+      `INSERT INTO judges (full_name, bio, detailed_bio, expertise, phone, whatsapp, email, category_bios)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING *`,
+      [full_name.trim(), n(bio), n(detailed_bio), arr(expertise) || [], n(phone), n(whatsapp), n(email), catBios]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'CREATE_JUDGE', entity: 'judges', entityId: rows[0].id });
     res.status(201).json(rows[0]);
@@ -112,7 +113,8 @@ router.post('/', requireRole(...manageRoles), async (req, res, next) => {
 // ── PUT /api/admin/judges/:id — update (SuperAdmin/Chairman) ─────────────────
 router.put('/:id', requireRole(...manageRoles), async (req, res, next) => {
   try {
-    const { full_name, bio, detailed_bio, expertise, phone, whatsapp, email } = req.body;
+    const { full_name, bio, detailed_bio, expertise, phone, whatsapp, email, category_bios } = req.body;
+    const catBios = (category_bios && typeof category_bios === 'object') ? JSON.stringify(category_bios) : null;
     const { rows } = await pool.query(
       `UPDATE judges SET
          full_name    = COALESCE($1, full_name),
@@ -122,9 +124,10 @@ router.put('/:id', requireRole(...manageRoles), async (req, res, next) => {
          phone        = COALESCE($5, phone),
          whatsapp     = COALESCE($6, whatsapp),
          email        = COALESCE($7, email),
+         category_bios = COALESCE($9::jsonb, category_bios),
          updated_at   = NOW()
        WHERE id = $8 RETURNING *`,
-      [n(full_name), n(bio), n(detailed_bio), arr(expertise), n(phone), n(whatsapp), n(email), req.params.id]);
+      [n(full_name), n(bio), n(detailed_bio), arr(expertise), n(phone), n(whatsapp), n(email), req.params.id, catBios]);
     if (!rows[0]) return res.status(404).json({ error: 'Judge not found' });
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'UPDATE_JUDGE', entity: 'judges', entityId: req.params.id });
