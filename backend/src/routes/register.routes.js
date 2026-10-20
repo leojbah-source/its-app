@@ -233,9 +233,9 @@ const docUpload = multer({
 router.get('/config', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, max_individual_events, reg_deadline, team_reg_deadline, teacher_name_deadline,
-              benefit_pay_number, kca_iban, rules_pdf_url, its_logo_url, kca_logo_url,
-              sponsor_logo_url, sponsor_name, event_year_label
+      `SELECT id, max_individual_events, reg_deadline, team_reg_deadline, team_member_deadline,
+              teacher_name_deadline, benefit_pay_number, kca_iban, rules_pdf_url, its_logo_url,
+              kca_logo_url, sponsor_logo_url, sponsor_name, event_year_label
        FROM year_config WHERE is_active = TRUE LIMIT 1`,
     );
     if (!rows[0]) return res.status(404).json({ error: 'No active year configured' });
@@ -1450,7 +1450,7 @@ async function loadOwnTeam(db, teamId, user) {
   const { rows } = await db.query(
     `SELECT t.*, e.event_name, e.event_code, e.min_participants_per_team,
             e.max_participants_per_team, yc.team_size_min, yc.team_size_max,
-            yc.team_reg_deadline
+            yc.team_reg_deadline, yc.team_member_deadline
      FROM teams t
      JOIN events e ON e.id = t.event_id
      JOIN year_config yc ON yc.id = t.year_id
@@ -1651,9 +1651,12 @@ router.post('/team/:id/members', authenticate, async (req, res, next) => {
     await client.query('BEGIN');
     const team = await loadOwnTeam(client, req.params.id, req.user);
 
-    if (team.team_reg_deadline && new Date() > new Date(team.team_reg_deadline)) {
+    // Members can be added until the (later) team member deadline, falling back
+    // to the team registration deadline when a separate one isn't configured.
+    const memberDeadline = team.team_member_deadline || team.team_reg_deadline;
+    if (memberDeadline && new Date() > new Date(memberDeadline)) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'Team registration deadline has passed' });
+      return res.status(403).json({ error: 'The deadline to add team members has passed' });
     }
 
     const { members = [] } = req.body;

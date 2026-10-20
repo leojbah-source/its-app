@@ -91,7 +91,7 @@ export default function YearConfig() {
   // (or any loaded timestamp) is normalised here, at save time.
   const persistConfig = async () => {
     const payload = { ...config };
-    for (const f of ['reg_deadline', 'team_reg_deadline', 'teacher_name_deadline']) {
+    for (const f of ['reg_deadline', 'team_reg_deadline', 'team_member_deadline', 'teacher_name_deadline']) {
       const v = payload[f];
       payload[f] = v ? `${String(v).slice(0, 10)}T23:59:59+03:00` : null;
     }
@@ -219,6 +219,13 @@ export default function YearConfig() {
                 type="date"
                 value={(config.team_reg_deadline || '').slice(0, 10)}
                 onChange={(e) => setConfig({ ...config, team_reg_deadline: e.target.value })}
+                className="w-44"
+              />
+              <Input
+                label="Team member details deadline"
+                type="date"
+                value={(config.team_member_deadline || '').slice(0, 10)}
+                onChange={(e) => setConfig({ ...config, team_member_deadline: e.target.value })}
                 className="w-44"
               />
               <Input

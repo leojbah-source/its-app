@@ -55,6 +55,11 @@ export default function PaymentDeadlinesCard({ config, onChange, errors }) {
           {...deadline('team_reg_deadline')}
         />
         <Input
+          label="Team member details deadline"
+          hint="Last day to add the remaining team members' details (can be later than team registration). Blank = same as team registration deadline."
+          {...deadline('team_member_deadline')}
+        />
+        <Input
           label="Teacher name submission deadline"
           hint="Last day to enter or update teacher names before teacher awards"
           {...deadline('teacher_name_deadline')}

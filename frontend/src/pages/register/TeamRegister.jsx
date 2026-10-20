@@ -239,6 +239,10 @@ function TeamPayForm({ token, team, config, onPaid }) {
 
 // ── My team card (members, add-later, payment) ────────────────────────────────
 function TeamCard({ token, team, schools, config, onChanged }) {
+  // Remaining members can be added until the (later) team member deadline,
+  // falling back to the team registration deadline when none is set.
+  const memberDl = config?.team_member_deadline || config?.team_reg_deadline;
+  const memberClosed = memberDl ? new Date() > new Date(memberDl) : false;
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState(null);
   const [newMembers, setNewMembers] = useState([]);
@@ -324,9 +328,18 @@ function TeamCard({ token, team, schools, config, onChanged }) {
             </div>
           )}
 
-          {team.members_count < team.size_max && (
+          {team.members_count < team.size_max && memberClosed && (
+            <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              Adding members closed on {fmtDate(memberDl)}. Contact the organisers if you still need to add a member.
+            </p>
+          )}
+
+          {team.members_count < team.size_max && !memberClosed && (
             <div>
               <p className="text-xs font-semibold text-slate-600 mb-2">Add members</p>
+              {memberDl && (
+                <p className="mb-2 text-[11px] text-slate-400">Add the remaining members by {fmtDate(memberDl)}.</p>
+              )}
               {newMembers.length === 0 ? (
                 <button onClick={() => setNewMembers([emptyMember()])}
                   className="w-full rounded-lg border border-dashed border-slate-300 py-2.5 text-sm text-slate-500 hover:border-navy-400 flex items-center justify-center gap-1.5">
