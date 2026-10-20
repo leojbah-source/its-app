@@ -1407,19 +1407,23 @@ router.get('/affected-resolutions-xlsx', requireRole(...VIEW_ROLES), async (req,
     const sum = ws.addRow({ name: `Total ${rows.length}  ·  Switched ${nSwitched}  ·  Refunded ${nRefunded}  ·  Open ${nOpen}` });
     sum.font = { italic: true, color: { argb: 'FF666666' } };
 
+    // Note on the Resolutions sheet: it only covers under-strength cancellations.
+    ws.addRow({});
+    const note1 = ws.addRow({ name: 'Scope: this sheet lists ONLY entries hit by event (under-strength) cancellations. For every refund by participant — including overpayments — see the "Refunds by participant" sheet.' });
+    note1.font = { italic: true, color: { argb: 'FF666666' } };
+
     // ── Sheet 2: consolidated refunds BY PARTICIPANT (numeric figures) ────────
-    // Every recorded refund for the year, aggregated per child, PLUS any
-    // "extra paid on account" (confirmed payments beyond the fees still due on
-    // the child's active entries) — money that should be refunded even when no
-    // refund row was raised yet. All amounts are real numbers so they sum.
+    // Two different things are shown and must not be confused:
+    //   • "Fee of withdrawn events"  = fee value of every removed/withdrawn entry,
+    //      WHETHER OR NOT the parent ever paid (so it over-states money owed).
+    //   • "Refund due"               = Total paid − Fees still due on active
+    //      entries = the real cash to return (overpayment). THIS is the amount
+    //      to actually refund. Only confirmed payments count toward "Total paid".
     const { rows: refRows } = await pool.query(
       `WITH ref AS (
          SELECT participant_id,
                 COUNT(*) AS n,
-                SUM(original_amount) AS orig,
-                SUM(refund_amount) AS refund_total,
-                SUM(refund_amount) FILTER (WHERE status = 'pending')   AS refund_pending,
-                SUM(refund_amount) FILTER (WHERE status = 'confirmed') AS refund_confirmed,
+                SUM(refund_amount) AS fee_withdrawn,
                 string_agg(DISTINCT NULLIF(btrim(events_withdrawn), ''), '; ') AS events_withdrawn,
                 string_agg(DISTINCT NULLIF(btrim(reason), ''), '; ')          AS reasons,
                 string_agg(DISTINCT status, ', ')                             AS statuses
@@ -1442,10 +1446,10 @@ router.get('/affected-resolutions-xlsx', requireRole(...VIEW_ROLES), async (req,
               sc.name AS school,
               u.full_name AS parent_name, u.phone AS parent_phone,
               u.whatsapp_number AS parent_whatsapp, u.email AS parent_email,
-              COALESCE(ref.n, 0) AS n, ref.orig, ref.refund_total,
-              ref.refund_pending, ref.refund_confirmed,
+              COALESCE(ref.n, 0) AS n, ref.fee_withdrawn,
               ref.events_withdrawn, ref.reasons, ref.statuses,
-              GREATEST(COALESCE(pay.paid, 0) - COALESCE(due.due, 0), 0) AS credit
+              COALESCE(pay.paid, 0) AS paid, COALESCE(due.due, 0) AS due,
+              GREATEST(COALESCE(pay.paid, 0) - COALESCE(due.due, 0), 0) AS refund_due
          FROM participants p
          LEFT JOIN ref ON ref.participant_id = p.id
          LEFT JOIN pay ON pay.participant_id = p.id
@@ -1463,29 +1467,27 @@ router.get('/affected-resolutions-xlsx', requireRole(...VIEW_ROLES), async (req,
       { header: 'Age Group', key: 'ag', width: 16 },
       { header: 'Participant', key: 'name', width: 26 },
       { header: 'CPR', key: 'cpr', width: 14 },
-      { header: 'School', key: 'school', width: 24 },
+      { header: 'School', key: 'school', width: 22 },
       { header: 'Parent', key: 'parent', width: 22 },
       { header: 'Phone', key: 'phone', width: 15 },
       { header: 'WhatsApp', key: 'wa', width: 15 },
       { header: 'Email', key: 'email', width: 26 },
-      { header: 'Refund entries', key: 'n', width: 13 },
+      { header: 'Withdrawn entries', key: 'n', width: 14 },
       { header: 'Events withdrawn', key: 'events', width: 30 },
       { header: 'Reason(s)', key: 'reasons', width: 28 },
-      { header: 'Original fees (BD)', key: 'orig', width: 15 },
-      { header: 'Refund recorded (BD)', key: 'refund', width: 18 },
-      { header: 'Pending (BD)', key: 'pending', width: 13 },
-      { header: 'Paid out (BD)', key: 'paid', width: 13 },
-      { header: 'Extra paid on account (BD)', key: 'credit', width: 22 },
+      { header: 'Fee of withdrawn events (BD)', key: 'fee', width: 22 },
+      { header: 'Total paid (BD)', key: 'paid', width: 14 },
+      { header: 'Fees still due (BD)', key: 'duecol', width: 16 },
+      { header: 'Refund due (BD)', key: 'refdue', width: 15 },
       { header: 'Refund status', key: 'status', width: 16 },
     ];
-    ['orig', 'refund', 'pending', 'paid', 'credit'].forEach((k) => { ws2.getColumn(k).numFmt = '0.000'; });
+    ['fee', 'paid', 'duecol', 'refdue'].forEach((k) => { ws2.getColumn(k).numFmt = '0.000'; });
 
-    let tOrig = 0, tRef = 0, tPend = 0, tPaid = 0, tCredit = 0;
+    let tFee = 0, tPaid = 0, tDue = 0, tRefDue = 0;
     for (const r of refRows) {
-      const orig = Number(r.orig || 0), refund = Number(r.refund_total || 0),
-            pend = Number(r.refund_pending || 0), paid = Number(r.refund_confirmed || 0),
-            credit = Number(r.credit || 0);
-      tOrig += orig; tRef += refund; tPend += pend; tPaid += paid; tCredit += credit;
+      const fee = Number(r.fee_withdrawn || 0), paid = Number(r.paid || 0),
+            due = Number(r.due || 0), refdue = Number(r.refund_due || 0);
+      tFee += fee; tPaid += paid; tDue += due; tRefDue += refdue;
       ws2.addRow({
         ag: r.ag_label ? `${r.ag_label} (${r.ag_code})` : (r.ag_code || ''),
         name: String(r.full_name || '').toUpperCase(),
@@ -1494,18 +1496,25 @@ router.get('/affected-resolutions-xlsx', requireRole(...VIEW_ROLES), async (req,
         wa: r.parent_whatsapp || '', email: r.parent_email || '',
         n: Number(r.n || 0),
         events: r.events_withdrawn || '', reasons: r.reasons || '',
-        orig: orig || null, refund: refund || null, pending: pend || null,
-        paid: paid || null, credit: credit || null, status: r.statuses || '',
+        fee: fee || null, paid: paid || null, duecol: due || null,
+        refdue: refdue || null, status: r.statuses || '',
       });
     }
     const h2 = ws2.getRow(1); h2.font = { bold: true };
+    // Highlight the "Refund due" header — the figure that is actually paid back.
+    h2.getCell(15).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
     ws2.views = [{ state: 'frozen', ySplit: 1 }];
-    ws2.autoFilter = { from: 'A1', to: 'Q1' };
+    ws2.autoFilter = { from: 'A1', to: 'P1' };
     const tot = ws2.addRow({
-      name: 'TOTAL', orig: round3(tOrig), refund: round3(tRef),
-      pending: round3(tPend), paid: round3(tPaid), credit: round3(tCredit),
+      name: 'TOTAL', fee: round3(tFee), paid: round3(tPaid),
+      duecol: round3(tDue), refdue: round3(tRefDue),
     });
     tot.font = { bold: true };
+    ws2.addRow({});
+    const lg1 = ws2.addRow({ name: 'Fee of withdrawn events = fee value of all removed/withdrawn entries (whether or not the parent paid) — a reference figure, NOT money owed.' });
+    const lg2 = ws2.addRow({ name: 'Refund due = Total paid − Fees still due = the money actually to return (overpayment). This is the amount to pay back. Only CONFIRMED payments count as paid.' });
+    lg1.font = { italic: true, color: { argb: 'FF666666' } };
+    lg2.font = { italic: true, color: { argb: 'FF996600' } };
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_RESOLUTIONS_XLSX',
       entity: 'event_consolidations', entityId: null,
