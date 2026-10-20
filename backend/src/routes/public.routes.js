@@ -319,4 +319,50 @@ router.get('/events/:id/criteria', async (req, res, next) => {
   }
 });
 
+// GET /api/public/judge-invite?k=KEY — no login, link-key gated.
+// Powers the shareable judge-invitation generator. Returns only non-sensitive
+// branding (logos + year label) and the still-to-be-judged scheduled sessions
+// (completed ones — past date, schedule.status='completed', or results already
+// published for that age group — are hidden). The key is year_config.invite_tool_key.
+router.get('/judge-invite', async (req, res, next) => {
+  try {
+    const key = String(req.query.k || '').trim();
+    if (!key) return res.status(401).json({ error: 'Missing link key.' });
+
+    const { rows: yc } = await pool.query(
+      `SELECT id, event_year_label, kca_logo_url, its_logo_url, sponsor_logo_url,
+              sponsor_name, website_domain, invite_tool_key
+         FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    const cfg = yc[0];
+    if (!cfg || !cfg.invite_tool_key || cfg.invite_tool_key !== key) {
+      return res.status(403).json({ error: 'This link is not valid.' });
+    }
+
+    const { rows: sessions } = await pool.query(
+      `SELECT e.event_code, e.event_name, c.name AS category_name,
+              to_char(s.event_date, 'YYYY-MM-DD') AS event_date,
+              to_char(s.start_time, 'HH24:MI') AS start_time, s.venue,
+              e.id AS event_id, ag.id AS age_group_id,
+              ag.code AS age_group_code, ag.label AS age_group_label
+         FROM schedule s
+         JOIN events e ON e.id = s.event_id
+         LEFT JOIN categories c ON c.id = e.category_id
+         CROSS JOIN LATERAL unnest(string_to_array(COALESCE(NULLIF(s.age_groups, ''), s.age_groups), ', ')) AS grp(code)
+         JOIN age_groups ag ON ag.year_id = s.year_id AND ag.code = trim(grp.code)
+        WHERE s.year_id = $1
+          AND COALESCE(s.age_groups, '') <> ''
+          AND e.is_cancelled = FALSE
+          AND s.status <> 'completed'
+          AND s.event_date >= (now() AT TIME ZONE 'Asia/Bahrain')::date
+          AND NOT (SELECT (COUNT(*) > 0 AND COUNT(*) FILTER (WHERE er.is_published) = COUNT(*))
+                     FROM registrations rr LEFT JOIN event_results er ON er.registration_id = rr.id
+                    WHERE rr.event_id = e.id AND rr.age_group_id = ag.id AND rr.status = 'attended')
+        ORDER BY s.event_date, s.start_time NULLS LAST, e.event_code, ag.sort_order`,
+      [cfg.id]);
+
+    const { invite_tool_key, id, ...branding } = cfg;
+    res.json({ config: branding, sessions });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

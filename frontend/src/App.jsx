@@ -27,6 +27,7 @@ import Videography from './pages/judging/Videography';
 import ResultSheet from './pages/judging/ResultSheet';
 import JudgeCertificatesPrint from './pages/judging/JudgeCertificatesPrint';
 import JudgeInvite from './pages/judging/JudgeInvite';
+import JudgeInvitePublic from './pages/judging/JudgeInvitePublic';
 import McPortal from './pages/mc/McPortal';
 import TimerPortal from './pages/timer/TimerPortal';
 import StageDisplay from './pages/timer/StageDisplay';
@@ -185,6 +186,7 @@ export default function App() {
                 element={<ProtectedRoute allowedRoles={['Timer', 'SuperAdmin', 'Chairman']}><TimerPortal /></ProtectedRoute>}
               />
               <Route path="/timer/stage" element={<StageDisplay />} />
+              <Route path="/invite/judges" element={<JudgeInvitePublic />} />
               <Route
                 path="/admin/awards"
                 element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><Awards /></ProtectedRoute>}
