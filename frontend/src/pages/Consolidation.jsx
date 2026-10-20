@@ -498,7 +498,7 @@ function ResolvePanel({ token, canActNow, reloadKey, onChanged }) {
       const blob = await consolidationApi.resolutionsXlsx(token);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = 'cancelled-entries-resolutions.xlsx';
+      a.href = url; a.download = 'cancelled-entries-and-refunds.xlsx';
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
     } catch (e) { setErr(e.message || 'Could not generate the report.'); }
@@ -555,7 +555,13 @@ function ResolvePanel({ token, canActNow, reloadKey, onChanged }) {
       {loading ? <PageLoader label="Loading affected entries…" />
       : items.length === 0 ? (
         <div className="py-8 text-center text-sm text-slate-400">
-          No cancelled entries to resolve. (Cancel an under-strength cell above and affected children will appear here.)
+          <p>No cancelled entries to resolve. (Cancel an under-strength cell above and affected children will appear here.)</p>
+          <div className="mt-4">
+            <Button size="sm" variant="outline" icon={Download} loading={dl} onClick={downloadReport} disabled={dl}>
+              Refunds report (Excel)
+            </Button>
+            <p className="mt-2 text-xs text-slate-400">Consolidated refunds by participant, including any extra paid on account.</p>
+          </div>
         </div>
       ) : (
         <>
@@ -565,8 +571,8 @@ function ResolvePanel({ token, canActNow, reloadKey, onChanged }) {
               <Badge tone="navy">{sm.switched} switched</Badge>
               <Badge tone="neutral">{sm.refunded} refunded</Badge>
               <Button size="sm" variant="outline" icon={Download} className="ml-auto" loading={dl}
-                onClick={downloadReport} disabled={(sm.switched + sm.refunded) === 0}>
-                Download report
+                onClick={downloadReport} disabled={dl}>
+                Cancelled entries + Refunds (Excel)
               </Button>
             </div>
           )}

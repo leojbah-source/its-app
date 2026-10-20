@@ -1344,6 +1344,8 @@ router.get('/affected-resolutions-xlsx', requireRole(...VIEW_ROLES), async (req,
         ORDER BY ag.sort_order NULLS LAST, p.full_name`, [y.id]);
 
     const fmt = (v) => (v == null ? '' : Number(v).toFixed(3));
+    const num = (v) => (v == null || v === '' ? null : Number(v));
+    const round3 = (x) => Math.round(Number(x || 0) * 1000) / 1000;
     const when = (d) => (d ? new Date(d).toLocaleString('en-GB', { timeZone: 'Asia/Bahrain' }) : '');
 
     const ExcelJS = require('exceljs');
@@ -1368,6 +1370,7 @@ router.get('/affected-resolutions-xlsx', requireRole(...VIEW_ROLES), async (req,
       { header: 'Resolved By', key: 'by', width: 18 },
       { header: 'When (Bahrain)', key: 'at', width: 20 },
     ];
+    ['ofee', 'nfee', 'add', 'refund'].forEach((k) => { ws.getColumn(k).numFmt = '0.000'; });
 
     let nSwitched = 0, nRefunded = 0, nOpen = 0;
     for (const r of rows) {
@@ -1385,12 +1388,12 @@ router.get('/affected-resolutions-xlsx', requireRole(...VIEW_ROLES), async (req,
         cpr: r.cpr_number || '', gender: r.gender || '',
         parent: r.parent_name || '', contact: r.parent_contact || '',
         ccode: r.cancelled_code || '', cevent: r.cancelled_name || '',
-        ofee: fmt(r.fee_amount),
+        ofee: num(r.fee_amount),
         action,
         to: action === 'switched' && r.to_code ? `${r.to_code} — ${r.to_name}` : '',
-        nfee: action === 'switched' ? fmt(r.act_new_fee) : '',
-        add: action === 'switched' ? fmt(r.act_add_due) : '',
-        refund: fmt(r.act_refund),
+        nfee: action === 'switched' ? num(r.act_new_fee) : null,
+        add: action === 'switched' ? num(r.act_add_due) : null,
+        refund: num(r.act_refund),
         by: r.resolved_by || '', at: when(r.resolved_at),
       });
     }
@@ -1404,13 +1407,113 @@ router.get('/affected-resolutions-xlsx', requireRole(...VIEW_ROLES), async (req,
     const sum = ws.addRow({ name: `Total ${rows.length}  ·  Switched ${nSwitched}  ·  Refunded ${nRefunded}  ·  Open ${nOpen}` });
     sum.font = { italic: true, color: { argb: 'FF666666' } };
 
+    // ── Sheet 2: consolidated refunds BY PARTICIPANT (numeric figures) ────────
+    // Every recorded refund for the year, aggregated per child, PLUS any
+    // "extra paid on account" (confirmed payments beyond the fees still due on
+    // the child's active entries) — money that should be refunded even when no
+    // refund row was raised yet. All amounts are real numbers so they sum.
+    const { rows: refRows } = await pool.query(
+      `WITH ref AS (
+         SELECT participant_id,
+                COUNT(*) AS n,
+                SUM(original_amount) AS orig,
+                SUM(refund_amount) AS refund_total,
+                SUM(refund_amount) FILTER (WHERE status = 'pending')   AS refund_pending,
+                SUM(refund_amount) FILTER (WHERE status = 'confirmed') AS refund_confirmed,
+                string_agg(DISTINCT NULLIF(btrim(events_withdrawn), ''), '; ') AS events_withdrawn,
+                string_agg(DISTINCT NULLIF(btrim(reason), ''), '; ')          AS reasons,
+                string_agg(DISTINCT status, ', ')                             AS statuses
+           FROM refunds
+          WHERE year_id = $1 AND status <> 'rejected'
+          GROUP BY participant_id
+       ),
+       pay AS (
+         SELECT participant_id, SUM(amount) AS paid FROM payments
+          WHERE year_id = $1 AND status = 'confirmed' AND participant_id IS NOT NULL
+          GROUP BY participant_id
+       ),
+       due AS (
+         SELECT participant_id, SUM(fee_amount) AS due FROM registrations
+          WHERE year_id = $1 AND participant_id IS NOT NULL AND status NOT IN ('withdrawn','swapped')
+          GROUP BY participant_id
+       )
+       SELECT p.id, p.full_name, p.cpr_number,
+              ag.code AS ag_code, ag.label AS ag_label, ag.sort_order AS ag_sort,
+              sc.name AS school,
+              u.full_name AS parent_name, u.phone AS parent_phone,
+              u.whatsapp_number AS parent_whatsapp, u.email AS parent_email,
+              COALESCE(ref.n, 0) AS n, ref.orig, ref.refund_total,
+              ref.refund_pending, ref.refund_confirmed,
+              ref.events_withdrawn, ref.reasons, ref.statuses,
+              GREATEST(COALESCE(pay.paid, 0) - COALESCE(due.due, 0), 0) AS credit
+         FROM participants p
+         LEFT JOIN ref ON ref.participant_id = p.id
+         LEFT JOIN pay ON pay.participant_id = p.id
+         LEFT JOIN due ON due.participant_id = p.id
+         LEFT JOIN age_groups ag ON ag.id = p.age_group_id
+         LEFT JOIN schools sc ON sc.id = p.school_id
+         LEFT JOIN users u ON u.id = p.created_by
+        WHERE p.year_id = $1
+          AND (ref.participant_id IS NOT NULL
+               OR GREATEST(COALESCE(pay.paid, 0) - COALESCE(due.due, 0), 0) > 0.0005)
+        ORDER BY ag.sort_order NULLS LAST, p.full_name`, [y.id]);
+
+    const ws2 = wb.addWorksheet('Refunds by participant');
+    ws2.columns = [
+      { header: 'Age Group', key: 'ag', width: 16 },
+      { header: 'Participant', key: 'name', width: 26 },
+      { header: 'CPR', key: 'cpr', width: 14 },
+      { header: 'School', key: 'school', width: 24 },
+      { header: 'Parent', key: 'parent', width: 22 },
+      { header: 'Phone', key: 'phone', width: 15 },
+      { header: 'WhatsApp', key: 'wa', width: 15 },
+      { header: 'Email', key: 'email', width: 26 },
+      { header: 'Refund entries', key: 'n', width: 13 },
+      { header: 'Events withdrawn', key: 'events', width: 30 },
+      { header: 'Reason(s)', key: 'reasons', width: 28 },
+      { header: 'Original fees (BD)', key: 'orig', width: 15 },
+      { header: 'Refund recorded (BD)', key: 'refund', width: 18 },
+      { header: 'Pending (BD)', key: 'pending', width: 13 },
+      { header: 'Paid out (BD)', key: 'paid', width: 13 },
+      { header: 'Extra paid on account (BD)', key: 'credit', width: 22 },
+      { header: 'Refund status', key: 'status', width: 16 },
+    ];
+    ['orig', 'refund', 'pending', 'paid', 'credit'].forEach((k) => { ws2.getColumn(k).numFmt = '0.000'; });
+
+    let tOrig = 0, tRef = 0, tPend = 0, tPaid = 0, tCredit = 0;
+    for (const r of refRows) {
+      const orig = Number(r.orig || 0), refund = Number(r.refund_total || 0),
+            pend = Number(r.refund_pending || 0), paid = Number(r.refund_confirmed || 0),
+            credit = Number(r.credit || 0);
+      tOrig += orig; tRef += refund; tPend += pend; tPaid += paid; tCredit += credit;
+      ws2.addRow({
+        ag: r.ag_label ? `${r.ag_label} (${r.ag_code})` : (r.ag_code || ''),
+        name: String(r.full_name || '').toUpperCase(),
+        cpr: r.cpr_number || '', school: r.school || '',
+        parent: r.parent_name || '', phone: r.parent_phone || '',
+        wa: r.parent_whatsapp || '', email: r.parent_email || '',
+        n: Number(r.n || 0),
+        events: r.events_withdrawn || '', reasons: r.reasons || '',
+        orig: orig || null, refund: refund || null, pending: pend || null,
+        paid: paid || null, credit: credit || null, status: r.statuses || '',
+      });
+    }
+    const h2 = ws2.getRow(1); h2.font = { bold: true };
+    ws2.views = [{ state: 'frozen', ySplit: 1 }];
+    ws2.autoFilter = { from: 'A1', to: 'Q1' };
+    const tot = ws2.addRow({
+      name: 'TOTAL', orig: round3(tOrig), refund: round3(tRef),
+      pending: round3(tPend), paid: round3(tPaid), credit: round3(tCredit),
+    });
+    tot.font = { bold: true };
+
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_RESOLUTIONS_XLSX',
       entity: 'event_consolidations', entityId: null,
       details: { rows: rows.length, switched: nSwitched, refunded: nRefunded, open: nOpen } });
 
     const buf = await wb.xlsx.writeBuffer();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename="cancelled-entries-resolutions.xlsx"');
+    res.setHeader('Content-Disposition', 'attachment; filename="cancelled-entries-and-refunds.xlsx"');
     res.send(Buffer.from(buf));
   } catch (err) { next(err); }
 });
