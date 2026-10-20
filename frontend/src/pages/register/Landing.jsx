@@ -11,6 +11,26 @@ import BrandMark from '../../components/ui/BrandMark';
 
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
 
+function StatusPill({ label, st }) {
+  if (!st) return null;
+  const tone = !st.open
+    ? 'bg-red-500/20 text-red-200 border-red-500/30'
+    : st.days !== null && st.days <= 3
+      ? 'bg-yellow-500/20 text-yellow-200 border-yellow-500/30'
+      : 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30';
+  const text = !st.open
+    ? 'closed'
+    : st.days === null
+      ? 'open'
+      : `closes in ${st.days} day${st.days !== 1 ? 's' : ''}`;
+  return (
+    <div className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium ${tone}`}>
+      <CalendarDays size={16} />
+      <span><b>{label}:</b> {text}</span>
+    </div>
+  );
+}
+
 export default function Landing() {
   const { isAuthenticated } = useParentAuth();
   const navigate = useNavigate();
@@ -24,10 +44,15 @@ export default function Landing() {
     portalApi.config().then(setConfig).catch(() => null);
   }, []);
 
-  const deadline = config?.reg_deadline ? new Date(config.reg_deadline) : null;
-  const now = new Date();
-  const daysLeft = deadline ? Math.ceil((deadline - now) / (1000 * 60 * 60 * 24)) : null;
-  const isOpen = daysLeft === null || daysLeft > 0;
+  // Individual and team registration have SEPARATE deadlines — show each on its
+  // own so parents aren't told "closed" when only one of them has closed.
+  const statusFor = (d) => {
+    if (!d) return { open: true, days: null };          // no deadline set = open
+    const days = Math.ceil((new Date(d) - new Date()) / (1000 * 60 * 60 * 24));
+    return { open: days > 0, days };
+  };
+  const indiv = config ? statusFor(config.reg_deadline) : null;
+  const team = config ? statusFor(config.team_reg_deadline) : null;
 
   const kcaLogo = asset(config?.kca_logo_url);
   const sponsorLogo = asset(config?.sponsor_logo_url);
@@ -61,19 +86,16 @@ export default function Landing() {
         </div>
       </div>
 
-      {/* Registration status pill */}
-      {daysLeft !== null && (
-        <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium mb-8 border ${
-          !isOpen
-            ? 'bg-red-500/20 text-red-200 border-red-500/30'
-            : daysLeft <= 3
-              ? 'bg-yellow-500/20 text-yellow-200 border-yellow-500/30'
-              : 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30'
-        }`}>
-          <CalendarDays size={16} />
-          {!isOpen
-            ? `Registration closed`
-            : `Registration closes in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`}
+      {/* Registration status — individual and team shown separately */}
+      {config && (
+        <div className="mb-8 flex flex-col items-center gap-2">
+          <StatusPill label="Individual entries" st={indiv} />
+          <StatusPill label="Team entries" st={team} />
+          {indiv && !indiv.open && team && team.open && (
+            <p className="mt-1 max-w-xs text-center text-xs text-emerald-200/90">
+              Individual registration has closed, but <b>team registration is still open</b> — sign in or create an account to register a team.
+            </p>
+          )}
         </div>
       )}
 
