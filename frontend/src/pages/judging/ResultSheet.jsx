@@ -24,6 +24,13 @@ export default function ResultSheet() {
     resultsApi.sheet(token, eventId, ageGroupId).then(setData).catch((e) => setErr(e.message));
   }, [token, eventId, ageGroupId]);
 
+  // Blank the document title so the browser's print header doesn't stamp
+  // "TalentHub · Indian Talent Scan" across the top of the printed sheet.
+  useEffect(() => {
+    const prev = document.title; document.title = ' ';
+    return () => { document.title = prev; };
+  }, []);
+
   if (err) return <div className="p-8 text-sm text-red-600">{err}</div>;
   if (!data) return <div className="p-8 text-sm text-slate-500">Loading result sheet…</div>;
 
@@ -32,6 +39,8 @@ export default function ResultSheet() {
   const published = data.state?.published;
   const finalised = data.state?.finalised;
   const statusLabel = published ? 'PUBLISHED' : finalised ? 'FINALISED' : data.complete ? 'PROVISIONAL' : 'DRAFT — scoring incomplete';
+  // The Extra column (consolation prizes) only appears when at least one row uses it.
+  const hasExtra = (data.results || []).some((r) => r.extra_prize_type === 'consolation');
 
   return (
     <div className="mx-auto max-w-4xl bg-white p-6 text-slate-800 print:max-w-none print:p-0">
@@ -88,32 +97,30 @@ export default function ResultSheet() {
               <th className="px-2 py-2">Place</th>
               <th className="px-2 py-2">Chest</th>
               <th className="px-2 py-2">Name</th>
-              <th className="px-2 py-2">School</th>
               <th className="px-2 py-2 text-center">Grade</th>
               <th className="px-2 py-2 text-center">Rank pts</th>
               <th className="px-2 py-2 text-center">Grade pts</th>
               <th className="px-2 py-2 text-center">Total</th>
-              <th className="px-2 py-2">Extra</th>
+              {hasExtra && <th className="px-2 py-2">Extra</th>}
             </tr>
           </thead>
           <tbody>
             {data.results.map((r) => (
-              <tr key={r.chest_number} className={`border-b border-slate-100 ${r.is_disqualified ? 'text-slate-400' : r.place ? 'bg-gold-50/40' : ''}`}>
-                <td className="px-2 py-1.5 text-slate-500">{r.is_disqualified ? '—' : r.order}</td>
-                <td className="px-2 py-1.5 font-bold text-navy-800">{r.is_disqualified ? 'DQ' : (r.place || '—')}</td>
-                <td className="px-2 py-1.5 font-mono">{r.chest_number}</td>
-                <td className="px-2 py-1.5 font-medium">{r.name || '—'}{r.is_disqualified && <span className="ml-1 text-[10px] font-normal text-red-600">(Disqualified{r.dq_reason ? ` — ${r.dq_reason}` : ''})</span>}</td>
-                <td className="px-2 py-1.5 text-slate-500">{r.school || '—'}</td>
-                <td className="px-2 py-1.5 text-center">{r.is_disqualified ? '—' : (r.grade || '—')}</td>
-                <td className="px-2 py-1.5 text-center">{r.rank_points}</td>
-                <td className="px-2 py-1.5 text-center">{r.grade_points}</td>
-                <td className="px-2 py-1.5 text-center font-semibold">{r.total_points}</td>
+              <tr key={r.chest_number} className={`border-b border-slate-100 print:break-inside-avoid ${r.is_disqualified ? 'text-slate-400' : r.place ? 'bg-gold-50/40' : ''}`}>
+                <td className="px-2 py-1 text-slate-500">{r.is_disqualified ? '—' : r.order}</td>
+                <td className="px-2 py-1 font-bold text-navy-800">{r.is_disqualified ? 'DQ' : (r.place || '—')}</td>
+                <td className="px-2 py-1 font-mono">{r.chest_number}</td>
+                <td className="px-2 py-1 font-medium">{r.name || '—'}{r.is_disqualified && <span className="ml-1 text-[10px] font-normal text-red-600">(Disqualified{r.dq_reason ? ` — ${r.dq_reason}` : ''})</span>}</td>
+                <td className="px-2 py-1 text-center">{r.is_disqualified ? '—' : (r.grade || '—')}</td>
+                <td className="px-2 py-1 text-center">{r.rank_points}</td>
+                <td className="px-2 py-1 text-center">{r.grade_points}</td>
+                <td className="px-2 py-1 text-center font-semibold">{r.total_points}</td>
                 {/* An Additional 3rd is a full 3rd place, shown identically to the main 3rd (no tag). */}
-                <td className="px-2 py-1.5 text-navy-700">{r.extra_prize_type === 'consolation' ? EXTRA_LABEL.consolation : ''}</td>
+                {hasExtra && <td className="px-2 py-1 text-navy-700">{r.extra_prize_type === 'consolation' ? EXTRA_LABEL.consolation : ''}</td>}
               </tr>
             ))}
             {data.results.length === 0 && (
-              <tr><td colSpan={10} className="px-2 py-6 text-center text-slate-400">No attended participants in this group.</td></tr>
+              <tr><td colSpan={hasExtra ? 9 : 8} className="px-2 py-6 text-center text-slate-400">No attended participants in this group.</td></tr>
             )}
           </tbody>
         </table>
