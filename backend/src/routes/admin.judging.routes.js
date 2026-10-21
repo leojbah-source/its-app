@@ -621,15 +621,27 @@ router.post('/results/:event_id/:age_group_id/finalise', requireRole(...viewRole
       const unreviewed = divergent.filter((id) => !noteMap.get(id));
       if (unreviewed.length) return res.status(409).json({ error: `${unreviewed.length} diverging result(s) need a Chairman review note before finalising.` });
     }
-    // ensure rows exist, then finalise
-    const { rows } = await pool.query(
-      `UPDATE event_results er SET is_finalised = TRUE, finalised_by = $1, finalised_at = NOW(), updated_at = NOW()
-       FROM registrations r
-       WHERE er.registration_id = r.id AND r.event_id = $2 AND r.age_group_id = $3 AND er.is_published = FALSE
-       RETURNING er.id`, [req.user.id, eventId, ag]);
-    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
-      action: 'FINALISE_RESULTS', entity: 'events', entityId: eventId, details: { age_group_id: ag, rows: rows.length } });
-    res.json({ finalised: rows.length });
+    // Ensure EVERY attended participant has a computed row FIRST — otherwise a
+    // participant with no row yet (e.g. a non-diverging entry when "Compute &
+    // save" wasn't clicked) is left unfinalised, so the group never counts as
+    // fully finalised and judges never see the result. Then flip is_finalised.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await persistResults(client, eventId, data.results);
+      const { rows } = await client.query(
+        `UPDATE event_results er SET is_finalised = TRUE, finalised_by = $1, finalised_at = NOW(), updated_at = NOW()
+         FROM registrations r
+         WHERE er.registration_id = r.id AND r.event_id = $2 AND r.age_group_id = $3 AND er.is_published = FALSE
+         RETURNING er.id`, [req.user.id, eventId, ag]);
+      await client.query('COMMIT');
+      await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+        action: 'FINALISE_RESULTS', entity: 'events', entityId: eventId, details: { age_group_id: ag, rows: rows.length } });
+      res.json({ finalised: rows.length });
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => null);
+      throw e;
+    } finally { client.release(); }
   } catch (err) { next(err); }
 });
 
