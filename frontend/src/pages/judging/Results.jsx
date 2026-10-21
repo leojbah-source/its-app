@@ -70,7 +70,7 @@ export default function Results() {
       if (!st.all_agreed) {
         if (!window.confirm(`Only ${st.judges_agreed ?? 0} of ${st.judges_total ?? 0} judges have agreed this result.\n\nPublish anyway (override)?`)) return;
       }
-      if (!window.confirm('Publishing makes this result FINAL and sends it out to participants (and the public results board).\n\nPlease preview the Winners poster first and check the photos are correct.\n\nPublish now?')) return;
+      if (!window.confirm('Publishing makes this result FINAL and sends it out to participants (and the public results board).\n\nPublish now?')) return;
     }
     if (kind === 'finalise') {
       const over = (data?.results || []).filter((r) => r.over_time && !r.is_disqualified);
