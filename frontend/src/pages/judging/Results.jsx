@@ -70,6 +70,7 @@ export default function Results() {
       if (!st.all_agreed) {
         if (!window.confirm(`Only ${st.judges_agreed ?? 0} of ${st.judges_total ?? 0} judges have agreed this result.\n\nPublish anyway (override)?`)) return;
       }
+      if (!window.confirm('Publishing makes this result FINAL and sends it out to participants (and the public results board).\n\nPlease preview the Winners poster first and check the photos are correct.\n\nPublish now?')) return;
     }
     if (kind === 'finalise') {
       const over = (data?.results || []).filter((r) => r.over_time && !r.is_disqualified);
@@ -190,8 +191,8 @@ export default function Results() {
               <Button variant="outline" icon={Printer} onClick={() => navigate(`/admin/judging/results/print/${eventId}/${groupId}`)}>Print sheet</Button>
               {!state.published && <Button variant="outline" icon={Calculator} loading={busy} onClick={() => act('compute')}>Compute &amp; save</Button>}
               {(!state.finalised || state.stale_finalise) && <Button variant="primary" icon={CheckCircle2} loading={busy} disabled={!data.complete || unreviewedDiv > 0 || data.tiebreak_needed || (data.judges_total > 0 && !data.all_done)} onClick={() => act('finalise')}>{state.finalised ? 'Finalise again' : 'Finalise'}</Button>}
+              {(state.finalised || state.published) && <Button variant="outline" icon={Trophy} onClick={() => window.open(`/admin/judging/winners/${eventId}/${groupId}`, '_blank')}>{state.published ? 'Winners poster' : 'Preview winners poster'}</Button>}
               {state.finalised && !state.published && <Button variant="gold" icon={Send} loading={busy} onClick={() => act('publish')}>Publish</Button>}
-              {state.published && <Button variant="gold" icon={Trophy} onClick={() => window.open(`/admin/judging/winners/${eventId}/${groupId}`, '_blank')}>Winners poster</Button>}
             </div>
 
             {state.stale_finalise && <div className="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">A judge changed a score after this group was finalised, so the finalised result is out of date. Click <b>Finalise again</b> before publishing (publishing is blocked until you do).</div>}

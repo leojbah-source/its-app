@@ -131,6 +131,34 @@ async function clearResultAgreements(eventId, ageGroupId) {
     [eventId, ageGroupId]);
 }
 
+// Carry a judge's weightage agreement to another age group of the SAME event
+// when that group's effective criteria/weightages are identical. A judge nearly
+// always judges the same event across several age groups with the same criteria,
+// so this lets them go straight to the next group without re-agreeing (and without
+// the "not everyone agreed" confusion). Only carries to judges who already agreed
+// an identical group; groups with different weightages still require a fresh agree.
+async function carryWeightageAgreement(eventId, ageGroupId) {
+  if (await isDeferred(eventId)) return;
+  const sig = (crit) => crit.map((c) => `${c.id}:${Number(c.max_score)}:${Number(c.sequence_order)}`).join('|');
+  const target = sig(await effectiveCriteria(eventId, ageGroupId));
+  const { rows: ags } = await pool.query(
+    `SELECT DISTINCT age_group_id FROM judge_assignments
+      WHERE event_id = $1 AND age_group_id IS NOT NULL AND age_group_id <> $2`, [eventId, ageGroupId]);
+  const matching = [];
+  for (const a of ags) {
+    if (sig(await effectiveCriteria(eventId, a.age_group_id)) === target) matching.push(a.age_group_id);
+  }
+  if (!matching.length) return;
+  await pool.query(
+    `UPDATE judge_assignments t
+        SET weightages_agreed_at = now()
+      WHERE t.event_id = $1 AND t.age_group_id = $2 AND t.weightages_agreed_at IS NULL
+        AND EXISTS (SELECT 1 FROM judge_assignments s
+                     WHERE s.event_id = $1 AND s.judge_id = t.judge_id
+                       AND s.age_group_id = ANY($3::int[]) AND s.weightages_agreed_at IS NOT NULL)`,
+    [eventId, ageGroupId, matching]);
+}
+
 // ── GET /api/judge/events — this judge's assigned events ─────────────────────
 // Each row is one (event, age group) assignment, with per-group progress flags
 // so the portal can mark which are already scored / finalised / published.
@@ -224,6 +252,10 @@ router.get('/sheet/:assignment_id', async (req, res, next) => {
     // The assignment IS a single age group now — always score that group.
     const ag = asg.age_group_id || (req.query.age_group_id ? Number(req.query.age_group_id) : null);
     if (!ag) return res.status(400).json({ error: 'assignment has no age group' });
+
+    // Same event, identical criteria as a group this judge already agreed →
+    // carry the agreement so they don't have to agree again for each age group.
+    await carryWeightageAgreement(asg.event_id, ag);
 
     const { rows: ev } = await pool.query(
       `SELECT e.id, e.event_code, e.event_name, c.name AS category_name,
