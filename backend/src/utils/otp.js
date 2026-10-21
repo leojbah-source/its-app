@@ -1,5 +1,6 @@
 // src/utils/otp.js
 const pool = require('../db');
+const { normalizePhone } = require('./phone');
 
 function generateOtpCode() {
   const length = Number(process.env.OTP_LENGTH || 6);
@@ -14,6 +15,7 @@ function generateOtpCode() {
 // Any previously-active code for the same phone is invalidated first, so only
 // the latest code is ever valid ("resend" replaces the old one).
 async function createOtp(phone, opts = {}) {
+  phone = normalizePhone(phone);
   const standing = !!opts.standing;
   const code = generateOtpCode();
   await pool.query(
@@ -33,6 +35,7 @@ async function createOtp(phone, opts = {}) {
 }
 
 async function verifyOtp(phone, code) {
+  phone = normalizePhone(phone);
   const { rows } = await pool.query(
     `SELECT id, standing FROM otp_codes
      WHERE phone = $1 AND code = $2
@@ -52,6 +55,7 @@ async function verifyOtp(phone, code) {
 
 // Invalidate every active code for a phone ("reset"). Returns how many.
 async function revokeOtps(phone) {
+  phone = normalizePhone(phone);
   const { rowCount } = await pool.query(
     `UPDATE otp_codes SET consumed_at = NOW()
      WHERE phone = $1 AND consumed_at IS NULL`,
@@ -62,6 +66,7 @@ async function revokeOtps(phone) {
 
 // The current active code for a phone (for Chairman/SuperAdmin visibility), or null.
 async function currentOtp(phone) {
+  phone = normalizePhone(phone);
   const { rows } = await pool.query(
     `SELECT code, standing, expires_at FROM otp_codes
      WHERE phone = $1 AND consumed_at IS NULL

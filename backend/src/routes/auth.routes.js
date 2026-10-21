@@ -5,6 +5,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../db');
 const { createOtp, verifyOtp } = require('../utils/otp');
+const { normalizePhone, phoneKey } = require('../utils/phone');
 const { sendWhatsApp } = require('../utils/notify');
 const { logAudit } = require('../utils/audit');
 const { authenticate, requireType } = require('../middleware/auth');
@@ -74,12 +75,18 @@ router.post('/send-otp', async (req, res, next) => {
   try {
     const { phone } = req.body;
     if (!phone) return res.status(400).json({ error: 'phone is required' });
+    const key = phoneKey(phone);
 
-    const { rows } = await pool.query(`SELECT id, is_blacklisted FROM judges WHERE phone = $1`, [phone]);
-    if (!rows[0]) return res.status(404).json({ error: 'No judge found with this phone number' });
+    const { rows } = await pool.query(
+      `SELECT id, is_blacklisted, phone FROM judges
+        WHERE right(regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g'), 8) = $1
+           OR right(regexp_replace(COALESCE(whatsapp,''), '[^0-9]', '', 'g'), 8) = $1
+        LIMIT 1`, [key]);
+    if (!rows[0]) return res.status(404).json({ error: 'No judge profile has this phone number. Check the number saved in the Judges screen matches what the judge types.' });
 
-    const code = await createOtp(phone);
-    await sendWhatsApp(phone, `Your KCA ITS judge login OTP is ${code}. Valid for ${process.env.OTP_EXPIRY_MINUTES || 10} minutes.`);
+    const dest = normalizePhone(rows[0].phone) || normalizePhone(phone);
+    const code = await createOtp(dest);
+    await sendWhatsApp(dest, `Your KCA ITS judge login OTP is ${code}. Valid for ${process.env.OTP_EXPIRY_MINUTES || 10} minutes.`);
     res.json({ message: 'OTP sent', judgeId: rows[0].id, isBlacklisted: rows[0].is_blacklisted });
   } catch (err) {
     next(err);
@@ -91,20 +98,28 @@ router.post('/verify-otp', async (req, res, next) => {
   try {
     const { phone, otp } = req.body;
     if (!phone) return res.status(400).json({ error: 'phone is required' });
+    const key = phoneKey(phone);
+    const np = normalizePhone(phone);
 
     // TESTING: set JUDGE_OTP_BYPASS=true to let judges log in with phone only
     // (no WhatsApp/SMS OTP). Remove/set false before going live.
     const bypass = process.env.JUDGE_OTP_BYPASS === 'true';
     if (!bypass) {
       if (!otp) return res.status(400).json({ error: 'OTP is required' });
-      const valid = await verifyOtp(phone, otp);
+      const valid = await verifyOtp(np, otp);
       if (!valid) return res.status(401).json({ error: 'Invalid or expired OTP' });
     }
 
+    // Match on the last 8 digits of the stored phone OR whatsapp, so formatting
+    // differences (+973, spaces, a leading 0, stray characters) never cause a
+    // "not found".
     const { rows } = await pool.query(
-      `SELECT id, full_name, is_blacklisted, active_session, active_session_at FROM judges WHERE phone = $1`, [phone]);
+      `SELECT id, full_name, is_blacklisted, active_session, active_session_at FROM judges
+        WHERE right(regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g'), 8) = $1
+           OR right(regexp_replace(COALESCE(whatsapp,''), '[^0-9]', '', 'g'), 8) = $1
+        LIMIT 1`, [key]);
     const judge = rows[0];
-    if (!judge) return res.status(404).json({ error: 'Judge not found' });
+    if (!judge) return res.status(404).json({ error: 'No judge profile has this phone number. Check the number saved in the Judges screen matches what the judge types (the 8-digit number).' });
 
     // SINGLE ACTIVE SESSION with auto take-over: a judge may be signed in on ONE
     // screen at a time. Because this login already proved identity (OTP), a fresh
@@ -114,7 +129,7 @@ router.post('/verify-otp', async (req, res, next) => {
     // "already signed in" lockout and no admin reset needed.
     const sid = crypto.randomUUID();
     await pool.query(`UPDATE judges SET active_session = $1, active_session_at = NOW() WHERE id = $2`, [sid, judge.id]);
-    const token = signToken({ id: judge.id, judgeId: judge.id, role: 'Judge', type: 'judge', phone, sid });
+    const token = signToken({ id: judge.id, judgeId: judge.id, role: 'Judge', type: 'judge', phone: np, sid });
     res.json({ token, judge: { id: judge.id, name: judge.full_name, isBlacklisted: judge.is_blacklisted } });
   } catch (err) {
     next(err);

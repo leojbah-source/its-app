@@ -15,6 +15,7 @@ const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { createOtp, revokeOtps, currentOtp } = require('../utils/otp');
+const { normalizePhone } = require('../utils/phone');
 const { sendWhatsApp } = require('../utils/notify');
 
 const router = express.Router();
@@ -103,7 +104,7 @@ router.post('/', requireRole(...manageRoles), async (req, res, next) => {
     const { rows } = await pool.query(
       `INSERT INTO judges (full_name, bio, detailed_bio, expertise, phone, whatsapp, email, category_bios)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING *`,
-      [full_name.trim(), n(bio), n(detailed_bio), arr(expertise) || [], n(phone), n(whatsapp), n(email), catBios]);
+      [full_name.trim(), n(bio), n(detailed_bio), arr(expertise) || [], n(phone) && normalizePhone(phone), n(whatsapp), n(email), catBios]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'CREATE_JUDGE', entity: 'judges', entityId: rows[0].id });
     res.status(201).json(rows[0]);
@@ -127,7 +128,7 @@ router.put('/:id', requireRole(...manageRoles), async (req, res, next) => {
          category_bios = COALESCE($9::jsonb, category_bios),
          updated_at   = NOW()
        WHERE id = $8 RETURNING *`,
-      [n(full_name), n(bio), n(detailed_bio), arr(expertise), n(phone), n(whatsapp), n(email), req.params.id, catBios]);
+      [n(full_name), n(bio), n(detailed_bio), arr(expertise), n(phone) && normalizePhone(phone), n(whatsapp), n(email), req.params.id, catBios]);
     if (!rows[0]) return res.status(404).json({ error: 'Judge not found' });
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'UPDATE_JUDGE', entity: 'judges', entityId: req.params.id });
@@ -421,7 +422,7 @@ router.post('/event/:eventId/send-otps', requireRole(...assignRoles), async (req
     for (const j of judges) {
       if (!j.phone) { skipped.push(j.full_name); continue; }
       const code = await createOtp(j.phone, { standing });
-      const r = await sendWhatsApp(j.phone, `KCA ITS — your judge login OTP is ${code}. Log in with phone ${j.phone}.`);
+      const r = await sendWhatsApp(j.phone, `KCA ITS — your judge login OTP is ${code}. Log in with phone ${normalizePhone(j.phone)}.`);
       if (r.delivered) delivered += 1;
       links.push({ name: j.full_name, phone: j.phone, url: r.link, delivered: !!r.delivered });
       codes.push({ id: j.id, name: j.full_name, phone: j.phone, code, standing });
