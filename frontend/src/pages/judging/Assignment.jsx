@@ -5,6 +5,7 @@
 // match the category); briefing OTPs are sent per (event, age group). MC/Timer
 // are assigned per event. Chairman/SuperAdmin only.
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { pickDefaultDate } from '../../utils/dates';
 import { RefreshCw, UserPlus, KeyRound, Mic, Timer, Award } from 'lucide-react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { Card, Badge } from '../../components/ui/Card';
@@ -51,7 +52,7 @@ export default function Assignment() {
 
   const dates = useMemo(() => [...new Set(rows.map((r) => r.event_date))].sort(), [rows]);
   // Default to the first scheduled date so the page isn't 150+ rows on open.
-  useEffect(() => { if (!dateFilter && dates.length) setDateFilter(dates[0]); }, [dates, dateFilter]);
+  useEffect(() => { if (!dateFilter && dates.length) setDateFilter(pickDefaultDate(dates)); }, [dates, dateFilter]);
   const visibleRows = useMemo(() => (dateFilter ? rows.filter((r) => r.event_date === dateFilter) : rows), [rows, dateFilter]);
 
   async function openAssign(row) {

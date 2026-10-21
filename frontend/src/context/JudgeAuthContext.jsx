@@ -5,6 +5,7 @@
 // A judge may only be signed in on ONE screen at a time; signing out clears the
 // server-side session lock so they can sign in again.
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { useIdleLogout } from '../hooks/useIdleLogout';
 import { authApi, judgeApi } from '../api/client';
 
 const TOKEN_KEY = 'its_judge_token';
@@ -45,6 +46,9 @@ export function JudgeAuthProvider({ children }) {
     sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(INFO_KEY);
     setToken(null); setJudge(null);
   }, []);
+
+  // Auto sign-out after 15 min of inactivity (frees shared tablets).
+  useIdleLogout({ active: Boolean(token), onIdle: logout, minutes: 15 });
 
   const value = useMemo(() => ({
     token, judge, error, status, isAuthenticated: Boolean(token), sendOtp, login, logout,

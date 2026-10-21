@@ -7,6 +7,7 @@ import { FileText, Trophy, RefreshCw, Download, Package } from 'lucide-react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { Card, Badge } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
+import { pickDefaultDate } from '../../utils/dates';
 import { useAuth } from '../../context/AuthContext';
 import { scheduleApi, resultsApi, API_BASE } from '../../api/client';
 
@@ -29,7 +30,7 @@ export default function MediaResults() {
   useEffect(() => { loadSchedule(); }, [loadSchedule]);
 
   const dates = useMemo(() => [...new Set(schedule.map((r) => String(r.event_date).slice(0, 10)))].sort(), [schedule]);
-  useEffect(() => { if (!date && dates.length) setDate(dates[0]); }, [dates, date]);
+  useEffect(() => { if (!date && dates.length) setDate(pickDefaultDate(dates)); }, [dates, date]);
   useEffect(() => { if (date) { setPackFrom(date); setPackTo(date); } }, [date]);
 
   const events = useMemo(() => {

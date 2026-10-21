@@ -64,6 +64,12 @@ export default function PaymentDeadlinesCard({ config, onChange, errors }) {
           hint="Last day to enter or update teacher names before teacher awards"
           {...deadline('teacher_name_deadline')}
         />
+        <Input
+          label="Judge login PIN"
+          hint="If set, judges sign in with their phone + this PIN (no OTP needed). Leave blank to require OTPs."
+          placeholder="e.g. 2468"
+          {...text('judge_login_pin')}
+        />
       </div>
     </Card>
   );

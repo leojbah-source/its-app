@@ -82,6 +82,7 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
     const team_reg_deadline       = n(req.body.team_reg_deadline);
     const teacher_name_deadline   = n(req.body.teacher_name_deadline);
     const team_member_deadline    = n(req.body.team_member_deadline);
+    const judge_login_pin         = n(req.body.judge_login_pin);
     const result_template_url     = n(req.body.assets?.result_template?.url ?? req.body.result_template_url);
     const photo_crop_width        = n(req.body.photo_crop_width);
     const photo_crop_height       = n(req.body.photo_crop_height);
@@ -137,8 +138,9 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
          mc_rules_text            = COALESCE($41, mc_rules_text),
          wa_group_link            = COALESCE($42, wa_group_link),
          team_member_deadline     = COALESCE($43, team_member_deadline),
+         judge_login_pin          = COALESCE($44, judge_login_pin),
          updated_at               = NOW()
-       WHERE id = $44 RETURNING *`,
+       WHERE id = $45 RETURNING *`,
       [event_year_label, event_start_date, event_end_date,
        kca_logo_url, its_logo_url, sponsor_logo_url, sponsor_name, kca_iban, benefit_pay_number,
        max_individual_events, category_cap, kca_special_min_points,
@@ -153,6 +155,7 @@ router.put('/config/active', requireRole('SuperAdmin', 'Admin'), async (req, res
        mc_rules_text,
        wa_group_link,
        team_member_deadline,
+       judge_login_pin,
        config.id]
     );
     // Upsert age groups by (year_id, code). A blanket DELETE would violate

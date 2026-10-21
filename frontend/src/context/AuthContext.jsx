@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useIdleLogout } from '../hooks/useIdleLogout';
 import { authApi, ApiError } from '../api/client';
 
 const AuthContext = createContext(null);
@@ -61,6 +62,9 @@ export function AuthProvider({ children }) {
     setStatus('idle');
     setError(null);
   }, []);
+
+  // Auto sign-out after 15 min of inactivity (frees shared tablets).
+  useIdleLogout({ active: Boolean(token), onIdle: logout, minutes: 15 });
 
   const value = useMemo(
     () => ({

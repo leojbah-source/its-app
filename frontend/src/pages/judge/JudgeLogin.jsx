@@ -53,8 +53,8 @@ export default function JudgeLogin() {
             <Send size={14} /> Send OTP to my phone
           </button>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">OTP <span className="font-normal text-slate-400">(if required)</span></label>
-            <input value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="6-digit code" className={inp} inputMode="numeric" />
+            <label className="mb-1 block text-sm font-medium text-slate-700">Access PIN <span className="font-normal text-slate-400">(or OTP)</span></label>
+            <input value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="PIN or OTP code" className={inp} inputMode="numeric" />
           </div>
           {msg && <p className="text-sm text-green-600">{msg}</p>}
           {err && <p className="text-sm text-red-600">{err}</p>}
@@ -63,7 +63,7 @@ export default function JudgeLogin() {
             <LogIn size={18} /> {busy ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-        <p className="mt-4 text-center text-xs text-slate-400">Enter the OTP if the organisers ask for it. During testing you may sign in with your phone alone.</p>
+        <p className="mt-4 text-center text-xs text-slate-400">Enter your phone number and the access PIN the organisers gave you, then tap Sign in. (If they ask you to use an OTP instead, tap “Send OTP to my phone”.)</p>
       </div>
     </div>
   );

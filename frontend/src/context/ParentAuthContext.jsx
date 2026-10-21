@@ -5,6 +5,7 @@
 // on mobile. Session clears when the browser tab is closed.
 
 import { createContext, useCallback, useContext, useMemo, useState, useEffect } from 'react';
+import { useIdleLogout } from '../hooks/useIdleLogout';
 
 const SESSION_TOKEN_KEY = 'its_parent_token';
 const SESSION_USER_KEY  = 'its_parent_user';
@@ -100,6 +101,9 @@ export function ParentAuthProvider({ children }) {
     setStatus('idle');
     setError(null);
   }, []);
+
+  // Auto sign-out after 15 min of inactivity (frees shared tablets).
+  useIdleLogout({ active: Boolean(token), onIdle: logout, minutes: 15 });
 
   const value = useMemo(
     () => ({ token, user, status, error, isAuthenticated: Boolean(token), login, signup, logout }),

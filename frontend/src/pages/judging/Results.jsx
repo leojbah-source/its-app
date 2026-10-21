@@ -11,6 +11,7 @@ import AdminLayout from '../../components/layout/AdminLayout';
 import { Card, Badge } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { PageLoader } from '../../components/ui/States';
+import { pickDefaultDate } from '../../utils/dates';
 import { useAuth } from '../../context/AuthContext';
 import { scheduleApi, resultsApi } from '../../api/client';
 
@@ -31,7 +32,7 @@ export default function Results() {
 
   useEffect(() => { scheduleApi.list(token).then(setSchedule).catch(() => {}); }, [token]);
   const dates = useMemo(() => [...new Set(schedule.map((r) => String(r.event_date).slice(0, 10)))].sort(), [schedule]);
-  useEffect(() => { if (!date && dates.length) setDate(dates[0]); }, [dates, date]);
+  useEffect(() => { if (!date && dates.length) setDate(pickDefaultDate(dates)); }, [dates, date]);
   // Events scheduled on the selected date (deduped), like the Event assignment page.
   const events = useMemo(() => {
     const map = new Map();

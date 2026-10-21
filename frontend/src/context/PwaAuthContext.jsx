@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { useIdleLogout } from '../hooks/useIdleLogout';
 import { authApi, ApiError } from '../api/client';
 
 const PwaAuthContext = createContext(null);
@@ -34,6 +35,9 @@ export function PwaAuthProvider({ children }) {
     sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(USER_KEY);
     setToken(null); setParticipant(null); setStatus('idle'); setError(null);
   }, []);
+
+  // Auto sign-out after 15 min of inactivity (frees shared tablets).
+  useIdleLogout({ active: Boolean(token), onIdle: logout, minutes: 15 });
 
   const value = useMemo(
     () => ({ token, participant, status, error, isAuthenticated: Boolean(token), login, logout }),

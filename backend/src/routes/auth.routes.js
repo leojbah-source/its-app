@@ -101,13 +101,21 @@ router.post('/verify-otp', async (req, res, next) => {
     const key = phoneKey(phone);
     const np = normalizePhone(phone);
 
-    // TESTING: set JUDGE_OTP_BYPASS=true to let judges log in with phone only
-    // (no WhatsApp/SMS OTP). Remove/set false before going live.
+    // A shared judge login PIN (year_config.judge_login_pin), when set, lets a
+    // judge sign in with phone + that PIN instead of a one-time OTP — simpler to
+    // run on the day. OTPs still work as a fallback.
+    const { rows: cfgp } = await pool.query(
+      `SELECT judge_login_pin FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    const loginPin = String(cfgp[0]?.judge_login_pin || '').trim();
+    const codeGiven = String(otp || '').trim();
+    const pinOk = loginPin.length > 0 && codeGiven === loginPin;
+
+    // TESTING: set JUDGE_OTP_BYPASS=true to let judges log in with phone only.
     const bypass = process.env.JUDGE_OTP_BYPASS === 'true';
-    if (!bypass) {
-      if (!otp) return res.status(400).json({ error: 'OTP is required' });
-      const valid = await verifyOtp(np, otp);
-      if (!valid) return res.status(401).json({ error: 'Invalid or expired OTP' });
+    if (!bypass && !pinOk) {
+      if (!codeGiven) return res.status(400).json({ error: 'Enter the access PIN (or your OTP).' });
+      const valid = await verifyOtp(np, codeGiven);
+      if (!valid) return res.status(401).json({ error: 'Wrong PIN or expired OTP.' });
     }
 
     // Match on the last 8 digits of the stored phone OR whatsapp, so formatting

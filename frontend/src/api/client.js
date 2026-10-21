@@ -20,18 +20,30 @@ async function request(path, { method = 'GET', token, body, isFormData = false }
   if (token) headers.Authorization = `Bearer ${token}`;
   if (!isFormData && body !== undefined) headers['Content-Type'] = 'application/json';
 
-  let res;
-  try {
-    res = await fetch(`${API_BASE}${path}`, {
-      method,
-      headers,
-      body: isFormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  } catch (networkErr) {
+  // Transient network blips (venue Wi-Fi, a tablet waking) shouldn't surface as
+  // an error on reads — retry GETs a few times, quietly, before giving up.
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const maxAttempts = method === 'GET' ? 3 : 1;
+  let res, lastErr = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers,
+        body: isFormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
+      });
+      lastErr = null;
+      break;
+    } catch (networkErr) {
+      lastErr = networkErr;
+      if (attempt < maxAttempts) await sleep(500 * attempt);
+    }
+  }
+  if (lastErr) {
     throw new ApiError(
-      `Could not reach the API at ${API_BASE}. Is the backend running?`,
+      "Can't reach the server right now — check your connection and try again.",
       0,
-      networkErr,
+      lastErr,
     );
   }
 
