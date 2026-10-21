@@ -19,9 +19,28 @@ const fmtDate = (d) => {
   return `${String(dt.getDate()).padStart(2, '0')}-${dt.toLocaleString('en-GB', { month: 'short' })}-${dt.getFullYear()}`;
 };
 const MEDAL = {
-  1: { ring: 'linear-gradient(145deg,#fde047,#ca8a04)', label: '1' },
-  2: { ring: 'linear-gradient(145deg,#e5e7eb,#9ca3af)', label: '2' },
-  3: { ring: 'linear-gradient(145deg,#fdba74,#b45309)', label: '3' },
+  1: { ring: 'linear-gradient(145deg,#fff1a8,#f6d034 45%,#b8860b)' },
+  2: { ring: 'linear-gradient(145deg,#f4f6f8,#cfd4da 45%,#8b939c)' },
+  3: { ring: 'linear-gradient(145deg,#ffd9a8,#e8923a 45%,#9a5212)' },
+};
+const ORD = { 1: 'ST', 2: 'ND', 3: 'RD' };
+
+// A distinct colour theme per age group so 150+ posters don't all look the
+// same. Keyed by the age-group number; cycles if there are more than the list.
+const THEMES = [
+  { light: '#eaf6ea', mid: '#2f8a36', deep: '#13471b' }, // 1 · green
+  { light: '#e9eefc', mid: '#2a53c9', deep: '#112a66' }, // 2 · royal blue
+  { light: '#f3ecfb', mid: '#7a39b5', deep: '#34155c' }, // 3 · purple
+  { light: '#e6f8f8', mid: '#0e9aa7', deep: '#063b43' }, // 4 · teal
+  { light: '#fdecee', mid: '#c22a46', deep: '#58101f' }, // 5 · crimson
+  { light: '#fff3e2', mid: '#d9821f', deep: '#6b3406' }, // 6 · amber
+  { light: '#fdeaf4', mid: '#c23b84', deep: '#58103a' }, // 7 · magenta
+  { light: '#edeefa', mid: '#4a4fb0', deep: '#1c2050' }, // 8 · indigo
+];
+const themeFor = (code) => {
+  const m = String(code || '').match(/\d+/);
+  const n = m ? parseInt(m[0], 10) : 1;
+  return THEMES[(((n - 1) % THEMES.length) + THEMES.length) % THEMES.length];
 };
 
 // Image that falls back cleanly (and resets when the src changes, so a replaced
@@ -36,11 +55,16 @@ function SafeImg({ src, style, fallback = null }) {
 function Medal({ place }) {
   const m = MEDAL[place] || MEDAL[3];
   return (
-    <div style={{ position: 'relative', width: 54, height: 54, margin: '6px auto 0' }}>
-      <div style={{ position: 'absolute', left: 12, top: 30, width: 12, height: 26, background: '#b91c1c', transform: 'rotate(18deg)' }} />
-      <div style={{ position: 'absolute', right: 12, top: 30, width: 12, height: 26, background: '#b91c1c', transform: 'rotate(-18deg)' }} />
-      <div style={{ width: 54, height: 54, borderRadius: '50%', background: m.ring, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.3)', border: '3px solid rgba(255,255,255,.65)' }}>
-        <span style={{ color: '#fff', fontWeight: 800, fontSize: 24, textShadow: '0 1px 2px rgba(0,0,0,.35)' }}>{m.label}</span>
+    <div style={{ position: 'relative', width: 72, height: 94, margin: '10px auto 0' }}>
+      {/* ribbon tails hang BELOW the medallion so they never cover the number */}
+      <div style={{ position: 'absolute', left: 23, top: 50, width: 13, height: 38, background: '#c0272d', transform: 'rotate(13deg)', borderRadius: '0 0 2px 2px', boxShadow: '0 1px 2px rgba(0,0,0,.25)' }} />
+      <div style={{ position: 'absolute', right: 23, top: 50, width: 13, height: 38, background: '#9f1f26', transform: 'rotate(-13deg)', borderRadius: '0 0 2px 2px', boxShadow: '0 1px 2px rgba(0,0,0,.25)' }} />
+      {/* medallion */}
+      <div style={{ position: 'absolute', left: 4, top: 0, width: 64, height: 64, borderRadius: '50%', background: m.ring, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 3px 8px rgba(0,0,0,.35)', border: '3px solid rgba(255,255,255,.9)' }}>
+        <div style={{ width: 50, height: 50, borderRadius: '50%', background: 'rgba(255,255,255,.18)', border: '1px solid rgba(255,255,255,.5)', display: 'flex', alignItems: 'baseline', justifyContent: 'center' }}>
+          <span style={{ color: '#fff', fontWeight: 900, fontSize: 28, lineHeight: 1, textShadow: '0 1px 3px rgba(0,0,0,.45)' }}>{place}</span>
+          <span style={{ color: '#fff', fontWeight: 800, fontSize: 12, marginLeft: 1, textShadow: '0 1px 3px rgba(0,0,0,.45)' }}>{ORD[place] || ''}</span>
+        </div>
       </div>
     </div>
   );
@@ -75,6 +99,7 @@ function WinnerCard({ w, big, onReplace, busyId }) {
         <SafeImg src={asset(w.photo_url)} fallback={silhouette} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: `${pos.x}% ${pos.y}%`, transform: `scale(${zoom})`, transformOrigin: `${pos.x}% ${pos.y}%` }} />
       </div>
       <div style={{ color: '#fde047', fontWeight: 800, fontSize: big ? 24 : 20, textAlign: 'center', lineHeight: 1.1, marginTop: 10, textShadow: '0 1px 2px rgba(0,0,0,.4)' }}>{w.name || `Chest ${w.chest_number}`}</div>
+      {w.grade && <div style={{ marginTop: 5, fontSize: 12, fontWeight: 800, color: '#1b2a4a', background: 'rgba(253,224,71,.95)', borderRadius: 999, padding: '2px 12px', boxShadow: '0 1px 3px rgba(0,0,0,.25)' }}>Grade {w.grade}</div>}
       <Medal place={w.place} />
       {onReplace && (
         <div className="noshot" style={{ marginTop: 6, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
@@ -196,6 +221,8 @@ export default function WinnersPoster() {
   const title = (b.event_year_label || 'KCA Indian Talent Scan').toUpperCase();
   const eventLine = [ev.event_name, ev.age_group_label || (ev.age_group_code ? `Group ${ev.age_group_code}` : '')].filter(Boolean).join(' · ');
 
+  const th = themeFor(ev.age_group_code || ev.age_group_label);
+
   return (
     <div className="min-h-screen bg-slate-100 py-6">
       <div className="mx-auto max-w-[860px] px-4">
@@ -215,8 +242,8 @@ export default function WinnersPoster() {
         {error && <div className="noshot mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
 
         {/* ── Poster (captured) ── */}
-        <div ref={posterRef} style={{ width: 820, margin: '0 auto', background: 'linear-gradient(180deg,#eef7ee 0%,#bfe0bf 16%,#2f7d32 48%,#15481a 100%)', fontFamily: 'Arial, Helvetica, sans-serif', paddingBottom: 40 }}>
-          <div style={{ background: 'linear-gradient(180deg,#ffffff,#eef7ee)', padding: '18px 26px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '3px solid #0f2f5f' }}>
+        <div ref={posterRef} style={{ width: 820, boxSizing: 'border-box', margin: '0 auto', background: `linear-gradient(180deg,#ffffff 0%, ${th.light} 14%, ${th.mid} 50%, ${th.deep} 100%)`, fontFamily: 'Arial, Helvetica, sans-serif', paddingBottom: 40, border: '5px solid #d4af37' }}>
+          <div style={{ background: `linear-gradient(180deg,#ffffff, ${th.light})`, padding: '18px 26px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `4px solid ${th.deep}` }}>
             <SafeImg src={asset(b.kca_logo_url)} fallback={<div style={{ width: 90 }} />} style={{ height: 66, objectFit: 'contain' }} />
             <SafeImg src={asset(b.its_logo_url)} fallback={<div />} style={{ height: 92, objectFit: 'contain' }} />
             <SafeImg src={asset(b.sponsor_logo_url)} fallback={b.sponsor_name ? <div style={{ fontWeight: 700, color: '#0f2f5f' }}>{b.sponsor_name}</div> : <div style={{ width: 90 }} />} style={{ height: 56, objectFit: 'contain' }} />
@@ -228,7 +255,9 @@ export default function WinnersPoster() {
               <div style={{ color: '#1e2a78', fontWeight: 800, fontSize: 26 }}>Results</div>
               <div style={{ color: '#0f2f5f', fontWeight: 700, fontSize: 22 }}>{fmtDate(ev.event_date)}</div>
             </div>
-            <div style={{ color: '#fde047', fontWeight: 800, fontSize: 24, textAlign: 'center', marginTop: 10, textShadow: '0 1px 2px rgba(0,0,0,.35)' }}>{eventLine}</div>
+            <div style={{ textAlign: 'center', marginTop: 14 }}>
+              <span style={{ display: 'inline-block', color: '#fde047', fontWeight: 800, fontSize: 24, padding: '6px 22px', borderRadius: 999, background: 'rgba(0,0,0,.22)', boxShadow: '0 2px 6px rgba(0,0,0,.25)', textShadow: '0 1px 2px rgba(0,0,0,.5)' }}>{eventLine}</span>
+            </div>
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'center', gap: 28, padding: '34px 24px 10px' }}>
