@@ -168,6 +168,85 @@ router.get('/by-event', requireRole(...staffRoles), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── GET /api/admin/lists/by-event-xlsx — participants by age group + event ────
+// Excel roster: Age Group, Event, Srl #, Participant Name, School, Contact,
+// WhatsApp — individual events only, confirmed participants, serial restarting
+// per (age group + event). Phone columns are text so long numbers don't become
+// scientific notation.
+router.get('/by-event-xlsx', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+    const { rows } = await pool.query(
+      `SELECT ag.code AS ag_code, ag.label AS ag_label, ag.sort_order AS ag_sort,
+              e.event_name, e.event_code,
+              p.full_name, s.name AS school_name,
+              u.phone AS contact, u.whatsapp_number AS whatsapp
+         FROM registrations r
+         JOIN events e ON e.id = r.event_id AND e.event_kind <> 'team' AND e.is_cancelled = FALSE
+         JOIN participants p ON p.id = r.participant_id
+         LEFT JOIN categories c ON c.id = e.category_id
+         LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+         LEFT JOIN schools s ON s.id = p.school_id
+         LEFT JOIN users u ON u.id = p.created_by
+        WHERE r.year_id = $1 AND r.status NOT IN ('withdrawn','swapped')
+          AND p.confirmed_at IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM event_consolidations x
+                           WHERE x.kind = 'cancel' AND x.reverted_at IS NULL
+                             AND x.source_event_ids[1] = r.event_id AND x.age_group_id = r.age_group_id)
+        ORDER BY ag.sort_order NULLS LAST, e.event_name, p.full_name`,
+      [yc.id]);
+
+    const groupNo = (code, label) => { const m = String(label || code || '').match(/\d+/); return m ? m[0] : (code || ''); };
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'KCA ITS'; wb.created = new Date();
+    const ws = wb.addWorksheet('Participants');
+    ws.columns = [
+      { header: 'Age Group', key: 'ag', width: 12 },
+      { header: 'Event', key: 'event', width: 34 },
+      { header: 'Srl #', key: 'srl', width: 7 },
+      { header: 'Participant Name', key: 'name', width: 34 },
+      { header: 'School', key: 'school', width: 24 },
+      { header: 'Contact', key: 'contact', width: 14 },
+      { header: 'WhatsApp', key: 'whatsapp', width: 14 },
+    ];
+    ws.getColumn('contact').numFmt = '@';
+    ws.getColumn('whatsapp').numFmt = '@';
+
+    let serial = 0, lastKey = null;
+    for (const r of rows) {
+      const ag = groupNo(r.ag_code, r.ag_label);
+      const key = `${ag}|${r.event_name}`;
+      if (key !== lastKey) { serial = 0; lastKey = key; }
+      serial += 1;
+      ws.addRow({
+        ag, event: r.event_name, srl: serial,
+        name: String(r.full_name || '').toUpperCase(),
+        school: r.school_name || '',
+        contact: r.contact ? String(r.contact) : '',
+        whatsapp: r.whatsapp ? String(r.whatsapp) : (r.contact ? String(r.contact) : ''),
+      });
+    }
+    const h = ws.getRow(1); h.font = { bold: true };
+    ['E1', 'F1', 'G1'].forEach((c) => {
+      ws.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+    });
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    ws.autoFilter = { from: 'A1', to: 'G1' };
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'EXPORT_PARTICIPANTS_XLSX', entity: 'registrations', details: { rows: rows.length } });
+
+    const buf = await wb.xlsx.writeBuffer();
+    const label = String(yc.event_year_label || 'ITS').replace(/[^A-Za-z0-9]+/g, '-');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="participants-by-event-${label}.xlsx"`);
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/admin/lists/by-participant ──────────────────────────────────────
 router.get('/by-participant', requireRole(...staffRoles), async (req, res, next) => {
   try {

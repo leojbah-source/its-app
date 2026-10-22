@@ -409,6 +409,12 @@ export const teamsApi = {
 
 export const listsApi = {
   byEvent: (token) => request('/api/admin/lists/by-event', { token }),
+  /** Participants by age group + event as Excel. Returns a Blob. */
+  byEventXlsx: async (token) => {
+    const res = await fetch(`${API_BASE}/api/admin/lists/by-event-xlsx`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
+    return res.blob();
+  },
   byParticipant: (token) => request('/api/admin/lists/by-participant', { token }),
   final: (token) => request('/api/admin/lists/final', { token }),
   publishInitial: (token) => request('/api/admin/lists/publish-initial', { method: 'POST', token, body: {} }),

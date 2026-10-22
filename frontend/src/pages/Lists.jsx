@@ -166,6 +166,21 @@ export default function Lists() {
     finally { setDlZip(false); }
   }
 
+  const [dlXlsx, setDlXlsx] = useState(false);
+  async function downloadByEventXlsx() {
+    setDlXlsx(true); setFlash('');
+    try {
+      const blob = await listsApi.byEventXlsx(token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `participants-by-event-${(year?.event_year_label || 'ITS').replace(/[^a-z0-9]+/gi, '_')}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (err) { setFlash(err.message || 'Could not generate the Excel.'); }
+    finally { setDlXlsx(false); }
+  }
+
   async function downloadFinalZip() {
     setDlFinalZip(true);
     setFlash('');
@@ -213,6 +228,9 @@ export default function Lists() {
           </Button>
           <Button variant="outline" icon={Download} onClick={downloadFinalZip} loading={dlFinalZip} disabled={loading || !!error}>
             Download final lists (after splits/merges)
+          </Button>
+          <Button variant="outline" icon={Download} onClick={downloadByEventXlsx} loading={dlXlsx} disabled={loading || !!error}>
+            Participants Excel (by event)
           </Button>
           <Button
             variant="gold"
