@@ -170,9 +170,10 @@ export default function PublicBoard() {
                         <div className="truncate text-sm font-semibold text-navy-800">
                           {g.event_code && <span className="mr-1.5 font-mono text-xs text-navy-500">{g.event_code}</span>}
                           {g.event_name}{g.age_group && <span className="text-slate-400"> · {g.age_group}</span>}
+                          {g.event_date && <span className="text-slate-400"> · {fmtDate(g.event_date)}</span>}
                         </div>
                         <div className="truncate text-[11px] text-slate-400">
-                          {[g.category, fmtDate(g.event_date), `${g.rows.length} result${g.rows.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
+                          {[g.category, `${g.rows.length} result${g.rows.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
                         </div>
                       </div>
                       <ChevronDown size={18} className={`shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -181,9 +182,16 @@ export default function PublicBoard() {
                       <ul className="divide-y divide-slate-100 border-t border-slate-100">
                         {g.rows.map((r, i) => (
                           <li key={i} className="flex items-center gap-3 px-4 py-2">
-                            <span className="w-6 text-center text-lg">{MEDAL[r.rank] || <span className="text-xs text-slate-300">{r.rank || '—'}</span>}</span>
-                            <span className="w-12 shrink-0 font-mono text-xs text-slate-500">#{r.chest_number}</span>
-                            <span className="flex-1 text-sm font-medium text-slate-800">{r.child_name}{r.school && <span className="block text-[11px] font-normal text-slate-400">{r.school}</span>}</span>
+                            <span className="w-7 shrink-0 text-center">
+                              {MEDAL[r.place]
+                                ? <span className="text-lg">{MEDAL[r.place]}</span>
+                                : <span className="text-sm font-semibold text-slate-500">{r.rank ?? '—'}</span>}
+                            </span>
+                            <span className="flex-1 text-sm font-medium text-slate-800">
+                              {r.child_name}
+                              {r.chest_number != null && <span className="ml-1.5 font-mono text-[11px] font-normal text-slate-400">#{r.chest_number}</span>}
+                              {r.school && <span className="block text-[11px] font-normal text-slate-400">{r.school}</span>}
+                            </span>
                             {r.grade && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-navy-700">{r.grade}</span>}
                           </li>
                         ))}

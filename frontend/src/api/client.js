@@ -553,6 +553,7 @@ export const resultsApi = {
   reviewDivergence: (token, eventId, ag, registration_id, note) => request(`/api/admin/results/${eventId}/${ag}/divergence`, { method: 'POST', token, body: { registration_id, note } }),
   finalise: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/finalise`, { method: 'POST', token, body: {} }),
   publish: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/publish`, { method: 'POST', token, body: {} }),
+  backfillRanks: (token) => request('/api/admin/results/backfill-ranks', { method: 'POST', token, body: {} }),
   tiebreakUnlock: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/tiebreak/unlock`, { method: 'POST', token, body: {} }),
   tiebreakMarks: (token, eventId, ag, unlock_id, marks) => request(`/api/admin/results/${eventId}/${ag}/tiebreak/marks`, { method: 'POST', token, body: { unlock_id, marks } }),
   setExtraPrize: (token, eventId, ag, registration_id, extra_prize_type) => request(`/api/admin/results/${eventId}/${ag}/extra-prize`, { method: 'POST', token, body: { registration_id, extra_prize_type } }),

@@ -154,7 +154,7 @@ router.get('/results', async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT res.event_id, e.event_code, e.event_name, cat.name AS category,
               r.age_group_id, ag.label AS age_group, ag.sort_order AS ag_sort,
-              res.prize_place AS rank, res.grade,
+              res.prize_place AS place, res.final_rank AS rank, res.grade,
               res.rank_points, res.grade_points,
               p.full_name AS child_name, sch.name AS school,
               ca.chest_number,
@@ -169,7 +169,7 @@ router.get('/results', async (req, res, next) => {
        LEFT JOIN chest_assignments ca ON ca.registration_id = res.registration_id
        WHERE r.year_id = $1 AND res.is_published = true
          AND ($2::int IS NULL OR res.event_id = $2)
-       ORDER BY event_date NULLS LAST, e.event_code, ag.sort_order NULLS LAST, res.prize_place`,
+       ORDER BY event_date NULLS LAST, e.event_code, ag.sort_order NULLS LAST, res.final_rank NULLS LAST, res.prize_place`,
       [yearId, req.query.event_id || null]
     );
     res.json(rows);

@@ -90,6 +90,14 @@ export default function Results() {
     finally { setBusy(false); }
   }
 
+  const [syncing, setSyncing] = useState(false);
+  async function syncRanks() {
+    setSyncing(true); setFlash('');
+    try { const r = await resultsApi.backfillRanks(token); setFlash(`Public ranks synced — ${r.updated} entries across ${r.groups} group(s).`); }
+    catch (e) { setFlash(e.message); }
+    finally { setSyncing(false); }
+  }
+
   const state = data?.state || {};
   const flagged = useMemo(() => (data?.results || []).filter((r) => r.exact_tie || r.divergence_flag).length, [data]);
   const unreviewedDiv = useMemo(() => (data?.results || []).filter((r) => r.divergence_flag && !r.divergence_notes).length, [data]);
@@ -138,7 +146,8 @@ export default function Results() {
   const sel = 'rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
 
   return (
-    <AdminLayout title="Results" subtitle="Compute placements (rank aggregation), review, finalise, then publish. Chairman/SuperAdmin only.">
+    <AdminLayout title="Results" subtitle="Compute placements (rank aggregation), review, finalise, then publish. Chairman/SuperAdmin only."
+      actions={<Button variant="outline" icon={RefreshCw} loading={syncing} onClick={syncRanks}>Sync public ranks</Button>}>
       <Card className="mb-4">
         <div className="flex flex-wrap items-end gap-4">
           <div>

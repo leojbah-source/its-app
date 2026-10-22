@@ -488,17 +488,17 @@ async function persistResults(client, eventId, results) {
   for (const r of results) {
     await client.query(
       `INSERT INTO event_results
-         (registration_id, event_id, prize_place, grade, rank_points, grade_points,
+         (registration_id, event_id, prize_place, final_rank, grade, rank_points, grade_points,
           participation_bonus_pts, tie_flag, divergence_flag)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT (registration_id) DO UPDATE SET
-         prize_place = EXCLUDED.prize_place, grade = EXCLUDED.grade,
+         prize_place = EXCLUDED.prize_place, final_rank = EXCLUDED.final_rank, grade = EXCLUDED.grade,
          rank_points = EXCLUDED.rank_points, grade_points = EXCLUDED.grade_points,
          participation_bonus_pts = EXCLUDED.participation_bonus_pts,
          tie_flag = EXCLUDED.tie_flag, divergence_flag = EXCLUDED.divergence_flag,
          updated_at = NOW()
        WHERE event_results.is_published = FALSE`,
-      [r.registration_id, eventId, r.place, r.grade, r.rank_points, r.grade_points,
+      [r.registration_id, eventId, r.place, r.final_rank, r.grade, r.rank_points, r.grade_points,
        r.participation_bonus_pts, r.tie_flag, r.divergence_flag]);
   }
 }
@@ -882,6 +882,37 @@ router.get('/results/winners-pack', requireRole(...posterRoles), async (req, res
     await logAudit({ actorId: req.user.id, actorRole: req.user.role, action: 'EXPORT_WINNERS_PACK',
       entity: 'event_results', details: { from, to, groups: groups.length, photos: photos.length } });
     await archive.finalize();
+  } catch (err) { next(err); }
+});
+
+// POST /results/backfill-ranks — recompute & store final_rank for every
+// finalised/published group (one-time fix for groups published before the
+// final_rank column existed). Idempotent; safe to re-run.
+router.post('/results/backfill-ranks', requireRole(...posterRoles), async (req, res, next) => {
+  try {
+    const cfg = await activeCfg();
+    if (!cfg) return res.status(400).json({ error: 'No active year' });
+    const { rows: groups } = await pool.query(
+      `SELECT DISTINCT r.event_id, r.age_group_id
+         FROM event_results er JOIN registrations r ON r.id = er.registration_id
+        WHERE (er.is_finalised = TRUE OR er.is_published = TRUE)`);
+    let updated = 0, done = 0;
+    for (const g of groups) {
+      try {
+        const data = await computeGroup(Number(g.event_id), Number(g.age_group_id), cfg);
+        for (const rr of data.results) {
+          if (rr.final_rank == null) continue;
+          const u = await pool.query(
+            `UPDATE event_results SET final_rank = $1, updated_at = NOW() WHERE registration_id = $2`,
+            [rr.final_rank, rr.registration_id]);
+          updated += u.rowCount;
+        }
+        done += 1;
+      } catch { /* skip a group that can't compute */ }
+    }
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'BACKFILL_FINAL_RANKS', entity: 'event_results', details: { groups: done, updated } });
+    res.json({ groups: done, updated });
   } catch (err) { next(err); }
 });
 
