@@ -89,10 +89,6 @@ export default function LiveBoardInner() {
         </div>
       </div>
 
-      <p className="mb-3 text-[11px] text-slate-400">
-        Shows chest numbers only. Find your child's chest number on their entry card, then watch for when their group is nearing their turn.
-      </p>
-
       {err && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
 
       {groups.length === 0 ? (
