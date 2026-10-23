@@ -40,9 +40,17 @@ function groupReporting(r) {
   const start = r.start_time ? toMin(r.start_time) : null;
   const grp = perGroupRows(r);
   const res = {};
-  if (start == null) { grp.forEach((g) => { res[g.code] = null; }); return res; }
+  if (start == null) {
+    // No start time yet — only an explicit per-group override can give a value.
+    grp.forEach((g) => { res[g.code] = null; });
+    applyReportingOverrides(r, grp, res);
+    return res;
+  }
   if (!r.is_stage_event || grp.length <= 1) {
+    // Non-stage or single group (e.g. after an ungroup/split): auto = 15 min
+    // before start, but an explicit per-group override still wins.
     grp.forEach((g) => { res[g.code] = start - 15; });
+    applyReportingOverrides(r, grp, res);
     return res;
   }
   let performStart = start;
