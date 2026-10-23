@@ -15,6 +15,15 @@ import { pickDefaultDate } from '../../utils/dates';
 import { useAuth } from '../../context/AuthContext';
 import { scheduleApi, resultsApi } from '../../api/client';
 
+// Short judge label for the per-judge rank columns: drop a leading title
+// (Mr./Mrs./Dr. …) and show the first name, so columns aren't all "Mr.".
+function judgeShort(name) {
+  const titles = new Set(['mr', 'mr.', 'mrs', 'mrs.', 'ms', 'ms.', 'miss', 'dr', 'dr.', 'mx', 'mx.', 'prof', 'prof.', 'fr', 'fr.', 'rev', 'rev.']);
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  while (parts.length > 1 && titles.has(parts[0].toLowerCase())) parts.shift();
+  return parts[0] || String(name || '');
+}
+
 export default function Results() {
   const { token, user } = useAuth();
   const navigate = useNavigate();
@@ -233,7 +242,7 @@ export default function Results() {
                       <th className="px-3 py-2 text-left">Chest</th>
                       {(data.judge_meta || data.judges.map((n) => ({ name: n, agreed: false }))).map((j, ji) => (
                         <th key={ji} className="px-2 py-2 text-center" title={j.agreed ? `${j.name} — agreed the result` : j.name}>
-                          <span className={j.agreed ? 'text-emerald-700' : ''}>{j.name.split(' ')[0]}{j.agreed ? ' ✓' : ''}</span>
+                          <span className={`block whitespace-nowrap normal-case text-[11px] font-semibold ${j.agreed ? 'text-emerald-700' : 'text-slate-600'}`} title={j.name}>{judgeShort(j.name)}{j.agreed ? ' ✓' : ''}</span>
                           <div className="text-[10px] font-normal normal-case text-slate-400">rank</div>
                         </th>
                       ))}

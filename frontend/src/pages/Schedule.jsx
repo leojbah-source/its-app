@@ -3,7 +3,7 @@
 // service (no participant double-booked, max 2 events/day per participant,
 // same-category venue clustering), review & adjust rows, then publish.
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef, useLayoutEffect } from 'react';
 import { RefreshCw, Wand2, CheckCircle2, Save, Lock, Unlock, Trash2, Download } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
@@ -138,8 +138,13 @@ export default function Schedule() {
   const [addable, setAddable] = useState([]);       // unscheduled event cells
   const [addForms, setAddForms] = useState({});     // key -> { date, venue, start }
 
+  // Preserve scroll position across reloads (adjusting a row shouldn't jump the
+  // page back to the top), and only show the full-page loader on the first load.
+  const firstLoad = useRef(true);
+  const pendingScroll = useRef(null);
   const load = useCallback(async () => {
-    setLoading(true);
+    pendingScroll.current = window.scrollY;
+    if (firstLoad.current) setLoading(true);
     setError('');
     try {
       const [rowsData, venueData, catData, addableData] = await Promise.all([
@@ -154,8 +159,15 @@ export default function Schedule() {
       setAddable(addableData || []);
     } catch (err) {
       setError(err.message || 'Failed to load schedule');
-    } finally { setLoading(false); }
+    } finally { setLoading(false); firstLoad.current = false; }
   }, [token]);
+
+  useLayoutEffect(() => {
+    if (pendingScroll.current != null) {
+      const y = pendingScroll.current; pendingScroll.current = null;
+      window.scrollTo(0, y);
+    }
+  }, [rows]);
 
   useEffect(() => { load(); }, [load]);
 
