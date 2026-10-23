@@ -489,6 +489,7 @@ export const scheduleApi = {
   list: (token) => request('/api/admin/schedule', { token }),
   generateDraft: (token, body) => request('/api/admin/schedule/generate-draft', { method: 'POST', token, body }),
   update: (token, id, body) => request(`/api/admin/schedule/${id}`, { method: 'PUT', token, body }),
+  setGroupMeta: (token, id, body) => request(`/api/admin/schedule/${id}/group-meta`, { method: 'PATCH', token, body }),
   publish: (token, cutoff_date) => request('/api/admin/schedule/publish', { method: 'POST', token, body: { cutoff_date } }),
   unpublish: (token, id) => request(`/api/admin/schedule/${id}/unpublish`, { method: 'POST', token, body: {} }),
   combine: (token, id) => request(`/api/admin/schedule/${id}/combine`, { method: 'POST', token, body: {} }),

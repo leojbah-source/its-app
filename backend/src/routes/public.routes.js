@@ -86,7 +86,7 @@ router.get('/schedule', async (req, res, next) => {
       `SELECT sd.id AS sched_id, e.event_name, (e.event_kind = 'team') AS is_team_event,
               sd.venue, to_char(sd.event_date, 'YYYY-MM-DD') AS event_date,
               to_char(sd.start_time, 'HH24:MI') AS start_time,
-              e.is_stage_event, e.allotted_time_seconds,
+              e.is_stage_event, e.allotted_time_seconds, sd.group_meta,
               ag.code, ag.label, ag.sort_order,
               (SELECT COUNT(*) FROM registrations r
                  LEFT JOIN participants pr ON pr.id = r.participant_id
@@ -110,7 +110,7 @@ router.get('/schedule', async (req, res, next) => {
       if (!bySched.has(r.sched_id)) bySched.set(r.sched_id, {
         event_name: r.event_name, is_team_event: r.is_team_event, venue: r.venue,
         event_date: r.event_date, start_time: r.start_time,
-        is_stage_event: r.is_stage_event, allotted: r.allotted_time_seconds, groups: [] });
+        is_stage_event: r.is_stage_event, allotted: r.allotted_time_seconds, group_meta: r.group_meta || {}, groups: [] });
       bySched.get(r.sched_id).groups.push({ code: r.code, label: r.label, cnt: Number(r.cnt) || 0 });
     }
 
@@ -119,19 +119,23 @@ router.get('/schedule', async (req, res, next) => {
       const start = s.start_time ? toMin(s.start_time) : null;
       const perMin = s.allotted ? s.allotted / 60 : 5;
       const timeAllowed = s.allotted ? `${Math.round((s.allotted / 60) * 10) / 10} min` : null;
+      const gm = s.group_meta || {};
       let groups;
       if (start == null) {
-        groups = s.groups.map((g) => ({ label: g.label, time_allowed: timeAllowed, report: null }));
+        groups = s.groups.map((g) => ({ code: g.code, label: g.label, time_allowed: timeAllowed, report: null }));
       } else if (!s.is_stage_event || s.groups.length <= 1) {
-        groups = s.groups.map((g) => ({ label: g.label, time_allowed: timeAllowed, report: fmt(start - 15) }));
+        groups = s.groups.map((g) => ({ code: g.code, label: g.label, time_allowed: timeAllowed, report: fmt(start - 15) }));
       } else {
         let performStart = start;
         groups = s.groups.map((g, i) => {
           const rep = i === 0 ? start - 15 : performStart - 30;
           performStart += Math.ceil(g.cnt * perMin);
-          return { label: g.label, time_allowed: timeAllowed, report: fmt(rep) };
+          return { code: g.code, label: g.label, time_allowed: timeAllowed, report: fmt(rep) };
         });
       }
+      // Per-group reporting overrides win over the auto-staggered value.
+      groups = groups.map((g) => (gm[g.code] && gm[g.code].reporting)
+        ? { ...g, report: fmt(toMin(gm[g.code].reporting)) } : g);
       out.push({ event_name: s.event_name, is_team_event: s.is_team_event,
         venue: s.venue, event_date: s.event_date, groups });
     }

@@ -584,6 +584,7 @@ router.get('/', requireRole(...staffRoles, 'Media'), async (req, res, next) => {
       `SELECT s.id, to_char(s.event_date, 'YYYY-MM-DD') AS event_date,
               s.start_time, s.end_time, s.venue, s.status, s.generated_by_scheduler,
               s.event_id, s.time_slot_id, s.age_groups, s.is_locked, s.looks_good,
+              s.group_meta,
               to_char(s.locked_at, 'YYYY-MM-DD') AS locked_at,
               e.event_code, e.event_name, e.event_kind, c.name AS category_name, c.code AS category_code,
               e.allotted_time_seconds, e.is_stage_event,
@@ -608,6 +609,41 @@ router.get('/', requireRole(...staffRoles, 'Media'), async (req, res, next) => {
        WHERE s.year_id = $1
        ORDER BY s.event_date, s.start_time, s.venue`, [yc.id]);
     res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// ── PATCH /api/admin/schedule/:id/group-meta ─────────────────────────────────
+// Set a per-group reporting override ("HH:MM" or null to clear) and/or the
+// "done" (performance completed) flag. Reporting edits follow the publish guard;
+// the done tick is allowed any time (used live, on confirmed rows).
+router.patch('/:id/group-meta', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ error: 'group code is required' });
+    const changingReporting = Object.prototype.hasOwnProperty.call(req.body, 'reporting');
+    if (changingReporting && req.user.role !== 'SuperAdmin' && await rowPublished(req.params.id))
+      return res.status(403).json({ error: PUBLISHED_GUARD });
+
+    const { rows: cur } = await pool.query(`SELECT group_meta FROM schedule WHERE id = $1`, [req.params.id]);
+    if (!cur[0]) return res.status(404).json({ error: 'Schedule row not found' });
+    const gm = cur[0].group_meta || {};
+    const entry = { ...(gm[code] || {}) };
+    if (changingReporting) {
+      const v = req.body.reporting;
+      if (v) entry.reporting = String(v).slice(0, 5); else delete entry.reporting;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, 'done')) {
+      if (req.body.done) entry.done = true; else delete entry.done;
+    }
+    const next = { ...gm };
+    if (Object.keys(entry).length) next[code] = entry; else delete next[code];
+
+    const { rows } = await pool.query(
+      `UPDATE schedule SET group_meta = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING group_meta`,
+      [JSON.stringify(next), req.params.id]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'EDIT_SCHEDULE_GROUP_META', entity: 'schedule', entityId: req.params.id, details: { code } });
+    res.json({ group_meta: rows[0].group_meta });
   } catch (err) { next(err); }
 });
 
@@ -699,6 +735,7 @@ router.get('/full-report', requireRole(...staffRoles), async (req, res, next) =>
     const { rows } = await pool.query(
       `SELECT s.id AS sched_id, to_char(s.event_date,'YYYY-MM-DD') AS event_date,
               to_char(s.event_date,'Dy') AS dow, s.venue, s.status,
+              s.group_meta,
               to_char(s.start_time,'HH24:MI') AS start_time, to_char(s.end_time,'HH24:MI') AS end_time,
               e.event_code, e.event_name, e.is_stage_event, e.allotted_time_seconds,
               ag.code AS gcode, ag.label AS glabel, ag.sort_order AS gsort,
@@ -724,7 +761,7 @@ router.get('/full-report', requireRole(...staffRoles), async (req, res, next) =>
       if (!meta.has(r.sched_id)) meta.set(r.sched_id, {
         start: r.start_time ? toMin(r.start_time) : null,
         perMin: r.allotted_time_seconds ? r.allotted_time_seconds / 60 : 5,
-        isStage: r.is_stage_event, order: [] });
+        isStage: r.is_stage_event, gm: r.group_meta || {}, order: [] });
       meta.get(r.sched_id).order.push({ code: r.gcode, cnt: Number(r.cnt) || 0 });
     }
     const repMap = new Map();
@@ -733,6 +770,13 @@ router.get('/full-report', requireRole(...staffRoles), async (req, res, next) =>
       if (!m.isStage || m.order.length <= 1) { m.order.forEach((g) => repMap.set(`${sid}|${g.code}`, m.start - 15)); continue; }
       let ps = m.start;
       m.order.forEach((g, i) => { repMap.set(`${sid}|${g.code}`, i === 0 ? m.start - 15 : ps - 30); ps += Math.ceil(g.cnt * m.perMin); });
+    }
+    // Per-group reporting overrides win over the auto-staggered value.
+    for (const [sid, m] of meta) {
+      for (const g of m.order) {
+        const ov = m.gm && m.gm[g.code] && m.gm[g.code].reporting;
+        if (ov) repMap.set(`${sid}|${g.code}`, toMin(ov));
+      }
     }
 
     // 12-hour dotted time, e.g. 6.50pm (the format used on parent notices)
@@ -859,7 +903,8 @@ router.get('/day-report', requireRole(...staffRoles), async (req, res, next) => 
     const { rows: sched } = await pool.query(
       `SELECT s.id AS sched_id, s.venue, s.age_groups,
               to_char(s.start_time,'HH24:MI') AS start_time, to_char(s.end_time,'HH24:MI') AS end_time,
-              e.id AS event_id, e.event_code, e.event_name, e.is_stage_event, e.allotted_time_seconds
+              e.id AS event_id, e.event_code, e.event_name, e.is_stage_event, e.allotted_time_seconds,
+              s.group_meta
          FROM schedule s JOIN events e ON e.id = s.event_id
         WHERE s.year_id = $1 AND s.event_date = $2
         ORDER BY s.start_time NULLS LAST, s.id`, [yc.id, date]);
@@ -902,6 +947,9 @@ router.get('/day-report', requireRole(...staffRoles), async (req, res, next) => 
           });
         }
       }
+      // Per-group reporting overrides.
+      const gm = row.group_meta || {};
+      orderedCodes.forEach((c) => { if (gm[c] && gm[c].reporting) repByGroup[c] = toMin(gm[c].reporting); });
 
       for (const p of parts) {
         if (!byPart.has(p.id)) byPart.set(p.id, { name: p.full_name, group: p.glabel, school: p.school || '', events: [] });

@@ -50,7 +50,51 @@ function groupReporting(r) {
     res[g.code] = i === 0 ? start - 15 : performStart - 30;
     performStart += Math.ceil((Number(g.entries) || 0) * (g.perMin || 5));
   });
+  applyReportingOverrides(r, grp, res);
   return res;
+}
+
+// A per-group reporting override ("HH:MM" in group_meta) wins over the stagger.
+function applyReportingOverrides(r, grp, res) {
+  const gm = r.group_meta || {};
+  grp.forEach((g) => { if (gm[g.code] && gm[g.code].reporting) res[g.code] = toMin(gm[g.code].reporting); });
+}
+
+// Reporting cell with an inline override editor (set a specific time, or revert
+// to the auto-staggered value).
+function ReportingCell({ row, code, minutes, canEdit, onPatch }) {
+  const [edit, setEdit] = useState(false);
+  const [val, setVal] = useState('');
+  const override = row.group_meta && row.group_meta[code] && row.group_meta[code].reporting;
+  if (edit) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <input type="time" value={val} onChange={(e) => setVal(e.target.value)} className="w-24 rounded border border-slate-300 px-1 py-0.5 text-xs" />
+        <button onClick={async () => { await onPatch(row, code, { reporting: val || null }); setEdit(false); }} className="text-emerald-600" title="Save">✓</button>
+        <button onClick={() => setEdit(false)} className="text-slate-400" title="Cancel">×</button>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 font-mono text-xs">
+      <span className={override ? 'font-semibold text-navy-700' : ''}>{minutes != null ? fmtMin(minutes) : '—'}</span>
+      {canEdit && <button onClick={() => { setVal(override || (minutes != null ? fmtMin(minutes) : '')); setEdit(true); }} className="font-sans text-[10px] text-navy-500 underline" title="Set a specific reporting time for this group">edit</button>}
+      {override && canEdit && <button onClick={() => onPatch(row, code, { reporting: null })} className="font-sans text-[10px] text-slate-400 underline" title="Back to the auto-calculated time">auto</button>}
+    </span>
+  );
+}
+
+// Per-group performance-completed tick (visible on the day screen).
+function DoneTick({ row, code, canEdit, onPatch }) {
+  const done = !!(row.group_meta && row.group_meta[code] && row.group_meta[code].done);
+  if (!canEdit) return done ? <CheckCircle2 size={15} className="text-emerald-600" title="Performed" /> : null;
+  return (
+    <button onClick={() => onPatch(row, code, { done: !done })}
+      title={done ? 'Performed — tap to unmark' : 'Mark this group as performed'}
+      className={done ? 'text-emerald-600' : 'text-slate-300 hover:text-emerald-500'}>
+      <CheckCircle2 size={15} />
+    </button>
+  );
 }
 
 function RowEditor({ row, token, onSaved }) {
@@ -170,6 +214,12 @@ export default function Schedule() {
   }, [rows]);
 
   useEffect(() => { load(); }, [load]);
+
+  async function patchGroupMeta(row, code, patch) {
+    setFlash('');
+    try { await scheduleApi.setGroupMeta(token, row.id, { code, ...patch }); load(); }
+    catch (e) { setFlash(e.message || 'Could not update the group.'); }
+  }
 
   async function generate() {
     setGenerating(true);
@@ -773,10 +823,11 @@ export default function Schedule() {
                                   <button onClick={() => removeGroup(r, g.code)} title={`Remove ${g.code} from this event`}
                                     className="ml-1 text-slate-300 hover:text-red-500 text-sm font-bold leading-none align-middle">×</button>
                                 )}
+                                <span className="ml-2 inline-flex align-middle"><DoneTick row={r} code={g.code} canEdit={canEdit} onPatch={patchGroupMeta} /></span>
                               </td>
                               <td className="px-3 py-2"><Badge tone="navy">{g.entries}</Badge></td>
                               <td className="px-3 py-2 text-xs text-slate-600">{g.perMin ? `${g.perMin} min` : '—'}</td>
-                              <td className="px-3 py-2 font-mono text-xs">{grMap[g.code] != null ? fmtMin(grMap[g.code]) : '—'}</td>
+                              <td className="px-3 py-2"><ReportingCell row={r} code={g.code} minutes={grMap[g.code]} canEdit={canChange(r)} onPatch={patchGroupMeta} /></td>
                               {gi === 0 && (
                                 <>
                                   <td rowSpan={n} className="px-3 py-2 align-top">{statusCell}</td>
