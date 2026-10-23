@@ -567,6 +567,12 @@ export const resultsApi = {
   finalise: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/finalise`, { method: 'POST', token, body: {} }),
   publish: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/publish`, { method: 'POST', token, body: {} }),
   backfillRanks: (token) => request('/api/admin/results/backfill-ranks', { method: 'POST', token, body: {} }),
+  /** Full results extract (all completed groups) as Excel. Returns a Blob. */
+  exportXlsx: async (token) => {
+    const res = await fetch(`${API_BASE}/api/admin/results/export.xlsx`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
+    return res.blob();
+  },
   tiebreakUnlock: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/tiebreak/unlock`, { method: 'POST', token, body: {} }),
   tiebreakMarks: (token, eventId, ag, unlock_id, marks) => request(`/api/admin/results/${eventId}/${ag}/tiebreak/marks`, { method: 'POST', token, body: { unlock_id, marks } }),
   setExtraPrize: (token, eventId, ag, registration_id, extra_prize_type) => request(`/api/admin/results/${eventId}/${ag}/extra-prize`, { method: 'POST', token, body: { registration_id, extra_prize_type } }),

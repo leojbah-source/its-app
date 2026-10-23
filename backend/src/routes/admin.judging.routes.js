@@ -916,6 +916,186 @@ router.post('/results/backfill-ranks', requireRole(...posterRoles), async (req, 
   } catch (err) { next(err); }
 });
 
+// ── GET /api/admin/results/export.xlsx ───────────────────────────────────────
+// Full results extract / backup: every completed (finalised or published) group,
+// one row per participant — rank, place, grade, score %, points, school, teacher,
+// DQ/over-time/extra-prize flags, and finalised/published status. Built from the
+// same computeGroup engine the Results screen uses, so it always matches.
+router.get('/results/export.xlsx', requireRole(...mediaRoles), async (req, res, next) => {
+  try {
+    const cfg = await activeCfg();
+    if (!cfg) return res.status(400).json({ error: 'No active year' });
+
+    // Groups that have been judged to completion.
+    const { rows: groups } = await pool.query(
+      `SELECT DISTINCT r.event_id, r.age_group_id
+         FROM event_results er JOIN registrations r ON r.id = er.registration_id
+        WHERE (er.is_finalised = TRUE OR er.is_published = TRUE)`);
+
+    // event_id + age-group-code -> earliest scheduled date (for the Date column).
+    const dateMap = new Map();
+    const { rows: sched } = await pool.query(
+      `SELECT event_id, age_groups, to_char(event_date,'YYYY-MM-DD') AS d FROM schedule`);
+    for (const r of sched) {
+      for (const c of String(r.age_groups || '').split(', ').filter(Boolean)) {
+        const k = `${r.event_id}|${c}`;
+        if (!dateMap.has(k) || r.d < dateMap.get(k)) dateMap.set(k, r.d);
+      }
+    }
+
+    const evCache = new Map();
+    const eventMeta = async (eventId, agId) => {
+      const k = `${eventId}|${agId}`;
+      if (evCache.has(k)) return evCache.get(k);
+      const { rows } = await pool.query(
+        `SELECT e.event_code, e.event_name, c.name AS category_name,
+                ag.code AS ag_code, COALESCE(ag.label, ag.code) AS ag_label, ag.sort_order AS ag_sort
+           FROM events e LEFT JOIN categories c ON c.id = e.category_id
+           LEFT JOIN age_groups ag ON ag.id = $2 WHERE e.id = $1`, [eventId, agId]);
+      const m = rows[0] || {};
+      evCache.set(k, m);
+      return m;
+    };
+
+    const teacher = (v) => (!v ? '' : v === 'NOT_APPLICABLE' ? 'Self-taught' : v);
+    const placeLabel = (n) => (n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : n ? String(n) : '');
+    const extraLabel = (t) => (t === 'additional_3rd' ? 'Additional 3rd' : t === 'consolation' ? 'Consolation' : '');
+
+    const out = [];
+    for (const g of groups) {
+      let data, state;
+      try {
+        data = await computeGroup(Number(g.event_id), Number(g.age_group_id), cfg);
+        state = await groupState(g.event_id, g.age_group_id);
+      } catch { continue; }
+      const meta = await eventMeta(g.event_id, g.age_group_id);
+      const regIds = data.results.map((r) => r.registration_id);
+      const info = new Map();
+      if (regIds.length) {
+        const { rows: nm } = await pool.query(
+          `SELECT r.id, COALESCE(p.full_name, t.team_name) AS name, s.name AS school,
+                  r.dance_teacher, r.music_teacher
+             FROM registrations r
+             LEFT JOIN participants p ON p.id = r.participant_id
+             LEFT JOIN teams t ON t.id = r.team_id
+             LEFT JOIN schools s ON s.id = COALESCE(p.school_id, t.school_id)
+            WHERE r.id = ANY($1)`, [regIds]);
+        nm.forEach((x) => info.set(x.id, x));
+      }
+      for (const r of data.results) {
+        const i = info.get(r.registration_id) || {};
+        out.push({
+          _sort: [dateMap.get(`${g.event_id}|${meta.ag_code}`) || '9999', meta.category_name || '',
+                  meta.event_code || '', Number(meta.ag_sort) || 999, r.final_rank || 999, r.chest_number || 0],
+          date: dateMap.get(`${g.event_id}|${meta.ag_code}`) || '',
+          category: meta.category_name || '',
+          event_code: meta.event_code || '',
+          event: meta.event_name || '',
+          age_group: meta.ag_label || meta.ag_code || '',
+          rank: r.is_disqualified ? '' : (r.final_rank ?? ''),
+          place: placeLabel(r.place),
+          grade: r.grade || '',
+          score_pct: r.avg_pct == null ? '' : r.avg_pct,
+          chest: r.chest_number || '',
+          name: String(i.name || '').toUpperCase(),
+          school: i.school || '',
+          dance_teacher: teacher(i.dance_teacher),
+          music_teacher: teacher(i.music_teacher),
+          rank_pts: Number(r.rank_points) || 0,
+          grade_pts: Number(r.grade_points) || 0,
+          bonus_pts: Number(r.participation_bonus_pts) || 0,
+          total_pts: Number(r.total_points) || 0,
+          disqualified: r.is_disqualified ? (r.dq_reason || 'Disqualified') : '',
+          over_time: r.over_time ? 'Yes' : '',
+          extra_prize: extraLabel(r.extra_prize_type),
+          divergence: r.divergence_flag ? 'Yes' : '',
+          finalised: state.finalised ? 'Yes' : 'No',
+          published: state.published ? 'Yes' : 'No',
+        });
+      }
+    }
+    out.sort((a, b) => {
+      for (let i = 0; i < a._sort.length; i++) {
+        if (a._sort[i] < b._sort[i]) return -1;
+        if (a._sort[i] > b._sort[i]) return 1;
+      }
+      return 0;
+    });
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'KCA ITS'; wb.created = new Date();
+
+    const cols = [
+      { header: 'Date', key: 'date', width: 11 },
+      { header: 'Category', key: 'category', width: 18 },
+      { header: 'Event code', key: 'event_code', width: 11 },
+      { header: 'Event', key: 'event', width: 26 },
+      { header: 'Age group', key: 'age_group', width: 12 },
+      { header: 'Rank', key: 'rank', width: 7 },
+      { header: 'Prize', key: 'place', width: 8 },
+      { header: 'Grade', key: 'grade', width: 7 },
+      { header: 'Score %', key: 'score_pct', width: 9 },
+      { header: 'Chest #', key: 'chest', width: 8 },
+      { header: 'Name', key: 'name', width: 30 },
+      { header: 'School', key: 'school', width: 24 },
+      { header: 'Dance teacher', key: 'dance_teacher', width: 20 },
+      { header: 'Music teacher', key: 'music_teacher', width: 20 },
+      { header: 'Rank pts', key: 'rank_pts', width: 9 },
+      { header: 'Grade pts', key: 'grade_pts', width: 9 },
+      { header: 'Part. bonus', key: 'bonus_pts', width: 10 },
+      { header: 'Total pts', key: 'total_pts', width: 9 },
+      { header: 'Disqualified', key: 'disqualified', width: 18 },
+      { header: 'Over time', key: 'over_time', width: 9 },
+      { header: 'Extra prize', key: 'extra_prize', width: 14 },
+      { header: 'Divergence', key: 'divergence', width: 10 },
+      { header: 'Finalised', key: 'finalised', width: 9 },
+      { header: 'Published', key: 'published', width: 9 },
+    ];
+
+    const ws = wb.addWorksheet('All results');
+    ws.columns = cols;
+    ws.getColumn('chest').numFmt = '0';
+    out.forEach((r) => ws.addRow(r));
+    ws.getRow(1).font = { bold: true };
+    ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3A5F' } };
+    ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    const lastCol = String.fromCharCode(64 + cols.length);
+    ws.autoFilter = { from: 'A1', to: `${lastCol}1` };
+
+    // Prize winners sheet (1st/2nd/3rd only), for a quick overview.
+    const wsW = wb.addWorksheet('Prize winners');
+    wsW.columns = [
+      { header: 'Date', key: 'date', width: 11 },
+      { header: 'Category', key: 'category', width: 18 },
+      { header: 'Event', key: 'event', width: 26 },
+      { header: 'Age group', key: 'age_group', width: 12 },
+      { header: 'Prize', key: 'place', width: 8 },
+      { header: 'Chest #', key: 'chest', width: 8 },
+      { header: 'Name', key: 'name', width: 30 },
+      { header: 'School', key: 'school', width: 24 },
+      { header: 'Grade', key: 'grade', width: 7 },
+      { header: 'Score %', key: 'score_pct', width: 9 },
+    ];
+    out.filter((r) => r.place).forEach((r) => wsW.addRow(r));
+    wsW.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    wsW.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3A5F' } };
+    wsW.views = [{ state: 'frozen', ySplit: 1 }];
+    wsW.autoFilter = { from: 'A1', to: 'J1' };
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'EXPORT_RESULTS_XLSX', entity: 'event_results', details: { rows: out.length, groups: groups.length } });
+
+    const buf = await wb.xlsx.writeBuffer();
+    const label = String(cfg.event_year_label || 'ITS').replace(/[^A-Za-z0-9]+/g, '-');
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="results-${label}-${stamp}.xlsx"`);
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+});
+
 router.computeGroup = computeGroup;
 router.activeCfg = activeCfg;
 router.groupState = groupState;

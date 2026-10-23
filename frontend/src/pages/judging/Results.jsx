@@ -6,7 +6,7 @@
 // and the judges' 1–10 marks are keyed in to separate the tied chests.
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Calculator, CheckCircle2, Send, AlertTriangle, Scale, X, Printer, Trophy } from 'lucide-react';
+import { RefreshCw, Calculator, CheckCircle2, Send, AlertTriangle, Scale, X, Printer, Trophy, Download } from 'lucide-react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { Card, Badge } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -107,6 +107,21 @@ export default function Results() {
     finally { setSyncing(false); }
   }
 
+  const [exporting, setExporting] = useState(false);
+  async function exportResults() {
+    setExporting(true); setFlash('');
+    try {
+      const blob = await resultsApi.exportXlsx(token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ITS-results-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e) { setFlash(e.message || 'Export failed.'); }
+    finally { setExporting(false); }
+  }
+
   const state = data?.state || {};
   const flagged = useMemo(() => (data?.results || []).filter((r) => r.exact_tie || r.divergence_flag).length, [data]);
   const unreviewedDiv = useMemo(() => (data?.results || []).filter((r) => r.divergence_flag && !r.divergence_notes).length, [data]);
@@ -156,7 +171,10 @@ export default function Results() {
 
   return (
     <AdminLayout title="Results" subtitle="Compute placements (rank aggregation), review, finalise, then publish. Chairman/SuperAdmin only."
-      actions={<Button variant="outline" icon={RefreshCw} loading={syncing} onClick={syncRanks}>Sync public ranks</Button>}>
+      actions={<div className="flex items-center gap-2">
+        <Button variant="outline" icon={Download} loading={exporting} onClick={exportResults}>Export to Excel</Button>
+        <Button variant="outline" icon={RefreshCw} loading={syncing} onClick={syncRanks}>Sync public ranks</Button>
+      </div>}>
       <Card className="mb-4">
         <div className="flex flex-wrap items-end gap-4">
           <div>
