@@ -3,7 +3,7 @@
 // running totals, plus their personal schedule. NO chest numbers (rule #22).
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LogOut, Trophy, CalendarDays } from 'lucide-react';
+import { LogOut, Trophy, CalendarDays, Radio } from 'lucide-react';
 import { usePwaAuth } from '../../context/PwaAuthContext';
 import { pwaApi } from '../../api/client';
 import BrandMark from '../../components/ui/BrandMark';
@@ -99,6 +99,14 @@ export default function MyPortal() {
               </ul>
             </div>
           )}
+
+        <Link to="/live" className="mt-5 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 hover:bg-amber-100">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white"><Radio size={16} /></span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-navy-800">Live event progress</span>
+            <span className="block text-[11px] text-slate-500">Where each group has reached on stage, by chest number</span>
+          </span>
+        </Link>
 
         <div className="mt-5 text-center">
           <Link to="/pwa" className="text-sm text-slate-500 hover:text-navy-700">Public results board →</Link>

@@ -4,7 +4,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, User, CalendarDays, Clock, CheckCircle, ChevronRight } from 'lucide-react';
+import { Plus, User, CalendarDays, Clock, CheckCircle, ChevronRight, Radio } from 'lucide-react';
 import { useParentAuth } from '../../context/ParentAuthContext';
 import { portalApi } from './registerApi';
 import RegisterLayout from './RegisterLayout';
@@ -129,6 +129,18 @@ export default function Dashboard() {
     <RegisterLayout title={`Hello, ${firstName}!`} subtitle="Manage your child's registrations">
       <div className="space-y-4">
         <DeadlineBanner config={config} />
+
+        <button
+          onClick={() => navigate('/live')}
+          className="flex w-full items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left hover:bg-amber-100 active:scale-[0.99] transition-all"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white"><Radio size={18} /></span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-navy-800">Live event progress</span>
+            <span className="block text-[11px] text-slate-500">See where each group has reached on stage, by chest number</span>
+          </span>
+          <ChevronRight size={18} className="shrink-0 text-amber-500" />
+        </button>
 
         {loading ? (
           <div className="flex justify-center py-14">

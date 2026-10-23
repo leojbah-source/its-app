@@ -8,7 +8,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import rpLogo from '../../assets/research-point-logo.png';
-import { Trophy, CalendarDays, UserRound, Megaphone, FileText, ChevronDown, Search, BookOpen, ListChecks } from 'lucide-react';
+import { Trophy, CalendarDays, UserRound, Megaphone, FileText, ChevronDown, Search, BookOpen, ListChecks, Radio } from 'lucide-react';
+import LiveBoardInner from '../../components/LiveBoardInner';
 import { publicApi, API_BASE } from '../../api/client';
 
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
@@ -146,6 +147,7 @@ export default function PublicBoard() {
         <div className="mb-4 flex gap-2">
           <TabBtn id="results" icon={Trophy} label="Results" />
           <TabBtn id="schedule" icon={CalendarDays} label="Schedule" />
+          <TabBtn id="live" icon={Radio} label="Live" />
         </div>
 
         {err && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
@@ -242,6 +244,8 @@ export default function PublicBoard() {
             </div>
           )
         )}
+
+        {tab === 'live' && <LiveBoardInner />}
       </main>
     </div>
   );

@@ -58,6 +58,7 @@ import JudgeApp from './pages/judge/JudgeApp';
 import PublicBoard from './pages/pwa/PublicBoard';
 import PwaLogin from './pages/pwa/PwaLogin';
 import MyPortal from './pages/pwa/MyPortal';
+import LivePage from './pages/pwa/LivePage';
 
 // Organiser roles (everyone except the scoped Registrar/Accountant and the
 // day-of MC/Timer roles).
@@ -256,6 +257,7 @@ export default function App() {
 
               {/* ── Participant / public PWA ─────────────────────────────── */}
               <Route path="/pwa" element={<PublicBoard />} />
+              <Route path="/live" element={<LivePage />} />
               <Route path="/pwa/login" element={<PwaLogin />} />
               <Route path="/pwa/me" element={<PwaRoute><MyPortal /></PwaRoute>} />
 
