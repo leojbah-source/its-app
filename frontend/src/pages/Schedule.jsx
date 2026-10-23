@@ -363,6 +363,17 @@ export default function Schedule() {
     } catch (e) { setFlash(e.message); }
   }
 
+  async function splitRow(row) {
+    const codes = (row.age_groups || '').split(', ').filter(Boolean);
+    if (codes.length < 2) { setFlash('That event has only one age group — nothing to split.'); return; }
+    if (!window.confirm(`Split ${row.event_code} ${row.event_name} into separate rows — one per age group (${codes.join(', ')})? Each keeps this venue and time for now; use Adjust on each to set its own venue and time.`)) return;
+    try {
+      const r = await scheduleApi.split(token, row.id);
+      setFlash(`Split into ${(r.created?.length || 0) + 1} rows. Use Adjust on each group to set its own venue and time.`);
+      load();
+    } catch (e) { setFlash(e.message || 'Could not split the row.'); }
+  }
+
   async function combineRows(row) {
     if (!window.confirm(`Combine all rows of ${row.event_code} ${row.event_name} on this date into ONE event (all age groups together) at ${row.venue || 'this venue'} ${(row.start_time || '').slice(0, 5)}–${(row.end_time || '').slice(0, 5)}?`)) return;
     setFlash('');
@@ -837,6 +848,10 @@ export default function Schedule() {
                                         {eventDateCounts[`${String(r.event_date).slice(0, 10)}|${r.event_id}`] > 1 && (
                                           <button onClick={() => combineRows(r)} title="Combine the other row(s) of this event on this date into one"
                                             className="text-xs font-medium text-navy-600 hover:text-navy-700 underline">Combine</button>
+                                        )}
+                                        {grp.length > 1 && (
+                                          <button onClick={() => splitRow(r)} title="Split into one row per age group, so each can have its own venue and time"
+                                            className="text-xs font-medium text-navy-600 hover:text-navy-700 underline">Split groups</button>
                                         )}
                                         <RowEditor row={r} token={token} onSaved={load} />
                                         <button onClick={() => drop(r)} title="Remove this event from the schedule"

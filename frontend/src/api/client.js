@@ -498,6 +498,7 @@ export const scheduleApi = {
   publish: (token, cutoff_date) => request('/api/admin/schedule/publish', { method: 'POST', token, body: { cutoff_date } }),
   unpublish: (token, id) => request(`/api/admin/schedule/${id}/unpublish`, { method: 'POST', token, body: {} }),
   combine: (token, id) => request(`/api/admin/schedule/${id}/combine`, { method: 'POST', token, body: {} }),
+  split: (token, id) => request(`/api/admin/schedule/${id}/split`, { method: 'POST', token, body: {} }),
   dayReport: async (token, date) => {
     const res = await fetch(`${API_BASE}/api/admin/schedule/day-report?date=${encodeURIComponent(date)}`, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }

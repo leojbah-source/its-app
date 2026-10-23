@@ -1266,6 +1266,62 @@ router.post('/:id/combine', requireRole(...editRoles), async (req, res, next) =>
   } catch (err) { next(err); }
 });
 
+// ── POST /api/admin/schedule/:id/split ───────────────────────────────────────
+// Ungroup: turn a row covering several age groups into ONE row per age group,
+// each keeping the same venue/date/time and its own carried-over reporting
+// override. After this, each single-group row can be given its own venue and
+// time via the normal Adjust editor. Idempotent in spirit (a one-group row is a
+// no-op error). Non-SuperAdmin cannot split a published row.
+router.post('/:id/split', requireRole(...editRoles), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    if (req.user.role !== 'SuperAdmin' && await rowPublished(req.params.id))
+      return res.status(403).json({ error: PUBLISHED_GUARD });
+    const { rows: me } = await client.query(
+      `SELECT year_id, event_id, to_char(event_date,'YYYY-MM-DD') AS event_date,
+              start_time, end_time, venue, age_groups, group_meta, status,
+              time_slot_id, judge_assignment_id, is_locked, looks_good
+         FROM schedule WHERE id = $1`, [req.params.id]);
+    if (!me[0]) return res.status(404).json({ error: 'Schedule row not found' });
+    const codes = codesOf(me[0].age_groups);
+    if (codes.length < 2)
+      return res.status(400).json({ error: 'This row has only one age group — nothing to split.' });
+
+    const gm = me[0].group_meta || {};
+    const metaFor = (c) => (gm[c] ? { [c]: gm[c] } : {});
+
+    await client.query('BEGIN');
+    // Keep the first group on the original row; prune its group_meta to itself.
+    await client.query(
+      `UPDATE schedule SET age_groups = $2, group_meta = $3::jsonb,
+         generated_by_scheduler = FALSE, updated_at = NOW() WHERE id = $1`,
+      [req.params.id, codes[0], JSON.stringify(metaFor(codes[0]))]);
+    // One new row per remaining group, same venue/date/time.
+    const created = [];
+    for (const c of codes.slice(1)) {
+      const { rows: ins } = await client.query(
+        `INSERT INTO schedule (year_id, event_id, event_date, start_time, end_time, venue,
+                               age_groups, group_meta, status, time_slot_id, judge_assignment_id,
+                               is_locked, looks_good, generated_by_scheduler)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,FALSE) RETURNING id`,
+        [me[0].year_id, me[0].event_id, me[0].event_date, me[0].start_time, me[0].end_time,
+         me[0].venue, c, JSON.stringify(metaFor(c)), me[0].status, me[0].time_slot_id,
+         me[0].judge_assignment_id, me[0].is_locked, me[0].looks_good]);
+      created.push({ code: c, id: ins[0].id });
+    }
+    await client.query('COMMIT');
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'SPLIT_SCHEDULE_ROW', entity: 'schedule', entityId: req.params.id,
+      details: { event_id: me[0].event_id, kept: codes[0], created } });
+    res.json({ ok: true, kept: codes[0], created });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+    next(err);
+  } finally {
+    client.release();
+  }
+});
+
 // ── POST /api/admin/schedule/:id/remove-group ────────────────────────────────
 // Drop one age group from an event's scheduled row. If it was the last group,
 // the whole row is removed.
