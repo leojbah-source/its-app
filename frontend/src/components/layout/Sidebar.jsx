@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   Settings, ListChecks, Users, Gavel, CalendarClock, Trophy, Wallet,
   Sparkles, ClipboardList, ChevronDown, ClipboardCheck, Megaphone, BadgeDollarSign,
-  UserCog, UserCheck, Combine, Video, Award, ShieldAlert, Home,
+  UserCog, UserCheck, Combine, Video, Award, ShieldAlert, Home, Radio,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import rpLogo from '../../assets/research-point-logo.png';
@@ -28,6 +28,7 @@ export const NAV_ITEMS = [
   { to: '/admin/judging/assignment', label: 'Event assignment', icon: UserCheck, active: true, roles: ['SuperAdmin', 'Admin', 'Chairman'] },
   { to: '/admin/event-day', label: 'Event Day', icon: ClipboardCheck, active: true, roles: [...ORG, 'Admin', 'EventStaff'] },
   { to: '/admin/team-event-day', label: 'Team Event Day', icon: ClipboardList, active: true, roles: [...ORG, 'Admin', 'EventStaff'] },
+  { to: '/admin/live', label: 'Live progress', icon: Radio, active: true, roles: ADMIN_AREA_ROLES },
   { to: '/admin/judging/judges', label: 'Judges', icon: Gavel, active: true, roles: ['SuperAdmin', 'Chairman'] },
   { to: '/admin/judging/results', label: 'Results', icon: Award, active: true, roles: ['SuperAdmin', 'Chairman'] },
   { to: '/admin/awards', label: 'Awards', icon: Trophy, active: true, roles: ['SuperAdmin', 'Chairman'] },

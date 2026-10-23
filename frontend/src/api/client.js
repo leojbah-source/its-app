@@ -485,6 +485,11 @@ export const venuesApi = {
   save: (token, venues) => request('/api/admin/schedule/venues', { method: 'PUT', token, body: { venues } }),
 };
 
+export const liveApi = {
+  dates: (token) => request('/api/admin/live/dates', { token }),
+  day: (token, date) => request(`/api/admin/live/day?date=${encodeURIComponent(date)}`, { token }),
+};
+
 export const scheduleApi = {
   list: (token) => request('/api/admin/schedule', { token }),
   generateDraft: (token, body) => request('/api/admin/schedule/generate-draft', { method: 'POST', token, body }),

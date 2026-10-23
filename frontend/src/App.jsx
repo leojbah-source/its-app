@@ -18,6 +18,7 @@ import Consolidation from './pages/Consolidation';
 import Schedule from './pages/Schedule';
 import EventDay from './pages/EventDay';
 import TeamEventDay from './pages/TeamEventDay';
+import LiveProgress from './pages/LiveProgress';
 import Judges from './pages/Judges';
 import Assignment from './pages/judging/Assignment';
 import Results from './pages/judging/Results';
@@ -140,6 +141,10 @@ export default function App() {
               <Route
                 path="/admin/team-event-day"
                 element={<ProtectedRoute allowedRoles={[...ORG, 'Admin', 'EventStaff']}><TeamEventDay /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/live"
+                element={<ProtectedRoute allowedRoles={[...ORG, 'Admin', 'Registrar', 'Accountant', 'Media', 'EventStaff', 'Viewer']}><LiveProgress /></ProtectedRoute>}
               />
               <Route
                 path="/admin/judging/judges"
