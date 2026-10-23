@@ -862,6 +862,12 @@ export default function Schedule() {
                                             className="text-xs font-medium text-navy-600 hover:text-navy-700 underline">Split groups</button>
                                         )}
                                         <RowEditor row={r} token={token} onSaved={load} />
+                                        {published && isSuper && (
+                                          <button onClick={() => unpublishRow(r)} title="Take this off the participants' published schedule (back to Locked) — reversible; does not delete it"
+                                            className="text-xs font-medium text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5">
+                                            <Unlock size={12} /> Unpublish
+                                          </button>
+                                        )}
                                         <button onClick={() => drop(r)} title="Remove this event from the schedule"
                                           className="text-xs font-medium text-red-600 hover:text-red-700 inline-flex items-center gap-0.5">
                                           <Trash2 size={12} /> Remove
