@@ -97,6 +97,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [participants, setParticipants] = useState([]);
   const [config, setConfig] = useState(null);
+  const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -104,12 +105,14 @@ export default function Dashboard() {
     setLoading(true);
     setError('');
     try {
-      const [cfg, parts] = await Promise.all([
+      const [cfg, parts, myTeams] = await Promise.all([
         portalApi.config(),
         portalApi.myParticipants(token),
+        portalApi.myTeams(token).catch(() => []),
       ]);
       setConfig(cfg);
       setParticipants(parts);
+      setTeams(Array.isArray(myTeams) ? myTeams : []);
     } catch (err) {
       setError(err.message || 'Failed to load data');
     } finally {
@@ -124,6 +127,11 @@ export default function Dashboard() {
   // Team registration has its OWN (later) deadline — it must not be hidden when
   // individual registration closes. Falls back to open if no team deadline is set.
   const teamOpen = config?.team_reg_deadline ? new Date() < new Date(config.team_reg_deadline) : true;
+  // Existing teams can be completed (members, CPR, payment) until the (later)
+  // member deadline, even after NEW team registration has closed.
+  const teamMemberDeadline = config?.team_member_deadline || config?.team_reg_deadline;
+  const teamMemberOpen = teamMemberDeadline ? new Date() < new Date(teamMemberDeadline) : true;
+  const hasTeams = teams.length > 0;
 
   return (
     <RegisterLayout title={`Hello, ${firstName}!`} subtitle="Manage your child's registrations">
@@ -184,6 +192,27 @@ export default function Dashboard() {
           >
             <Plus size={20} />
             Add Participant
+          </button>
+        )}
+
+        {/* Manage existing teams — available while the member deadline is open,
+            even after NEW team registration has closed, so leaders can add the
+            remaining members, upload CPR copies and pay. */}
+        {hasTeams && (
+          <button
+            onClick={() => navigate('/register/team')}
+            className="flex w-full items-center gap-3 rounded-2xl border border-navy-200 bg-navy-50 px-4 py-4 text-left hover:bg-navy-100 active:scale-[0.99] transition-all"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-navy-600 text-white"><Users size={20} /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-navy-800">Manage my team{teams.length > 1 ? 's' : ''} ({teams.length})</span>
+              <span className="block text-[11px] text-slate-500">
+                {teamMemberOpen
+                  ? 'Add remaining members, upload CPR copies and pay the team fee'
+                  : 'View your team details'}
+              </span>
+            </span>
+            <ChevronRight size={18} className="shrink-0 text-navy-500" />
           </button>
         )}
 

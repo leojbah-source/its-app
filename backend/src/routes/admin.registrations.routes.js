@@ -20,7 +20,7 @@ const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { sendWhatsApp, sendWhatsAppImage, sendWhatsAppImageMany, sendWhatsAppMany } = require('../utils/notify');
-const { sendEmail, registrationConfirmationHtml, scheduleEmailHtml } = require('../utils/email');
+const { sendEmail, registrationConfirmationHtml, scheduleEmailHtml, customEmailHtml } = require('../utils/email');
 const bcrypt = require('bcrypt');
 const multer = require('multer');
 const {
@@ -914,17 +914,59 @@ router.post('/teams/:id/notify', requireRole('SuperAdmin', 'Admin', 'Coordinator
   try {
     const message = (req.body.message || '').trim();
     if (!message) return res.status(400).json({ error: 'message is required' });
+    // Channel: 'email' (default — WhatsApp via Green-API is often blocked),
+    // 'whatsapp', or 'both'.
+    const channel = ['whatsapp', 'email', 'both'].includes(req.body.channel) ? req.body.channel : 'email';
+    const subject = (req.body.subject || '').trim();
+
     const { rows } = await pool.query(
-      `SELECT t.team_name, u.whatsapp_number, u.whatsapp_number_2, u.phone
+      `SELECT t.team_name, t.year_id, u.email, u.whatsapp_number, u.whatsapp_number_2, u.phone
          FROM teams t LEFT JOIN users u ON u.id = t.created_by WHERE t.id = $1`, [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Team not found' });
-    const nums = [rows[0].whatsapp_number, rows[0].whatsapp_number_2].filter(Boolean);
-    if (!nums.length && rows[0].phone) nums.push(rows[0].phone);
-    if (!nums.length) return res.status(400).json({ error: 'No contact number on file for this team.' });
-    const out = await sendWhatsAppMany(nums, message);
+    const r = rows[0];
+    const wantWa = channel === 'whatsapp' || channel === 'both';
+    const wantEmail = channel === 'email' || channel === 'both';
+
+    const escHtml = (x) => String(x ?? '').replace(/[&<>"]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    let waResult = null, emailResult = null, waRecipients = 0;
+    let emailTo = null;
+
+    if (wantWa) {
+      const nums = [r.whatsapp_number, r.whatsapp_number_2].filter(Boolean);
+      if (!nums.length && r.phone) nums.push(r.phone);
+      waRecipients = nums.length;
+      if (nums.length) waResult = await sendWhatsAppMany(nums, message);
+    }
+    if (wantEmail && r.email) {
+      emailTo = r.email;
+      const { rows: yl } = await pool.query(
+        `SELECT event_year_label, its_logo_url FROM year_config WHERE id = $1`, [r.year_id]);
+      const bodyHtml = `<p>${escHtml(message).replace(/\n/g, '<br/>')}</p>`;
+      emailResult = await sendEmail({
+        to: r.email,
+        subject: subject || `${yl[0]?.event_year_label || 'KCA ITS'} — ${r.team_name} (team registration)`,
+        html: customEmailHtml({ yearLabel: yl[0]?.event_year_label, logoUrl: yl[0]?.its_logo_url, bodyHtml }),
+      });
+    }
+
+    // Nothing could be sent on any requested channel → tell the caller why.
+    if (wantEmail && !r.email && !wantWa)
+      return res.status(400).json({ error: 'No email address on file for this team.' });
+    if (wantWa && !waRecipients && !wantEmail)
+      return res.status(400).json({ error: 'No contact number on file for this team.' });
+
+    const email_sent = !!(emailResult && emailResult.sent);
+    const wa_delivered = !!(waResult && waResult.delivered);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
-      action: 'TEAM_NOTIFY', entity: 'teams', entityId: req.params.id, details: { delivered: !!out.delivered, numbers: nums.length } });
-    res.json({ delivered: !!out.delivered, sent: out.sent, recipients: nums.length });
+      action: 'TEAM_NOTIFY', entity: 'teams', entityId: req.params.id,
+      details: { channel, email_sent, email_to: emailTo, wa_delivered, wa_recipients: waRecipients } });
+    res.json({
+      channel, email_sent, email_to: emailTo,
+      email_error: emailResult && !emailResult.sent ? (emailResult.error || 'send failed') : null,
+      wa_delivered, wa_sent: waResult ? waResult.sent : null, wa_recipients: waRecipients,
+    });
   } catch (err) { next(err); }
 });
 

@@ -8,7 +8,7 @@
 //   - see the audit trail of every change.
 // Every action is written to the insert-only audit_log.
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Fragment } from 'react';
 import {
   X, User, CreditCard, Tag, ScrollText, CheckCircle2, AlertTriangle, ExternalLink, MessageSquare, Upload,
 } from 'lucide-react';
@@ -126,6 +126,11 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   const [teamMsg, setTeamMsg] = useState('');
   const [teamNotifyBusy, setTeamNotifyBusy] = useState(false);
   const [teamNoteOpen, setTeamNoteOpen] = useState(false);
+  const [teamChannel, setTeamChannel] = useState('email'); // 'email' | 'whatsapp' | 'both'
+  const [teamSubject, setTeamSubject] = useState('');
+  const [editMemberId, setEditMemberId] = useState(null);
+  const [memberForm, setMemberForm] = useState({});
+  const [memberSaveBusy, setMemberSaveBusy] = useState(false);
   const reloadTeam = useCallback(async () => {
     if (!teamId) return;
     try { setTeam(await teamsApi.members(token, teamId)); }
@@ -167,11 +172,40 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
     if (!teamMsg.trim()) { setFlash('Enter a message first.'); return; }
     setTeamNotifyBusy(true); setFlash('');
     try {
-      const r = await teamsApi.notify(token, teamId, teamMsg.trim());
-      setFlash(r.delivered ? `Note sent to ${r.recipients} number(s).` : 'Could not send the note.');
-      setTeamNoteOpen(false);
+      const r = await teamsApi.notify(token, teamId, {
+        channel: teamChannel, subject: teamSubject.trim() || undefined, message: teamMsg.trim(),
+      });
+      const parts = [];
+      if (r.channel === 'email' || r.channel === 'both') {
+        parts.push(r.email_sent ? `emailed ${r.email_to || 'the team leader'}` : `email not sent${r.email_error ? ` (${r.email_error})` : ' (no address on file)'}`);
+      }
+      if (r.channel === 'whatsapp' || r.channel === 'both') {
+        parts.push(r.wa_delivered ? `WhatsApp to ${r.wa_recipients} number(s)` : `WhatsApp not delivered`);
+      }
+      setFlash(`Note: ${parts.join(' · ')}.`);
+      if (r.email_sent || r.wa_delivered) setTeamNoteOpen(false);
     } catch (e) { setFlash(e.message); }
     finally { setTeamNotifyBusy(false); }
+  }
+  function startEditMember(m) {
+    setEditMemberId(m.id);
+    setMemberForm({
+      full_name: m.full_name || '', cpr_number: m.cpr_number || '',
+      dob: m.dob ? new Date(m.dob).toISOString().slice(0, 10) : '', gender: m.gender || '',
+    });
+  }
+  async function saveMemberIdentity(m) {
+    setMemberSaveBusy(true); setFlash('');
+    try {
+      await participantsApi.updateIdentity(token, m.participant_id, {
+        full_name: memberForm.full_name, cpr_number: memberForm.cpr_number,
+        dob: memberForm.dob, gender: memberForm.gender || undefined,
+      });
+      setFlash('Member details updated.');
+      setEditMemberId(null);
+      setTeam(await teamsApi.members(token, teamId));
+    } catch (e) { setFlash(e.message); }
+    finally { setMemberSaveBusy(false); }
   }
   const isImageUrl = (u) => /\.(jpe?g|png|gif|webp|bmp)(\?|$)/i.test(String(u || ''));
 
@@ -456,11 +490,13 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                         <th className="px-3 py-2">CPR</th>
                         <th className="px-3 py-2">DOB</th>
                         <th className="px-3 py-2">Group</th>
+                        {canEditParent && <th className="px-3 py-2 w-12"></th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {(team.members || []).map((m) => (
-                        <tr key={m.id} className={m.cpr_verified ? 'bg-emerald-50/40' : ''}>
+                        <Fragment key={m.id}>
+                        <tr className={m.cpr_verified ? 'bg-emerald-50/40' : ''}>
                           <td className="px-3 py-2 text-center">
                             <input type="checkbox" checked={!!m.cpr_verified} disabled={!canEditParent || teamBusyMember === m.id}
                               onChange={() => toggleMemberVerify(m)}
@@ -470,10 +506,46 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                           <td className="px-3 py-2 font-mono text-slate-600">{m.cpr_number}</td>
                           <td className="px-3 py-2 text-slate-600">{m.dob ? new Date(m.dob).toLocaleDateString('en-GB') : '—'}</td>
                           <td className="px-3 py-2 text-slate-500">{m.age_group_code || '—'}</td>
+                          {canEditParent && (
+                            <td className="px-3 py-2 text-right">
+                              <button onClick={() => (editMemberId === m.id ? setEditMemberId(null) : startEditMember(m))}
+                                className="text-[11px] font-medium text-navy-600 underline" title="Correct name / CPR / date of birth">
+                                {editMemberId === m.id ? 'Close' : 'Edit'}
+                              </button>
+                            </td>
+                          )}
                         </tr>
+                        {editMemberId === m.id && canEditParent && (
+                          <tr className="bg-navy-50/40">
+                            <td colSpan={canEditParent ? 6 : 5} className="px-3 py-3">
+                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                <label className="text-[11px] text-slate-500">Full name
+                                  <input value={memberForm.full_name} onChange={(e) => setMemberForm((f) => ({ ...f, full_name: e.target.value }))}
+                                    className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1 text-sm" /></label>
+                                <label className="text-[11px] text-slate-500">CPR number
+                                  <input value={memberForm.cpr_number} onChange={(e) => setMemberForm((f) => ({ ...f, cpr_number: e.target.value }))}
+                                    inputMode="numeric" className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1 text-sm font-mono" /></label>
+                                <label className="text-[11px] text-slate-500">Date of birth
+                                  <input type="date" value={memberForm.dob} onChange={(e) => setMemberForm((f) => ({ ...f, dob: e.target.value }))}
+                                    className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1 text-sm" /></label>
+                                <label className="text-[11px] text-slate-500">Gender
+                                  <select value={memberForm.gender} onChange={(e) => setMemberForm((f) => ({ ...f, gender: e.target.value }))}
+                                    className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1 text-sm">
+                                    <option value="">—</option><option value="M">Male</option><option value="F">Female</option>
+                                  </select></label>
+                              </div>
+                              <div className="mt-2 flex items-center justify-end gap-2">
+                                <Button variant="outline" size="sm" onClick={() => setEditMemberId(null)}>Cancel</Button>
+                                <Button variant="primary" size="sm" loading={memberSaveBusy} onClick={() => saveMemberIdentity(m)}>Save details</Button>
+                              </div>
+                              <p className="mt-1 text-[10px] text-slate-400">Changing the date of birth may move the member's age group. This corrects the participant record (shared with any individual-event entry); it does not change finalised event results.</p>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                       ))}
                       {(team.members || []).length === 0 && (
-                        <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400">No members recorded.</td></tr>
+                        <tr><td colSpan={canEditParent ? 6 : 5} className="px-3 py-6 text-center text-slate-400">No members recorded.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -552,14 +624,37 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                     </button>
                   ) : (
                     <div className="space-y-2">
-                      <label className="block text-[11px] font-medium uppercase tracking-wide text-slate-400">Note to the team leader (WhatsApp) — edit before sending</label>
-                      <textarea value={teamMsg} onChange={(e) => setTeamMsg(e.target.value)} rows={4}
+                      <label className="block text-[11px] font-medium uppercase tracking-wide text-slate-400">Message the team leader</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[['email', 'Email'], ['whatsapp', 'WhatsApp'], ['both', 'Both']].map(([v, l]) => (
+                          <button key={v} type="button" onClick={() => setTeamChannel(v)}
+                            className={`rounded-full border px-3 py-1 text-xs font-medium ${teamChannel === v ? 'border-navy-600 bg-navy-600 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}>
+                            {l}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        {(teamChannel === 'email' || teamChannel === 'both')
+                          && (team.team?.contact_email
+                            ? <>Email → <span className="font-medium text-slate-600">{team.team.contact_email}</span>. </>
+                            : <span className="text-amber-600">No email on file. </span>)}
+                        {(teamChannel === 'whatsapp' || teamChannel === 'both')
+                          && (team.team?.contact_whatsapp || team.team?.contact_whatsapp_2
+                            ? <>WhatsApp → {[team.team.contact_whatsapp, team.team.contact_whatsapp_2].filter(Boolean).join(', ')}.</>
+                            : <span className="text-amber-600">No WhatsApp number on file.</span>)}
+                      </p>
+                      {(teamChannel === 'email' || teamChannel === 'both') && (
+                        <input value={teamSubject} onChange={(e) => setTeamSubject(e.target.value)}
+                          placeholder="Email subject (optional)"
+                          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300" />
+                      )}
+                      <textarea value={teamMsg} onChange={(e) => setTeamMsg(e.target.value)} rows={5}
                         className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300" />
                       <div className="flex justify-end gap-2">
                         <Button variant="outline" size="sm" onClick={() => setTeamNoteOpen(false)}>Cancel</Button>
-                        <Button variant="primary" size="sm" icon={MessageSquare} loading={teamNotifyBusy} disabled={!teamMsg.trim()} onClick={sendTeamNote}>Send note</Button>
+                        <Button variant="primary" size="sm" icon={MessageSquare} loading={teamNotifyBusy} disabled={!teamMsg.trim()} onClick={sendTeamNote}>Send</Button>
                       </div>
-                      <p className="text-[11px] text-slate-400">Sent to the number(s) on the team leader's account (both WhatsApp numbers if a second one is on file).</p>
+                      <p className="text-[11px] text-slate-400">Email is the reliable channel; WhatsApp may be blocked. "Both" tries each where a contact is on file.</p>
                     </div>
                   )}
                 </div>
