@@ -4,7 +4,7 @@
 // attendance; assign chest numbers (restart at 1 per group) with a dramatized
 // on-screen draw. Chest numbers LOCK once judging starts (a score exists).
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, Hash, Trash2, Check, X, Lock, Sparkles, Video } from 'lucide-react';
+import { RefreshCw, Hash, Trash2, Check, X, Lock, Sparkles, Video, ArrowDownUp } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -75,6 +75,7 @@ export default function EventDay() {
   const [busy, setBusy] = useState(false);
   const [draw, setDraw] = useState(null);
   const [manualEdit, setManualEdit] = useState(null);
+  const [sortBy, setSortBy] = useState('chest'); // 'chest' | 'name'
 
   useEffect(() => { scheduleApi.list(token).then(setSchedule).catch(() => {}); }, [token]);
 
@@ -205,6 +206,24 @@ export default function EventDay() {
     video: roster.filter((r) => r.video_wants).length,
   }), [roster]);
 
+  // Display order: by chest number (default) or by participant name. Name order
+  // helps when chests are assigned after seating and staff look people up by name.
+  const sortedRoster = useMemo(() => {
+    const arr = [...roster];
+    if (sortBy === 'name') {
+      arr.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+    } else {
+      arr.sort((a, b) => {
+        const ca = a.chest_number, cb = b.chest_number;
+        if (ca == null && cb == null) return String(a.name || '').localeCompare(String(b.name || ''));
+        if (ca == null) return 1;
+        if (cb == null) return -1;
+        return ca - cb;
+      });
+    }
+    return arr;
+  }, [roster, sortBy]);
+
   const sel = 'rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
 
   return (
@@ -311,15 +330,25 @@ export default function EventDay() {
                   <table className="w-full min-w-[860px] text-sm">
                     <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                       <tr>
-                        <th className="px-3 py-2 w-20">Chest</th>
-                        <th className="px-3 py-2">Name</th>
+                        <th className="px-3 py-2 w-20">
+                          <button onClick={() => setSortBy('chest')} title="Sort by chest number"
+                            className={`inline-flex items-center gap-1 uppercase tracking-wide ${sortBy === 'chest' ? 'text-navy-700 font-bold' : 'hover:text-slate-700'}`}>
+                            Chest {sortBy === 'chest' && <ArrowDownUp size={11} />}
+                          </button>
+                        </th>
+                        <th className="px-3 py-2">
+                          <button onClick={() => setSortBy('name')} title="Sort by participant name"
+                            className={`inline-flex items-center gap-1 uppercase tracking-wide ${sortBy === 'name' ? 'text-navy-700 font-bold' : 'hover:text-slate-700'}`}>
+                            Name {sortBy === 'name' && <ArrowDownUp size={11} />}
+                          </button>
+                        </th>
                         <th className="px-3 py-2">Contact</th>
                         {videoEligible && <th className="px-3 py-2">Video</th>}
                         <th className="px-3 py-2 text-right">Attendance</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {roster.map((r) => {
+                      {sortedRoster.map((r) => {
                         const absent = r.status === 'absent';
                         return (
                           <tr key={r.registration_id} className={absent ? 'bg-red-50/40' : 'hover:bg-slate-50'}>
