@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import rpLogo from '../../assets/research-point-logo.png';
-import { yearConfigApi, API_BASE } from '../../api/client';
+import { publicApi, API_BASE } from '../../api/client';
 
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
 
@@ -91,14 +91,17 @@ export default function Sidebar() {
   // Use the uploaded ITS logo in the header when one exists; fall back to the icon.
   const [logo, setLogo] = useState(null);
   useEffect(() => {
-    if (!token) return undefined;
+    // The ITS logo is public branding — use the public endpoint so EVERY admin
+    // role (EventStaff / Media / Viewer included) can load it. The privileged
+    // /config/active endpoint would 403 for those roles and fire a security
+    // alert, even though the sidebar only needs the logo.
     let alive = true;
-    yearConfigApi
-      .get(token)
+    publicApi
+      .year()
       .then((cfg) => { if (alive) setLogo(asset(cfg?.its_logo_url)); })
       .catch(() => {});
     return () => { alive = false; };
-  }, [token]);
+  }, []);
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col bg-navy-800 text-navy-50">
