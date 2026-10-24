@@ -91,12 +91,31 @@ function WinnerCard({ w, big, onReplace, busyId }) {
     setPos((p) => ({ x: clampPct(p.x - (dx / frameW) * 100), y: clampPct(p.y - (dy / frameH) * 100) }));
   }
   function onUp() { drag.current = null; }
-  function onWheel(e) { if (!w.photo_url) return; e.preventDefault(); setZoom((z) => clampZoom(z - e.deltaY * 0.0015)); }
+  const frameRef = useRef(null);
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el) return undefined;
+    // Native, NON-passive wheel listener: lets us preventDefault so zooming the
+    // photo doesn't also scroll the page. React's synthetic onWheel is passive
+    // on the document root, so its preventDefault is ignored.
+    const onWheelNative = (e) => {
+      if (!w.photo_url) return;
+      e.preventDefault();
+      setZoom((z) => clampZoom(z - e.deltaY * 0.0015));
+    };
+    el.addEventListener('wheel', onWheelNative, { passive: false });
+    return () => el.removeEventListener('wheel', onWheelNative);
+  }, [w.photo_url]);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: frameW, marginBottom: big ? 36 : 0 }}>
-      <div onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp} onWheel={onWheel}
+      <div ref={frameRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
         style={{ width: frameW, height: frameH, borderRadius: '16px', overflow: 'hidden', background: '#e2e8f0', border: '3px solid rgba(255,255,255,.7)', boxShadow: '0 4px 14px rgba(0,0,0,.35)', cursor: w.photo_url ? 'move' : 'default', touchAction: 'none' }}>
-        <SafeImg src={asset(w.photo_url)} fallback={silhouette} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: `${pos.x}% ${pos.y}%`, transform: `scale(${zoom})`, transformOrigin: `${pos.x}% ${pos.y}%` }} />
+        {/* Photo as a background-image (not <img objectFit:cover>): html2canvas
+            honours background-size:cover on download, so the saved image matches
+            the screen instead of stretching/skewing the face. */}
+        {w.photo_url ? (
+          <div style={{ width: '100%', height: '100%', backgroundImage: `url("${asset(w.photo_url)}")`, backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: `${pos.x}% ${pos.y}%`, transform: `scale(${zoom})`, transformOrigin: `${pos.x}% ${pos.y}%` }} />
+        ) : silhouette}
       </div>
       <div style={{ color: '#fde047', fontWeight: 800, fontSize: big ? 24 : 20, textAlign: 'center', lineHeight: 1.1, marginTop: 10, textShadow: '0 1px 2px rgba(0,0,0,.4)' }}>{w.name || `Chest ${w.chest_number}`}</div>
       {w.grade && <div style={{ marginTop: 5, fontSize: 12, fontWeight: 800, color: '#1b2a4a', background: 'rgba(253,224,71,.95)', borderRadius: 999, padding: '2px 12px', boxShadow: '0 1px 3px rgba(0,0,0,.25)' }}>Grade {w.grade}</div>}
@@ -260,11 +279,25 @@ export default function WinnersPoster() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'center', gap: 28, padding: '34px 24px 10px' }}>
-            {second && <WinnerCard w={second} onReplace={replacePhoto} busyId={busyId} />}
-            {first && <WinnerCard w={first} big onReplace={replacePhoto} busyId={busyId} />}
-            {thirds.map((w, i) => <WinnerCard key={w.participant_id || w.chest_number || `t${i}`} w={w} onReplace={replacePhoto} busyId={busyId} />)}
-          </div>
+          {thirds.length >= 2 ? (
+            <>
+              {/* Two (or more) third places: podium on top (2nd · 1st), both
+                  thirds together on their own row below. */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'center', gap: 28, padding: '34px 24px 6px' }}>
+                {second && <WinnerCard w={second} onReplace={replacePhoto} busyId={busyId} />}
+                {first && <WinnerCard w={first} big onReplace={replacePhoto} busyId={busyId} />}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'center', gap: 28, padding: '6px 24px 10px' }}>
+                {thirds.map((w, i) => <WinnerCard key={w.participant_id || w.chest_number || `t${i}`} w={w} onReplace={replacePhoto} busyId={busyId} />)}
+              </div>
+            </>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'center', gap: 28, padding: '34px 24px 10px' }}>
+              {second && <WinnerCard w={second} onReplace={replacePhoto} busyId={busyId} />}
+              {first && <WinnerCard w={first} big onReplace={replacePhoto} busyId={busyId} />}
+              {thirds.map((w, i) => <WinnerCard key={w.participant_id || w.chest_number || `t${i}`} w={w} onReplace={replacePhoto} busyId={busyId} />)}
+            </div>
+          )}
 
           <div style={{ color: '#ffffff', fontWeight: 800, fontSize: 40, letterSpacing: 1, textAlign: 'center', marginTop: 18, textShadow: '0 2px 4px rgba(0,0,0,.4)' }}>CONGRATULATIONS</div>
         </div>
