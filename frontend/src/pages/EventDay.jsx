@@ -327,6 +327,7 @@ export default function EventDay() {
         <ManualChestModal
           reg={manualEdit}
           roster={roster}
+          locked={locked}
           groupCode={selectedGroupCode}
           onClose={() => setManualEdit(null)}
           onSubmit={submitManual}
@@ -450,6 +451,9 @@ export default function EventDay() {
                             <td className="px-3 py-2">
                               {r.chest_number != null ? <span className="font-mono font-semibold text-navy-800">{r.chest_number}</span> : <span className="text-slate-300">—</span>}
                               {canManual && !locked && <button onClick={() => setManual(r)} className="ml-1.5 text-[10px] text-navy-500 underline" title="Manual chest (rule #4)">edit</button>}
+                              {canManual && locked && isChairSuper && r.chest_number == null && r.status === 'attended' && (
+                                <button onClick={() => setManual(r)} className="ml-1.5 text-[10px] font-medium text-emerald-600 underline" title="Add a chest for this late participant (judging has started)">add chest</button>
+                              )}
                             </td>
                             <td className={`px-3 py-2 font-medium ${absent ? 'text-red-600 line-through' : 'text-slate-800'}`}>{r.name}</td>
                             <td className="px-3 py-2 text-xs leading-tight">
@@ -486,7 +490,7 @@ export default function EventDay() {
                               </td>
                             )}
                             <td className="px-3 py-2">
-                              {canMark && !locked && (isChairSuper || counts.withChest === 0) ? (
+                              {canMark && (isChairSuper || (!locked && counts.withChest === 0)) ? (
                                 <div className="flex items-center justify-end gap-1.5">
                                   <Button size="sm" variant={r.status === 'attended' ? 'primary' : 'outline'} icon={Check} onClick={() => mark(r, true)}>Present</Button>
                                   <Button size="sm" variant={absent ? 'danger' : 'outline'} icon={X} onClick={() => mark(r, false)}>Absent</Button>
@@ -512,7 +516,7 @@ export default function EventDay() {
 
 // Manual chest edit — enter a number; if it's already taken, choose whether to
 // SWAP with the current holder or INSERT (shift the others).
-function ManualChestModal({ reg, roster, groupCode, onClose, onSubmit }) {
+function ManualChestModal({ reg, roster, locked, groupCode, onClose, onSubmit }) {
   const [val, setVal] = useState(reg.chest_number ?? '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -543,6 +547,13 @@ function ManualChestModal({ reg, roster, groupCode, onClose, onSubmit }) {
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose}>Cancel</Button>
             <Button variant="primary" disabled>{same ? 'No change' : 'Save'}</Button>
+          </div>
+        ) : occupant && locked ? (
+          <div className="flex flex-col gap-2">
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+              Chest {target} is already taken by <b>{occupant.name}</b>. Judging has started, so a chest can only be <b>added</b> into a free number — swapping or reordering isn't allowed now. Enter a free number (e.g. the next one after the last).
+            </div>
+            <button className="text-xs text-slate-500 hover:underline" onClick={onClose}>Cancel</button>
           </div>
         ) : occupant ? (
           <div className="flex flex-col gap-2">

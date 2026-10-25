@@ -393,8 +393,7 @@ router.put('/manual/:reg_id', requireRole('Chairman', 'SuperAdmin'), async (req,
     const { rows: reg } = await pool.query(
       `SELECT year_id, age_group_id FROM registrations WHERE id = $1 AND event_id = $2`, [req.params.reg_id, event_id]);
     if (!reg[0]) return res.status(404).json({ error: 'Registration not found for this event' });
-    if (await groupLocked(event_id, reg[0].age_group_id))
-      return res.status(409).json({ error: 'Chest numbers are locked — judging has started for this group.' });
+    const groupIsLocked = await groupLocked(event_id, reg[0].age_group_id);
     const target = Number(chest_number);
     if (!Number.isInteger(target) || target < 1)
       return res.status(400).json({ error: 'chest_number must be a positive whole number' });
@@ -417,6 +416,14 @@ router.put('/manual/:reg_id', requireRole('Chairman', 'SuperAdmin'), async (req,
         [event_id, gid]);
       const editedOld = cur.find((c) => String(c.registration_id) === rid)?.chest_number ?? null;
       const occupant = cur.find((c) => c.chest_number === target && String(c.registration_id) !== rid);
+
+      // Judging has started: allow ONLY adding a chest for a participant who has
+      // none, into a free number (a late arrival). Renumbering, swapping or
+      // displacing an existing chest after scoring began is not allowed.
+      if (groupIsLocked && (editedOld != null || occupant)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Judging has started for this group — you can only ADD a chest for someone who has none, into a free number. Renumbering is not allowed now.' });
+      }
 
       const mapping = new Map();   // registration_id (string) -> new chest number
       if (!occupant) {
