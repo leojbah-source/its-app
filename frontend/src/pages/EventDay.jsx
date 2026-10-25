@@ -3,8 +3,8 @@
 // "Clay Modelling G2" are separate contests). Day → Event → Group; mark
 // attendance; assign chest numbers (restart at 1 per group) with a dramatized
 // on-screen draw. Chest numbers LOCK once judging starts (a score exists).
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, Hash, Trash2, Check, X, Lock, Sparkles, Video, ArrowDownUp, Timer as TimerIcon, Play, Square, Plus } from 'lucide-react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { RefreshCw, Hash, Trash2, Check, X, Lock, Sparkles, Video, ArrowDownUp, Timer as TimerIcon, Play, Square } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
