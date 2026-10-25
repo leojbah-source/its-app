@@ -4,13 +4,13 @@
 // attendance; assign chest numbers (restart at 1 per group) with a dramatized
 // on-screen draw. Chest numbers LOCK once judging starts (a score exists).
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, Hash, Trash2, Check, X, Lock, Sparkles, Video, ArrowDownUp } from 'lucide-react';
+import { RefreshCw, Hash, Trash2, Check, X, Lock, Sparkles, Video, ArrowDownUp, Timer as TimerIcon, Play, Square, Plus } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import { PageLoader } from '../components/ui/States';
 import { useAuth } from '../context/AuthContext';
-import { scheduleApi, chestApi, videoApi } from '../api/client';
+import { scheduleApi, chestApi, videoApi, groupTimerApi } from '../api/client';
 
 const MARK_ROLES = ['SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'EventStaff'];
 const MANUAL_ROLES = ['SuperAdmin', 'Chairman'];
@@ -54,6 +54,100 @@ function DrawOverlay({ items, onClose }) {
       <button onClick={onClose} className="mt-6 rounded-md bg-white/15 px-5 py-2 text-sm font-medium text-white hover:bg-white/25">
         {done ? 'Done' : 'Skip'}
       </button>
+    </div>
+  );
+}
+
+// Whole-group timer panel (Essay, Spelling, Drawing … non-stage written events).
+// Starts the event-wide countdown when the office gives the subject; ends
+// automatically after the allotted time. Independent of chest numbers. Hidden
+// for stage events (which are timed per performer).
+function GroupTimerPanel({ token, eventId, groupId }) {
+  const [data, setData] = useState(null);
+  const [, setTick] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const pollRef = useRef(null);
+
+  const load = useCallback(async () => {
+    if (!eventId || !groupId) { setData(null); return; }
+    try { setData(await groupTimerApi.get(token, eventId, groupId)); } catch { /* ignore */ }
+  }, [token, eventId, groupId]);
+
+  useEffect(() => {
+    load();
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(load, 5000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [load]);
+  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 1000); return () => clearInterval(t); }, []);
+
+  if (!data || !data.event || data.event.is_stage_event) return null;
+
+  const durMin = Math.round((data.event.allotted_time_seconds || 0) / 60);
+  const t = data.timer;
+  const hm = (iso) => (iso ? new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '');
+  const liveRemaining = () => {
+    if (!t || t.state !== 'running') return 0;
+    return Math.max(0, Math.round((new Date(t.ends_at).getTime() - Date.now()) / 1000));
+  };
+  const fmtDur = (secs) => {
+    const s = Math.max(0, secs);
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    return (h > 0 ? `${h}:${String(m).padStart(2, '0')}` : `${m}`) + `:${String(ss).padStart(2, '0')}`;
+  };
+  async function act(fn) {
+    setBusy(true);
+    try { setData(await fn()); } catch (e) { window.alert(e.message || 'Timer action failed.'); }
+    finally { setBusy(false); }
+  }
+
+  const running = t && t.state === 'running';
+  const finished = t && t.state === 'finished';
+  const remaining = running ? liveRemaining() : 0;
+  const timeUp = running && remaining <= 0;
+
+  return (
+    <div className={`mb-4 rounded-xl border p-3 ${running ? (timeUp ? 'border-red-300 bg-red-50' : 'border-emerald-300 bg-emerald-50') : finished ? 'border-slate-300 bg-slate-50' : 'border-navy-200 bg-navy-50'}`}>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <TimerIcon size={18} className={running ? 'text-emerald-600' : finished ? 'text-slate-500' : 'text-navy-600'} />
+          <span className="text-sm font-semibold text-slate-800">Group timer</span>
+          <span className="text-xs text-slate-500">({durMin} min · whole group)</span>
+        </div>
+        <div className="flex-1" />
+        {!t && (
+          <Button variant="primary" icon={Play} loading={busy} onClick={() => act(() => groupTimerApi.start(token, eventId, groupId))}>
+            Start timer ({durMin} min)
+          </Button>
+        )}
+        {running && (
+          <div className="flex items-center gap-2">
+            <span className={`font-mono text-2xl font-bold tabular-nums ${timeUp ? 'text-red-600' : 'text-emerald-700'}`}>
+              {timeUp ? 'TIME UP' : fmtDur(remaining)}
+            </span>
+            <span className="text-xs text-slate-500">ends {hm(t.ends_at)}</span>
+            <Button variant="outline" size="sm" onClick={() => act(() => groupTimerApi.extend(token, eventId, groupId, 5))} disabled={busy}>+5 min</Button>
+            <Button variant="outline" size="sm" onClick={() => act(() => groupTimerApi.extend(token, eventId, groupId, 10))} disabled={busy}>+10</Button>
+            <Button variant="outline" size="sm" icon={Square} className="border-red-300 text-red-600 hover:bg-red-50"
+              onClick={() => { if (window.confirm('Stop the timer now (everyone is done)?')) act(() => groupTimerApi.stop(token, eventId, groupId)); }} disabled={busy}>
+              Stop
+            </Button>
+          </div>
+        )}
+        {finished && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-slate-600">Finished{t.ended_at ? ` (stopped ${hm(t.ended_at)})` : ` at ${hm(t.ends_at)}`}</span>
+            <Button variant="outline" size="sm" icon={Play} onClick={() => { if (window.confirm('Start this group timer again?')) act(() => groupTimerApi.start(token, eventId, groupId)); }} disabled={busy}>Start again</Button>
+          </div>
+        )}
+      </div>
+      {running && (
+        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/70">
+          <div className="h-full rounded-full bg-emerald-500 transition-all"
+            style={{ width: `${Math.min(100, Math.max(0, 100 * (1 - remaining / Math.max(1, t.duration_seconds))))}%` }} />
+        </div>
+      )}
+      {!t && <p className="mt-1.5 text-[11px] text-slate-500">Start when you hand out the subject. Chest numbers can be assigned before or after — the timer is independent.</p>}
     </div>
   );
 }
@@ -284,6 +378,7 @@ export default function EventDay() {
 
       {eventId && groupId && (
         <>
+          <GroupTimerPanel token={token} eventId={eventId} groupId={groupId} />
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <Badge tone="navy">{counts.total} entries</Badge>
             <Badge tone="success">{counts.attended} present</Badge>

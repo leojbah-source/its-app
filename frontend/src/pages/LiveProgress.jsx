@@ -11,6 +11,8 @@ import { liveApi } from '../api/client';
 import { pickDefaultDate } from '../utils/dates';
 
 const sel = 'rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
+const fmtClock = (secs) => { const s = Math.max(0, secs); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60; return (h > 0 ? `${h}:${String(m).padStart(2, '0')}` : `${m}`) + `:${String(ss).padStart(2, '0')}`; };
+const hhmm = (iso) => (iso ? new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '');
 const STATE = {
   finished: { label: 'Finished', tone: 'success' },
   running: { label: 'On stage', tone: 'warning' },
@@ -28,6 +30,8 @@ export default function LiveProgress() {
   const [updatedAt, setUpdatedAt] = useState(null);
   const [open, setOpen] = useState(() => new Set());
   const timer = useRef(null);
+  const [, setTick] = useState(0);
+  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 1000); return () => clearInterval(t); }, []);
 
   useEffect(() => { liveApi.dates(token).then(setDates).catch(() => {}); }, [token]);
   useEffect(() => { if (!date && dates.length) setDate(pickDefaultDate(dates)); }, [dates, date]);
@@ -91,8 +95,17 @@ export default function LiveProgress() {
       ) : (
         <div className="space-y-2.5">
           {groups.map((g) => {
-            const meta = STATE[g.state] || STATE.not_started;
-            const pct = g.total ? Math.round((g.done / g.total) * 100) : 0;
+            const gt = g.group_timer;
+            const gtRemaining = gt && gt.state === 'running'
+              ? Math.max(0, Math.round((new Date(gt.ends_at).getTime() - Date.now()) / 1000)) : 0;
+            const meta = gt
+              ? (gt.state === 'running'
+                  ? { label: gtRemaining <= 0 ? 'Time up' : 'Writing', tone: gtRemaining <= 0 ? 'danger' : 'warning' }
+                  : { label: 'Finished', tone: 'success' })
+              : (STATE[g.state] || STATE.not_started);
+            const pct = gt
+              ? (gt.state === 'running' ? Math.min(100, Math.max(0, 100 * (1 - gtRemaining / Math.max(1, gt.duration_seconds)))) : 100)
+              : (g.total ? Math.round((g.done / g.total) * 100) : 0);
             const isOpen = open.has(g.key);
             const timed = g.is_stage_event;
             return (
@@ -105,15 +118,21 @@ export default function LiveProgress() {
                     </div>
                     <div className="truncate text-[11px] text-slate-400">
                       {[g.venue, g.start_time && `starts ${g.start_time}`].filter(Boolean).join(' · ')}
-                      {!timed && <span className="ml-1 text-slate-400">· not timed</span>}
+                      {!timed && !gt && <span className="ml-1 text-slate-400">· timer not started</span>}
+                      {gt && <span className="ml-1 text-slate-500">· {gt.state === 'running' ? `ends ${hhmm(gt.ends_at)}` : 'finished'}</span>}
                     </div>
                   </div>
-                  {g.now && g.now.length > 0 && (
+                  {!gt && g.now && g.now.length > 0 && (
                     <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
                       <Radio size={12} /> #{g.now[0].chest_number} {g.now[0].name?.split(' ')[0]}
                     </span>
                   )}
-                  <span className="shrink-0 text-xs font-medium text-slate-500">{g.done}/{g.total}</span>
+                  {gt && gt.state === 'running' && (
+                    <span className={`shrink-0 font-mono text-sm font-bold tabular-nums ${gtRemaining <= 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                      {gtRemaining <= 0 ? 'TIME UP' : fmtClock(gtRemaining)}
+                    </span>
+                  )}
+                  {!gt && <span className="shrink-0 text-xs font-medium text-slate-500">{g.done}/{g.total}</span>}
                   <Badge tone={meta.tone}>{meta.label}</Badge>
                   <ChevronDown size={18} className={`shrink-0 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                 </button>
@@ -122,7 +141,17 @@ export default function LiveProgress() {
                     <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
                   </div>
                 </div>
-                {isOpen && (
+                {isOpen && gt && (
+                  <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-600">
+                    Started {hhmm(gt.started_at)}
+                    {' · '}
+                    {gt.state === 'running'
+                      ? `ends ${hhmm(gt.ends_at)} (${fmtClock(gtRemaining)} left)`
+                      : (gt.ended_at ? `stopped early ${hhmm(gt.ended_at)}` : `ended ${hhmm(gt.ends_at)}`)}
+                    {g.participants.length > 0 && <span className="ml-1 text-slate-400">· {g.participants.length} chest(s) in</span>}
+                  </div>
+                )}
+                {isOpen && !gt && (
                   <ul className="divide-y divide-slate-100 border-t border-slate-100">
                     {g.participants.length === 0 && <li className="px-4 py-3 text-xs text-slate-400">No attended performers / chest numbers yet.</li>}
                     {g.participants.map((p) => (

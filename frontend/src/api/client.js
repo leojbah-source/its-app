@@ -492,6 +492,19 @@ export const liveApi = {
   day: (token, date) => request(`/api/admin/live/day?date=${encodeURIComponent(date)}`, { token }),
 };
 
+export const groupTimerApi = {
+  get: (token, eventId, ageGroupId) =>
+    request(`/api/admin/group-timer?event_id=${eventId}&age_group_id=${ageGroupId}`, { token }),
+  start: (token, eventId, ageGroupId) =>
+    request('/api/admin/group-timer/start', { method: 'POST', token, body: { event_id: eventId, age_group_id: ageGroupId } }),
+  stop: (token, eventId, ageGroupId) =>
+    request('/api/admin/group-timer/stop', { method: 'POST', token, body: { event_id: eventId, age_group_id: ageGroupId } }),
+  extend: (token, eventId, ageGroupId, minutes) =>
+    request('/api/admin/group-timer/extend', { method: 'POST', token, body: { event_id: eventId, age_group_id: ageGroupId, minutes } }),
+  clear: (token, eventId, ageGroupId) =>
+    request('/api/admin/group-timer/clear', { method: 'POST', token, body: { event_id: eventId, age_group_id: ageGroupId } }),
+};
+
 export const scheduleApi = {
   list: (token) => request('/api/admin/schedule', { token }),
   generateDraft: (token, body) => request('/api/admin/schedule/generate-draft', { method: 'POST', token, body }),

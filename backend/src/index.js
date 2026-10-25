@@ -34,6 +34,7 @@ const adminVideoRoutes = require('./routes/admin.video.routes');
 const adminSecurityRoutes = require('./routes/admin.security.routes');
 const adminMaintenanceRoutes = require('./routes/admin.maintenance.routes');
 const adminLiveRoutes = require('./routes/admin.live.routes');
+const adminGroupTimerRoutes = require('./routes/admin.grouptimer.routes');
 const path = require('path');
 
 const app = express();
@@ -94,6 +95,7 @@ app.use('/api/admin/users', adminUsersRoutes);
 app.use('/api/admin', adminSecurityRoutes);
 app.use('/api/admin/maintenance', adminMaintenanceRoutes);
 app.use('/api/admin/live', adminLiveRoutes);
+app.use('/api/admin/group-timer', adminGroupTimerRoutes);
 app.use('/api/mc', mcRoutes);
 app.use('/api/timer', timerRoutes);
 
