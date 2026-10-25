@@ -94,7 +94,8 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   // Chairman event corrections
   const [editEvents, setEditEvents] = useState(false);
   const [removeIds, setRemoveIds] = useState(new Set());
-  const [addCodes, setAddCodes] = useState('');
+  const [addIds, setAddIds] = useState(() => new Set());
+  const [eventQuery, setEventQuery] = useState('');
   const [correctionReason, setCorrectionReason] = useState('');
   const [eligibleEvents, setEligibleEvents] = useState([]);
   // Cancel-for-non-payment (withdraw all events, no refund rows)
@@ -389,7 +390,8 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   async function openEventEdit() {
     setEditEvents(true);
     setRemoveIds(new Set());
-    setAddCodes('');
+    setAddIds(new Set());
+    setEventQuery('');
     setCorrectionReason('');
     try {
       const evs = await participantsApi.eligibleEvents(token, p.age_group_id, p.gender);
@@ -400,10 +402,7 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   async function doEventCorrection() {
     const activeIds = new Set(
       (data.registrations || []).filter((r) => r.status === 'registered').map((r) => r.event_id));
-    const add_event_ids = eligibleEvents
-      .filter((e) => addCodes.split(',').map((c) => c.trim().toUpperCase()).includes(e.event_code.toUpperCase()))
-      .filter((e) => !activeIds.has(e.id))
-      .map((e) => e.id);
+    const add_event_ids = [...addIds].filter((id) => !activeIds.has(id));
     setBusy('events');
     setFlash('');
     try {
@@ -1159,15 +1158,53 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                 {editEvents && (
                   <div className="space-y-2 rounded-lg border border-gold-300 bg-gold-50/50 p-3">
                     <p className="text-[11px] text-slate-600">
-                      Tap event chips above to mark them for removal. To add events, enter their
-                      codes below (comma-separated).
+                      Tap event chips above to mark them for <b>removal</b>. To <b>add</b> events,
+                      search and select them from the list below — one at a time, no typing codes.
                     </p>
-                    <input
-                      value={addCodes}
-                      onChange={(e) => setAddCodes(e.target.value)}
-                      placeholder="Add events by code, e.g. D02, L03"
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    />
+                    {(() => {
+                      const activeIds = new Set((data.registrations || []).filter((r) => r.status === 'registered').map((r) => r.event_id));
+                      const chosen = eligibleEvents.filter((e) => addIds.has(e.id));
+                      const q = eventQuery.trim().toLowerCase();
+                      const options = eligibleEvents
+                        .filter((e) => !activeIds.has(e.id) && !addIds.has(e.id))
+                        .filter((e) => !q || `${e.event_code} ${e.event_name} ${e.category_name || ''}`.toLowerCase().includes(q));
+                      const toggleAdd = (id) => setAddIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+                      return (
+                        <div className="space-y-1.5">
+                          {chosen.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {chosen.map((e) => (
+                                <span key={e.id} className="inline-flex items-center gap-1 rounded bg-emerald-50 border border-emerald-300 px-1.5 py-0.5 text-[11px] font-mono text-emerald-700">
+                                  {e.event_code}
+                                  <button onClick={() => toggleAdd(e.id)} className="text-emerald-500 hover:text-emerald-700" title="Remove from additions">×</button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <input
+                            value={eventQuery}
+                            onChange={(e) => setEventQuery(e.target.value)}
+                            placeholder="Search events to add (code or name)…"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                          />
+                          <div className="max-h-44 overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
+                            {eligibleEvents.length === 0 ? (
+                              <p className="px-3 py-3 text-[11px] text-slate-400">No eligible events found for this age group.</p>
+                            ) : options.length === 0 ? (
+                              <p className="px-3 py-3 text-[11px] text-slate-400">{q ? 'No match — try a different search.' : 'All eligible events are already added.'}</p>
+                            ) : options.map((e) => (
+                              <button key={e.id} type="button" onClick={() => toggleAdd(e.id)}
+                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-navy-50">
+                                <span className="font-mono text-[11px] font-semibold text-navy-700 w-12 shrink-0">{e.event_code}</span>
+                                <span className="min-w-0 flex-1 truncate text-slate-700">{e.event_name}</span>
+                                {e.category_name && <span className="shrink-0 text-[10px] text-slate-400">{e.category_name}</span>}
+                                <span className="shrink-0 text-navy-500 text-xs">+ add</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <textarea
                       value={correctionReason}
                       onChange={(e) => setCorrectionReason(e.target.value)}
@@ -1178,7 +1215,7 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" onClick={() => setEditEvents(false)}>Cancel</Button>
                       <Button variant="primary" size="sm" loading={busy === 'events'}
-                        disabled={!correctionReason.trim() || (removeIds.size === 0 && !addCodes.trim())}
+                        disabled={!correctionReason.trim() || (removeIds.size === 0 && addIds.size === 0)}
                         onClick={doEventCorrection}>
                         Apply correction
                       </Button>
