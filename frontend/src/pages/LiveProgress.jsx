@@ -100,7 +100,7 @@ export default function LiveProgress() {
               ? Math.max(0, Math.round((new Date(gt.ends_at).getTime() - Date.now()) / 1000)) : 0;
             const meta = gt
               ? (gt.state === 'running'
-                  ? { label: gtRemaining <= 0 ? 'Time up' : 'Writing', tone: gtRemaining <= 0 ? 'danger' : 'warning' }
+                  ? { label: gtRemaining <= 0 ? 'Time up' : 'In progress', tone: gtRemaining <= 0 ? 'danger' : 'warning' }
                   : { label: 'Finished', tone: 'success' })
               : (STATE[g.state] || STATE.not_started);
             const pct = gt
