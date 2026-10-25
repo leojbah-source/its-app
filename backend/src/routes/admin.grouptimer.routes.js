@@ -78,13 +78,13 @@ router.post('/start', requireRole(...runRoles), async (req, res, next) => {
     const { rows } = await pool.query(
       `INSERT INTO event_group_timers
          (year_id, event_id, age_group_id, duration_seconds, started_at, ends_at, ended_at, started_by, updated_at)
-       VALUES ($1,$2,$3,$4, NOW(), NOW() + ($4 * interval '1 second'), NULL, $5, NOW())
+       VALUES ($1,$2,$3,$4, NOW(), NOW() + $6::interval, NULL, $5, NOW())
        ON CONFLICT (event_id, age_group_id) DO UPDATE SET
          duration_seconds = EXCLUDED.duration_seconds,
-         started_at = NOW(), ends_at = NOW() + (EXCLUDED.duration_seconds * interval '1 second'),
+         started_at = NOW(), ends_at = NOW() + $6::interval,
          ended_at = NULL, started_by = $5, updated_at = NOW()
        RETURNING *`,
-      [yearId, eventId, ageGroupId, duration, req.user.id]);
+      [yearId, eventId, ageGroupId, duration, req.user.id, `${duration} seconds`]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'GROUP_TIMER_START', entity: 'event_group_timers', entityId: rows[0].id,
       details: { event_id: eventId, age_group_id: ageGroupId, duration_seconds: duration } });
@@ -117,10 +117,10 @@ router.post('/extend', requireRole(...runRoles), async (req, res, next) => {
     if (!minutes || minutes < 1 || minutes > 120) return res.status(400).json({ error: 'minutes must be between 1 and 120' });
     const { rows } = await pool.query(
       `UPDATE event_group_timers
-          SET ends_at = GREATEST(ends_at, NOW()) + ($3 * interval '1 minute'),
-              ended_at = NULL, duration_seconds = duration_seconds + $3 * 60, updated_at = NOW()
+          SET ends_at = GREATEST(ends_at, NOW()) + $4::interval,
+              ended_at = NULL, duration_seconds = duration_seconds + $3, updated_at = NOW()
         WHERE event_id = $1 AND age_group_id = $2 AND started_at IS NOT NULL
-        RETURNING *`, [eventId, ageGroupId, minutes]);
+        RETURNING *`, [eventId, ageGroupId, minutes * 60, `${minutes} minutes`]);
     if (!rows[0]) return res.status(400).json({ error: 'No started timer to extend.' });
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'GROUP_TIMER_EXTEND', entity: 'event_group_timers', entityId: rows[0].id,
