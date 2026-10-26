@@ -655,6 +655,10 @@ router.get('/registrations', requireRole(...staffRoles), async (req, res, next) 
          (SELECT pu.membership_status FROM users pu
           WHERE pu.id = p.created_by) AS parent_membership_status,
          t.team_name,
+         (SELECT p2.full_name FROM team_members tm2
+            JOIN participants p2 ON p2.id = tm2.participant_id
+           WHERE tm2.team_id = r.team_id AND tm2.is_captain = TRUE
+           ORDER BY tm2.created_at LIMIT 1) AS captain_name,
          (SELECT COUNT(*)::int FROM team_members tm WHERE tm.team_id = r.team_id) AS team_member_count,
          s.name AS school_name,
          e.event_name, e.event_code, e.event_kind,
@@ -673,8 +677,13 @@ router.get('/registrations', requireRole(...staffRoles), async (req, res, next) 
          AND ($4::int IS NULL OR r.age_group_id = $4)
          AND ($5::text IS NULL
               OR p.full_name ILIKE '%' || $5 || '%'
-              OR p.cpr_number = $5)
-       ORDER BY r.registered_at, p.full_name`,
+              OR p.cpr_number = $5
+              OR t.team_name ILIKE '%' || $5 || '%'
+              OR EXISTS (SELECT 1 FROM team_members tmc
+                           JOIN participants pc ON pc.id = tmc.participant_id
+                          WHERE tmc.team_id = r.team_id AND tmc.is_captain = TRUE
+                            AND pc.full_name ILIKE '%' || $5 || '%'))
+       ORDER BY r.registered_at, COALESCE(p.full_name, t.team_name)`,
       [year_id,
        event_id ? parseInt(event_id, 10) : null,
        status || null,

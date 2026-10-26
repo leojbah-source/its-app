@@ -59,6 +59,8 @@ export default function RegistrationsTable({ registrations, onView, onComplete }
     if (q) {
       rows = rows.filter((r) =>
         (r.participant_name || '').toLowerCase().includes(q) ||
+        (r.team_name        || '').toLowerCase().includes(q) ||
+        (r.captain_name     || '').toLowerCase().includes(q) ||
         (r.cpr_number       || '').includes(q) ||
         (r.event_name       || '').toLowerCase().includes(q) ||
         (r.event_code       || '').toLowerCase().includes(q) ||
@@ -107,6 +109,7 @@ export default function RegistrationsTable({ registrations, onView, onComplete }
         map.set(key, {
           key,
           participant_name: r.participant_name || r.team_name || '—',
+          captain_name: r.captain_name || null,
           is_team: !r.participant_id,
           team_member_count: r.team_member_count,
           admin_verified_status: r.admin_verified_status,
@@ -282,6 +285,9 @@ export default function RegistrationsTable({ registrations, onView, onComplete }
                         TEAM · {g.team_member_count ?? 0} member{(g.team_member_count ?? 0) !== 1 ? 's' : ''}
                       </span>
                     )}
+                    {g.is_team && g.captain_name && (
+                      <span className="block text-[11px] text-slate-500">Captain: {g.captain_name}</span>
+                    )}
                     {g.cpr_number && (
                       <span className="block text-[11px] text-slate-400 font-mono">{g.cpr_number}</span>
                     )}
@@ -373,7 +379,12 @@ export default function RegistrationsTable({ registrations, onView, onComplete }
               {pageRows.map((r) => (
                 <tr key={r.id} className="hover:bg-slate-50">
                   <td className="px-4 py-3 font-medium text-slate-800">
-                    {r.participant_name || '—'}
+                    {(r.event_kind === 'team' || r.team_name) ? (
+                      <div>
+                        <div className="font-medium text-slate-800">{r.team_name || '—'}</div>
+                        {r.captain_name && <div className="text-[11px] font-normal text-slate-500">Captain: {r.captain_name}</div>}
+                      </div>
+                    ) : (r.participant_name || '—')}
                   </td>
                   <td className="px-4 py-3 text-slate-500 text-xs font-mono">
                     {r.age_group_code || '—'}
