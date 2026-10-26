@@ -495,8 +495,8 @@ export const liveApi = {
 export const groupTimerApi = {
   get: (token, eventId, ageGroupId) =>
     request(`/api/admin/group-timer?event_id=${eventId}&age_group_id=${ageGroupId}`, { token }),
-  start: (token, eventId, ageGroupId) =>
-    request('/api/admin/group-timer/start', { method: 'POST', token, body: { event_id: eventId, age_group_id: ageGroupId } }),
+  start: (token, eventId, ageGroupId, elapsedMinutes = 0) =>
+    request('/api/admin/group-timer/start', { method: 'POST', token, body: { event_id: eventId, age_group_id: ageGroupId, elapsed_minutes: elapsedMinutes } }),
   stop: (token, eventId, ageGroupId) =>
     request('/api/admin/group-timer/stop', { method: 'POST', token, body: { event_id: eventId, age_group_id: ageGroupId } }),
   extend: (token, eventId, ageGroupId, minutes) =>

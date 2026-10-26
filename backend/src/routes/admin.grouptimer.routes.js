@@ -74,20 +74,24 @@ router.post('/start', requireRole(...runRoles), async (req, res, next) => {
     const ev = await loadEvent(eventId, ageGroupId);
     if (!ev) return res.status(404).json({ error: 'Event or age group not found' });
     const duration = Math.max(60, Number(ev.allotted_time_seconds) || 0);
+    // Optional: minutes already elapsed (the office forgot to start on time).
+    // Back-date the start so the countdown ends at the correct real finish.
+    const elapsedMin = Math.max(0, Math.round(Number(req.body.elapsed_minutes) || 0));
+    const elapsedSec = Math.min(elapsedMin * 60, duration); // cap at the duration
 
     const { rows } = await pool.query(
       `INSERT INTO event_group_timers
          (year_id, event_id, age_group_id, duration_seconds, started_at, ends_at, ended_at, started_by, updated_at)
-       VALUES ($1,$2,$3,$4, NOW(), NOW() + $6::interval, NULL, $5, NOW())
+       VALUES ($1,$2,$3,$4, NOW() - $7::interval, NOW() - $7::interval + $6::interval, NULL, $5, NOW())
        ON CONFLICT (event_id, age_group_id) DO UPDATE SET
          duration_seconds = EXCLUDED.duration_seconds,
-         started_at = NOW(), ends_at = NOW() + $6::interval,
+         started_at = NOW() - $7::interval, ends_at = NOW() - $7::interval + $6::interval,
          ended_at = NULL, started_by = $5, updated_at = NOW()
        RETURNING *`,
-      [yearId, eventId, ageGroupId, duration, req.user.id, `${duration} seconds`]);
+      [yearId, eventId, ageGroupId, duration, req.user.id, `${duration} seconds`, `${elapsedSec} seconds`]);
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: 'GROUP_TIMER_START', entity: 'event_group_timers', entityId: rows[0].id,
-      details: { event_id: eventId, age_group_id: ageGroupId, duration_seconds: duration } });
+      details: { event_id: eventId, age_group_id: ageGroupId, duration_seconds: duration, elapsed_minutes: elapsedMin } });
     res.json({ event: ev, timer: shapeTimer(rows[0]) });
   } catch (err) { next(err); }
 });

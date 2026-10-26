@@ -66,6 +66,7 @@ function GroupTimerPanel({ token, eventId, groupId }) {
   const [data, setData] = useState(null);
   const [, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [elapsed, setElapsed] = useState('');
   const pollRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -116,9 +117,19 @@ function GroupTimerPanel({ token, eventId, groupId }) {
         </div>
         <div className="flex-1" />
         {!t && (
-          <Button variant="primary" icon={Play} loading={busy} onClick={() => act(() => groupTimerApi.start(token, eventId, groupId))}>
-            Start timer ({durMin} min)
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1 text-xs text-slate-600">
+              Already elapsed
+              <input type="number" min="0" max={durMin} value={elapsed}
+                onChange={(e) => setElapsed(e.target.value)} placeholder="0"
+                className="w-14 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+              min
+            </label>
+            <Button variant="primary" icon={Play} loading={busy}
+              onClick={() => act(() => groupTimerApi.start(token, eventId, groupId, Math.max(0, Number(elapsed) || 0)))}>
+              Start timer{Number(elapsed) > 0 ? ` (${Math.max(0, durMin - Math.round(Number(elapsed)))} min left)` : ` (${durMin} min)`}
+            </Button>
+          </div>
         )}
         {running && (
           <div className="flex items-center gap-2">
@@ -147,7 +158,7 @@ function GroupTimerPanel({ token, eventId, groupId }) {
             style={{ width: `${Math.min(100, Math.max(0, 100 * (1 - remaining / Math.max(1, t.duration_seconds))))}%` }} />
         </div>
       )}
-      {!t && <p className="mt-1.5 text-[11px] text-slate-500">Start when you hand out the subject. Chest numbers can be assigned before or after — the timer is independent.</p>}
+      {!t && <p className="mt-1.5 text-[11px] text-slate-500">Start when you hand out the subject. Forgot to start on time? Put the minutes already elapsed in the box and it will count down to the correct finish. Chest numbers can be assigned before or after — the timer is independent.</p>}
     </div>
   );
 }
