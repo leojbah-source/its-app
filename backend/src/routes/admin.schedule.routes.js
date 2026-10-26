@@ -920,11 +920,12 @@ router.get('/day-report', requireRole(...staffRoles), async (req, res, next) => 
       const perMin = row.allotted_time_seconds ? row.allotted_time_seconds / 60 : 5;
       const { rows: parts } = await pool.query(
         `SELECT p.id, p.full_name, ag.code AS gcode, ag.label AS glabel, ag.sort_order AS gsort,
-                sch.name AS school
+                sch.name AS school, u.phone AS contact, u.whatsapp_number AS whatsapp
            FROM registrations r
            JOIN participants p ON p.id = r.participant_id
            LEFT JOIN age_groups ag ON ag.id = r.age_group_id
            LEFT JOIN schools sch ON sch.id = p.school_id
+           LEFT JOIN users u ON u.id = p.created_by
           WHERE r.event_id = $1 AND r.status NOT IN ('withdrawn','swapped')
             AND p.confirmed_at IS NOT NULL
             AND ag.code = ANY($2::text[])
@@ -952,7 +953,7 @@ router.get('/day-report', requireRole(...staffRoles), async (req, res, next) => 
       orderedCodes.forEach((c) => { if (gm[c] && gm[c].reporting) repByGroup[c] = toMin(gm[c].reporting); });
 
       for (const p of parts) {
-        if (!byPart.has(p.id)) byPart.set(p.id, { name: p.full_name, group: p.glabel, school: p.school || '', events: [] });
+        if (!byPart.has(p.id)) byPart.set(p.id, { name: p.full_name, group: p.glabel, school: p.school || '', contact: p.contact || '', whatsapp: p.whatsapp || p.contact || '', events: [] });
         byPart.get(p.id).events.push({
           reportingMin: repByGroup[p.gcode] ?? null,
           reporting: fmt(repByGroup[p.gcode]),
@@ -971,6 +972,8 @@ router.get('/day-report', requireRole(...staffRoles), async (req, res, next) => 
       { header: 'Participant', key: 'name', width: 26 },
       { header: 'Age Group', key: 'age', width: 12 },
       { header: 'School', key: 'school', width: 26 },
+      { header: 'Contact', key: 'contact', width: 15 },
+      { header: 'WhatsApp', key: 'whatsapp', width: 15 },
       { header: 'Events today', key: 'n', width: 12 },
       { header: 'Flag', key: 'flag', width: 10 },
       { header: 'Reporting', key: 'rep', width: 11 },
@@ -979,6 +982,9 @@ router.get('/day-report', requireRole(...staffRoles), async (req, res, next) => 
       { header: 'Min/participant', key: 'perMin', width: 14 },
       { header: 'Event window', key: 'window', width: 16 },
     ];
+
+    ws.getColumn('contact').numFmt = '@';
+    ws.getColumn('whatsapp').numFmt = '@';
 
     const participants = [...byPart.values()]
       .sort((a, b) => String(a.name).localeCompare(String(b.name)));
@@ -992,6 +998,8 @@ router.get('/day-report', requireRole(...staffRoles), async (req, res, next) => 
           name: i === 0 ? String(p.name || '').toUpperCase() : '',
           age: i === 0 ? p.group : '',
           school: i === 0 ? p.school : '',
+          contact: i === 0 ? (p.contact ? String(p.contact) : '') : '',
+          whatsapp: i === 0 ? (p.whatsapp ? String(p.whatsapp) : '') : '',
           n: i === 0 ? n : '',
           flag: i === 0 ? (n > 2 ? `>2 (${n})` : '') : '',
           rep: ev.reporting, event: ev.event, venue: ev.venue,
@@ -1002,7 +1010,7 @@ router.get('/day-report', requireRole(...staffRoles), async (req, res, next) => 
     }
     const h = ws.getRow(1); h.font = { bold: true };
     ws.views = [{ state: 'frozen', ySplit: 1 }];
-    ws.autoFilter = { from: 'A1', to: 'J1' };
+    ws.autoFilter = { from: 'A1', to: 'L1' };
     ws.addRow({});
     const sum = ws.addRow({ name: `${participants.length} participant(s) scheduled on ${date}  ·  ${over} with more than 2 events` });
     sum.font = { italic: true, color: { argb: 'FF666666' } };
