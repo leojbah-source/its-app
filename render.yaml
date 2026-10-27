@@ -41,7 +41,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
-        value: "22"
+        value: "22.23.4"   # patched release (Oct 2026 Node security advisory); was "22" (latest 22.x)
       - key: NODE_ENV
         value: production
       # Uploads are written here (on the persistent disk mounted above) instead of
