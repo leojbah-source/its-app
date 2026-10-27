@@ -132,6 +132,10 @@ export const portalApi = {
   teamCreate: (token, data) => req('/api/register/team', { method: 'POST', token, body: data }),
   teamAddMembers: (token, id, members) =>
     req(`/api/register/team/${id}/members`, { method: 'POST', token, body: { members } }),
+  teamEditMember: (token, id, memberId, data) =>
+    req(`/api/register/team/${id}/members/${memberId}`, { method: 'PATCH', token, body: data }),
+  teamRemoveMember: (token, id, memberId) =>
+    req(`/api/register/team/${id}/members/${memberId}`, { method: 'DELETE', token }),
   teamPayment: (token, id, data) =>
     req(`/api/register/team/${id}/payment`, { method: 'POST', token, body: data }),
   /** Upload a CPR scan for the team (image or PDF; may contain several members). */

@@ -1627,7 +1627,7 @@ router.get('/team/:id', authenticate, async (req, res, next) => {
     const team = await loadOwnTeam(pool, req.params.id, req.user);
     const { rows: members } = await pool.query(
       `SELECT tm.id AS member_id, tm.is_captain, p.id AS participant_id, p.full_name, p.dob,
-              p.cpr_number, s.name AS school_name
+              p.cpr_number, p.gender, p.school_id, s.name AS school_name
        FROM team_members tm
        JOIN participants p ON p.id = tm.participant_id
        LEFT JOIN schools s ON s.id = p.school_id
@@ -1698,6 +1698,101 @@ router.post('/team/:id/members', authenticate, async (req, res, next) => {
     if (err.status) return res.status(err.status).json({ error: err.message });
     next(err);
   } finally { client.release(); }
+});
+
+// ── PATCH /api/register/team/:id/members/:memberId ───────────────────────────
+// Edit one team member's details (the owner fixes a mistake), until the member
+// deadline. Updates the underlying participant record. Does NOT touch any event
+// registration or result.
+router.patch('/team/:id/members/:memberId', authenticate, async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const team = await loadOwnTeam(client, req.params.id, req.user);
+    const memberDeadline = team.team_member_deadline || team.team_reg_deadline;
+    if (memberDeadline && new Date() > new Date(memberDeadline)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'The deadline to edit team members has passed' });
+    }
+    const { rows: mem } = await client.query(
+      `SELECT tm.id, tm.participant_id FROM team_members tm WHERE tm.id = $1 AND tm.team_id = $2`,
+      [req.params.memberId, team.id]);
+    if (!mem[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Team member not found' }); }
+
+    const m = req.body || {};
+    if (!m.full_name || !m.dob || !m.cpr_number || !m.school_id || !['M', 'F'].includes(m.gender)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Each member needs full name, CPR, date of birth, gender (M/F) and school.' });
+    }
+    const cprErr = cprDobMismatch(m.cpr_number, m.dob);
+    if (cprErr) { await client.query('ROLLBACK'); return res.status(400).json({ error: cprErr }); }
+    // DOB must stay eligible for this team event's age groups.
+    const elig = await dobEligibleForEvent(client, team.event_id, m.dob);
+    if (!elig.ok) {
+      const iso = (d) => new Date(d).toISOString().slice(0, 10);
+      const ranges = elig.ranges.map((r) => `${r.label || r.code}: born ${iso(r.dob_from)} to ${iso(r.dob_to)}`).join(' · ');
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `Date of birth ${m.dob} is outside the eligible range for this event (${ranges})` });
+    }
+    const ageGroupId = await resolveAgeGroup(m.dob, team.year_id);
+    try {
+      await client.query(
+        `UPDATE participants SET full_name = $1, dob = $2, cpr_number = $3, gender = $4,
+           school_id = $5, age_group_id = $6, updated_at = NOW() WHERE id = $7`,
+        [m.full_name.trim(), m.dob, String(m.cpr_number).trim(), m.gender, m.school_id, ageGroupId, mem[0].participant_id]);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      if (e && e.code === '23505') return res.status(409).json({ error: 'Another participant this year already has that CPR number.' });
+      throw e;
+    }
+    // Details changed → the CPR tick must be re-checked by the office.
+    await client.query(`UPDATE team_members SET cpr_verified = FALSE, cpr_verified_at = NULL, cpr_verified_by = NULL WHERE id = $1`, [mem[0].id]);
+    await client.query('COMMIT');
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'EDIT_TEAM_MEMBER', entity: 'team_members', entityId: mem[0].id,
+      details: { team_id: team.id, participant_id: mem[0].participant_id } });
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  } finally { client.release(); }
+});
+
+// ── DELETE /api/register/team/:id/members/:memberId ──────────────────────────
+// Remove a member from the team (the owner fixes a mistake), until the member
+// deadline. Unlinks from the team only — the participant record is kept (it may
+// be used by individual events). Keeps at least one member.
+router.delete('/team/:id/members/:memberId', authenticate, async (req, res, next) => {
+  try {
+    const team = await loadOwnTeam(pool, req.params.id, req.user);
+    const memberDeadline = team.team_member_deadline || team.team_reg_deadline;
+    if (memberDeadline && new Date() > new Date(memberDeadline))
+      return res.status(403).json({ error: 'The deadline to change team members has passed' });
+
+    const { rows: cnt } = await pool.query(`SELECT COUNT(*)::int AS n FROM team_members WHERE team_id = $1`, [team.id]);
+    if (cnt[0].n <= 1) return res.status(400).json({ error: 'A team must have at least one member. Edit this member instead of removing the last one.' });
+
+    const { rows } = await pool.query(
+      `DELETE FROM team_members WHERE id = $1 AND team_id = $2 RETURNING participant_id, is_captain`,
+      [req.params.memberId, team.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Team member not found' });
+
+    // If the captain was removed, promote the earliest remaining member.
+    if (rows[0].is_captain) {
+      await pool.query(
+        `UPDATE team_members SET is_captain = TRUE
+          WHERE id = (SELECT id FROM team_members WHERE team_id = $1 ORDER BY created_at LIMIT 1)`,
+        [team.id]);
+    }
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'REMOVE_TEAM_MEMBER', entity: 'team_members', entityId: req.params.memberId,
+      details: { team_id: team.id, participant_id: rows[0].participant_id } });
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
 });
 
 // ── POST /api/register/team/:id/payment ──────────────────────────────────────

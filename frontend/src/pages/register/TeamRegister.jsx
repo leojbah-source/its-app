@@ -248,6 +248,42 @@ function TeamCard({ token, team, schools, config, onChanged }) {
   const [newMembers, setNewMembers] = useState([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [editId, setEditId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [editBusy, setEditBusy] = useState(false);
+
+  function startEdit(m) {
+    setEditId(m.member_id);
+    setEditForm({
+      full_name: m.full_name || '', cpr_number: m.cpr_number || '',
+      dob: m.dob ? String(m.dob).slice(0, 10) : '', gender: m.gender || '', school_id: m.school_id || '',
+    });
+  }
+  async function saveEdit(m) {
+    const f = editForm;
+    if (!(f.full_name && f.dob && f.cpr_number && f.gender && f.school_id)) {
+      setMsg('Each member needs name, CPR, date of birth, gender and school.'); return;
+    }
+    setEditBusy(true); setMsg('');
+    try {
+      await portalApi.teamEditMember(token, team.id, m.member_id, f);
+      setEditId(null);
+      setDetail(await portalApi.teamGet(token, team.id));
+      onChanged();
+      setMsg('Member details updated.');
+    } catch (e) { setMsg(e.message); }
+    finally { setEditBusy(false); }
+  }
+  async function removeMember(m) {
+    if (!window.confirm(`Remove ${m.full_name} from the team?`)) return;
+    setMsg('');
+    try {
+      await portalApi.teamRemoveMember(token, team.id, m.member_id);
+      setDetail(await portalApi.teamGet(token, team.id));
+      onChanged();
+      setMsg('Member removed.');
+    } catch (e) { setMsg(e.message); }
+  }
 
   async function toggle() {
     if (!expanded && !detail) {
@@ -315,14 +351,48 @@ function TeamCard({ token, team, schools, config, onChanged }) {
           {detail?.members?.length > 0 && (
             <div className="rounded-lg bg-slate-50 border border-slate-200 divide-y divide-slate-100">
               {detail.members.map((m) => (
-                <div key={m.member_id} className="px-3 py-2 text-xs text-slate-600 flex justify-between">
-                  <span className="font-medium text-slate-700">
-                    {m.full_name}
-                    {m.is_captain && (
-                      <span className="ml-1.5 rounded bg-navy-100 text-navy-700 px-1 py-0.5 text-[10px] font-semibold">CAPTAIN</span>
-                    )}
-                  </span>
-                  <span className="font-mono text-slate-400">{m.cpr_number}</span>
+                <div key={m.member_id} className="px-3 py-2 text-xs text-slate-600">
+                  {editId === m.member_id ? (
+                    <div className="space-y-2">
+                      <input value={editForm.full_name} onChange={(e) => setEditForm((f) => ({ ...f, full_name: e.target.value }))}
+                        placeholder="Full name (as on CPR)" className={inputCls} />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input value={editForm.cpr_number} onChange={(e) => setEditForm((f) => ({ ...f, cpr_number: e.target.value }))}
+                          placeholder="CPR number" inputMode="numeric" className={inputCls} />
+                        <input type="date" value={editForm.dob} onChange={(e) => setEditForm((f) => ({ ...f, dob: e.target.value }))} className={inputCls} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <select value={editForm.gender} onChange={(e) => setEditForm((f) => ({ ...f, gender: e.target.value }))} className={inputCls}>
+                          <option value="">Gender…</option><option value="M">Male</option><option value="F">Female</option>
+                        </select>
+                        <select value={editForm.school_id} onChange={(e) => setEditForm((f) => ({ ...f, school_id: e.target.value }))} className={inputCls}>
+                          <option value="">School…</option>
+                          {schools.map((sc) => <option key={sc.id} value={sc.id}>{sc.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => setEditId(null)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600">Cancel</button>
+                        <button onClick={() => saveEdit(m)} disabled={editBusy}
+                          className="rounded-lg bg-navy-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60">{editBusy ? 'Saving…' : 'Save'}</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-slate-700 min-w-0 truncate">
+                        {m.full_name}
+                        {m.is_captain && (
+                          <span className="ml-1.5 rounded bg-navy-100 text-navy-700 px-1 py-0.5 text-[10px] font-semibold">CAPTAIN</span>
+                        )}
+                        <span className="ml-1.5 font-mono text-slate-400">{m.cpr_number}</span>
+                      </span>
+                      {!memberClosed && (
+                        <span className="flex shrink-0 gap-2">
+                          <button onClick={() => startEdit(m)} className="font-medium text-navy-600 underline">Edit</button>
+                          <button onClick={() => removeMember(m)} className="font-medium text-red-500 underline">Remove</button>
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
