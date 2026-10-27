@@ -4,7 +4,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, User, CalendarDays, Clock, CheckCircle, ChevronRight, Radio } from 'lucide-react';
+import { Plus, User, Users, CalendarDays, Clock, CheckCircle, ChevronRight, Radio } from 'lucide-react';
 import { useParentAuth } from '../../context/ParentAuthContext';
 import { portalApi } from './registerApi';
 import RegisterLayout from './RegisterLayout';
