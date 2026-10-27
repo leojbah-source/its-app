@@ -3,7 +3,7 @@
 // expertise, blacklist (rule #10). Event assignment and briefing OTPs now live
 // on the Schedule page (event level), where 3 judges are picked per event from
 // those whose expertise matches the event's category.
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { RefreshCw, Plus, Gavel, Ban, ShieldCheck, Trash2, Save, ClipboardCheck, MailPlus } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
@@ -64,6 +64,8 @@ export default function Judges() {
   const [blk, setBlk] = useState(null);
   const [blkReason, setBlkReason] = useState('');
   const [del, setDel] = useState(null);
+  const [query, setQuery] = useState('');
+  const [catFilter, setCatFilter] = useState('');
 
   const catName = (code) => categories.find((c) => c.code === code)?.name || code;
 
@@ -118,6 +120,13 @@ export default function Judges() {
     catch (err) { setFlash(err.message); }
   }
 
+  const filteredJudges = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return judges.filter((j) =>
+      (!q || (j.full_name || '').toLowerCase().includes(q) || (j.bio || '').toLowerCase().includes(q))
+      && (!catFilter || (j.expertise || []).includes(catFilter)));
+  }, [judges, query, catFilter]);
+
   return (
     <AdminLayout
       title="Judges"
@@ -133,8 +142,24 @@ export default function Judges() {
         </div>
       )}
     >
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <div className="text-sm text-slate-500">{judges.length} judge(s)</div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by judge name…"
+            className="w-56 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+          />
+          <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300">
+            <option value="">All categories</option>
+            {categories.map((c) => <option key={c.id} value={c.code}>{c.name}</option>)}
+          </select>
+          {(query || catFilter) && (
+            <button onClick={() => { setQuery(''); setCatFilter(''); }} className="text-xs font-medium text-navy-600 underline">Clear</button>
+          )}
+          <span className="text-sm text-slate-500">{filteredJudges.length}{filteredJudges.length !== judges.length ? ` of ${judges.length}` : ''} judge(s)</span>
+        </div>
         <div className="flex gap-2">
           <Button variant="outline" icon={RefreshCw} onClick={load}>Refresh</Button>
           {canManage && <Button variant="primary" icon={Plus} onClick={openNew}>Add judge</Button>}
@@ -160,7 +185,10 @@ export default function Judges() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {judges.map((j) => (
+                {filteredJudges.length === 0 && (
+                  <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">No judges match your search.</td></tr>
+                )}
+                {filteredJudges.map((j) => (
                   <tr key={j.id} className="align-top">
                     <td className="px-4 py-3">
                       <div className="font-medium text-navy-800">{j.full_name}</div>
