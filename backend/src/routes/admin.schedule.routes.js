@@ -993,15 +993,18 @@ router.get('/day-report', requireRole(...staffRoles), async (req, res, next) => 
       const evs = [...p.events].sort((a, b) => (a.reportingMin ?? 1e9) - (b.reportingMin ?? 1e9));
       const n = evs.length;
       if (n > 2) over += 1;
-      evs.forEach((ev, i) => {
+      // Every row is self-contained (name/age/school/contact repeated on each of a
+      // participant's events) so the sheet can be re-sorted by event, group, etc.
+      // in Excel without rows losing their owner.
+      evs.forEach((ev) => {
         const r = ws.addRow({
-          name: i === 0 ? String(p.name || '').toUpperCase() : '',
-          age: i === 0 ? p.group : '',
-          school: i === 0 ? p.school : '',
-          contact: i === 0 ? (p.contact ? String(p.contact) : '') : '',
-          whatsapp: i === 0 ? (p.whatsapp ? String(p.whatsapp) : '') : '',
-          n: i === 0 ? n : '',
-          flag: i === 0 ? (n > 2 ? `>2 (${n})` : '') : '',
+          name: String(p.name || '').toUpperCase(),
+          age: p.group,
+          school: p.school,
+          contact: p.contact ? String(p.contact) : '',
+          whatsapp: p.whatsapp ? String(p.whatsapp) : '',
+          n,
+          flag: n > 2 ? `>2 (${n})` : '',
           rep: ev.reporting, event: ev.event, venue: ev.venue,
           perMin: ev.perMin, window: ev.window,
         });
@@ -1011,7 +1014,6 @@ router.get('/day-report', requireRole(...staffRoles), async (req, res, next) => 
     const h = ws.getRow(1); h.font = { bold: true };
     ws.views = [{ state: 'frozen', ySplit: 1 }];
     ws.autoFilter = { from: 'A1', to: 'L1' };
-    ws.addRow({});
     const sum = ws.addRow({ name: `${participants.length} participant(s) scheduled on ${date}  ·  ${over} with more than 2 events` });
     sum.font = { italic: true, color: { argb: 'FF666666' } };
 
