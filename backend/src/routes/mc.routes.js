@@ -34,7 +34,12 @@ router.get('/my-events', async (req, res, next) => {
          LIMIT 1
        ) s ON TRUE
        WHERE ma.user_id = $1
-         AND (s.event_date IS NULL OR s.event_date >= CURRENT_DATE)
+         -- Same-day only: today's assignments (or not-yet-scheduled); hide past/future days.
+         AND (s.event_date = CURRENT_DATE OR s.event_date IS NULL)
+         -- Hide anything already published (results out = nothing left for the MC to do).
+         AND NOT (SELECT (COUNT(*) > 0 AND COUNT(*) FILTER (WHERE er.is_published) = COUNT(*))
+                    FROM registrations rr LEFT JOIN event_results er ON er.registration_id = rr.id
+                   WHERE rr.event_id = ma.event_id AND rr.age_group_id = ma.age_group_id AND rr.status = 'attended')
        ORDER BY s.event_date NULLS LAST, s.start_time NULLS LAST, e.event_code, ag.sort_order`, [req.user.id]);
     res.json(rows);
   } catch (err) { next(err); }

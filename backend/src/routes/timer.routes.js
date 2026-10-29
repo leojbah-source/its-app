@@ -28,11 +28,28 @@ router.get('/my-events', async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT ta.event_id, ta.age_group_id, ag.code AS age_group_code, ag.label AS age_group_label,
               e.event_code, e.event_name, c.name AS category_name,
-              e.allotted_time_seconds, e.grace_period_seconds, e.yellow_alert_seconds
+              e.allotted_time_seconds, e.grace_period_seconds, e.yellow_alert_seconds,
+              to_char(s.event_date, 'YYYY-MM-DD') AS event_date,
+              to_char(s.start_time, 'HH24:MI') AS start_time, s.venue
        FROM timer_assignments ta JOIN events e ON e.id = ta.event_id
        LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN age_groups ag ON ag.id = ta.age_group_id
-       WHERE ta.user_id = $1 ORDER BY e.event_code, ag.sort_order`, [req.user.id]);
+       LEFT JOIN LATERAL (
+         SELECT sc.event_date, sc.start_time, sc.venue
+         FROM schedule sc
+         WHERE sc.event_id = ta.event_id
+           AND (sc.age_groups IS NULL OR sc.age_groups = '' OR sc.age_groups ILIKE '%' || ag.code || '%')
+         ORDER BY sc.event_date NULLS LAST, sc.start_time NULLS LAST
+         LIMIT 1
+       ) s ON TRUE
+       WHERE ta.user_id = $1
+         -- Same-day only: today's assignments (or not-yet-scheduled); hide past/future days.
+         AND (s.event_date = CURRENT_DATE OR s.event_date IS NULL)
+         -- Hide anything already published (results out = nothing left for the Timer to do).
+         AND NOT (SELECT (COUNT(*) > 0 AND COUNT(*) FILTER (WHERE er.is_published) = COUNT(*))
+                    FROM registrations rr LEFT JOIN event_results er ON er.registration_id = rr.id
+                   WHERE rr.event_id = ta.event_id AND rr.age_group_id = ta.age_group_id AND rr.status = 'attended')
+       ORDER BY s.event_date NULLS LAST, s.start_time NULLS LAST, e.event_code, ag.sort_order`, [req.user.id]);
     res.json(rows);
   } catch (err) { next(err); }
 });
