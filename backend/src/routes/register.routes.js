@@ -136,9 +136,12 @@ async function verifyAndStoreUserMembership(userId, memberNo) {
 }
 
 /**
- * Team member eligibility: the member's DOB must fall inside one of the
- * event's eligible age-group DOB ranges (Junior/Senior/Common per §5.5).
- * Returns { ok, age_group_id?, ranges } — ranges for error messages.
+ * Team member eligibility (competition rule §5.5):
+ * A team may include members of its OWN bracket OR YOUNGER — e.g. a Seniors
+ * team (Groups 3–5) may field Junior-group children (Groups 1–2). It may NOT
+ * include a member OLDER than its bracket (a Juniors team cannot take a Senior).
+ * "Older" = born BEFORE the earliest eligible group's start date.
+ * Returns { ok, age_group_id?, ranges, younger? } — ranges for error messages.
  */
 async function dobEligibleForEvent(db, eventId, dob) {
   const { rows } = await db.query(
@@ -146,11 +149,20 @@ async function dobEligibleForEvent(db, eventId, dob) {
      FROM event_age_groups eag JOIN age_groups ag ON ag.id = eag.age_group_id
      WHERE eag.event_id = $1 ORDER BY ag.sort_order`,
     [eventId]);
+  if (!rows.length) return { ok: false, ranges: rows };
   const d = new Date(dob);
+  // 1) Exact match: DOB inside one of the event's own eligible groups.
   for (const ag of rows) {
     if (d >= new Date(ag.dob_from) && d <= new Date(ag.dob_to))
       return { ok: true, age_group_id: ag.id, ranges: rows };
   }
+  // 2) Younger than the bracket is allowed (a Seniors team may field juniors).
+  //    Reject only members OLDER than the oldest eligible group, i.e. born
+  //    before the earliest dob_from across the event's eligible groups.
+  const earliestFrom = rows.reduce(
+    (min, ag) => (new Date(ag.dob_from) < min ? new Date(ag.dob_from) : min),
+    new Date(rows[0].dob_from));
+  if (d >= earliestFrom) return { ok: true, age_group_id: null, ranges: rows, younger: true };
   return { ok: false, ranges: rows };
 }
 

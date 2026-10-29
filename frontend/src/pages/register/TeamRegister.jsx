@@ -598,8 +598,9 @@ export default function TeamRegister() {
                 </select>
                 {selectedEvent && (
                   <p className="text-xs text-slate-400 mt-1">
-                    Members' dates of birth must fall within this event's eligible age groups —
-                    each member is checked when saved.
+                    Members may be in this event's age group or younger (e.g. a Seniors
+                    team may include younger children), but not older. Each member is
+                    checked when saved.
                   </p>
                 )}
               </div>
