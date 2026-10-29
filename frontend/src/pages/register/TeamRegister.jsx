@@ -6,6 +6,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Users, Plus, Trash2, Clock, CheckCircle2, Upload, Search, Camera, FileText } from 'lucide-react';
+import DobPicker from '../../components/DobPicker';
 import { useParentAuth } from '../../context/ParentAuthContext';
 import { portalApi, API_BASE } from './registerApi';
 import { isBahrainPhone } from '../../utils/phone';
@@ -109,8 +110,7 @@ function MemberRows({ members, setMembers, schools, max, token, firstIsCaptain =
               <input placeholder="Full name (as on CPR)" value={m.full_name}
                 onChange={(e) => update(i, { full_name: e.target.value })} className={inputCls} />
               <div className="grid grid-cols-2 gap-2">
-                <input type="date" value={m.dob}
-                  onChange={(e) => update(i, { dob: e.target.value })} className={inputCls} />
+                <DobPicker value={m.dob} onChange={(iso) => update(i, { dob: iso })} />
                 <select value={m.gender}
                   onChange={(e) => update(i, { gender: e.target.value })} className={inputCls}>
                   <option value="">Gender</option>
@@ -359,7 +359,7 @@ function TeamCard({ token, team, schools, config, onChanged }) {
                       <div className="grid grid-cols-2 gap-2">
                         <input value={editForm.cpr_number} onChange={(e) => setEditForm((f) => ({ ...f, cpr_number: e.target.value }))}
                           placeholder="CPR number" inputMode="numeric" className={inputCls} />
-                        <input type="date" value={editForm.dob} onChange={(e) => setEditForm((f) => ({ ...f, dob: e.target.value }))} className={inputCls} />
+                        <DobPicker value={editForm.dob} onChange={(iso) => setEditForm((f) => ({ ...f, dob: iso }))} />
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <select value={editForm.gender} onChange={(e) => setEditForm((f) => ({ ...f, gender: e.target.value }))} className={inputCls}>

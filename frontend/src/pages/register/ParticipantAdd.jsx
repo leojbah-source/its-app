@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, UserCheck, User } from 'lucide-react';
 import { Upload } from 'lucide-react';
+import DobPicker from '../../components/DobPicker';
 import { useParentAuth } from '../../context/ParentAuthContext';
 import { portalApi, API_BASE } from './registerApi';
 import RegisterLayout from './RegisterLayout';
@@ -261,12 +262,7 @@ export default function ParticipantAdd() {
               A child with this CPR was already entered (for example, into a team by their teacher).
               To register them for individual events, please confirm their date of birth.
             </p>
-            <input
-              type="date"
-              value={claimDob}
-              onChange={(e) => setClaimDob(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm focus:border-navy-500 focus:outline-none"
-            />
+            <DobPicker value={claimDob} onChange={setClaimDob} className="w-full" />
             <button
               onClick={doClaim}
               disabled={claimBusy || !claimDob}
@@ -308,13 +304,7 @@ export default function ParticipantAdd() {
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">
                   Date of birth <span className="text-red-500">*</span>
                 </label>
-                <input
-                  required
-                  type="date"
-                  value={form.dob}
-                  onChange={setField('dob')}
-                  className={inputClass}
-                />
+                <DobPicker value={form.dob} onChange={(iso) => setForm((f) => ({ ...f, dob: iso }))} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Gender <span className="text-red-500">*</span></label>
