@@ -51,6 +51,20 @@ export default function Results() {
     }
     return [...map.values()].sort((a, b) => a.code.localeCompare(b.code));
   }, [schedule, date]);
+  // Age-group codes actually scheduled for the selected event on the selected
+  // date, so Results shows only that day's groups (not groups from other days).
+  const scheduledCodes = useMemo(() => {
+    const set = new Set();
+    for (const r of schedule) {
+      if (String(r.event_id) !== String(eventId)) continue;
+      if (date && String(r.event_date).slice(0, 10) !== date) continue;
+      for (const c of (r.age_groups || '').split(',').map((x) => x.trim()).filter(Boolean)) set.add(c);
+    }
+    return set;
+  }, [schedule, eventId, date]);
+  const visibleGroups = useMemo(
+    () => (date && scheduledCodes.size ? groups.filter((g) => scheduledCodes.has(g.code)) : groups),
+    [groups, scheduledCodes, date]);
   useEffect(() => { setEventId(''); setGroups([]); setGroupId(''); setData(null); }, [date]);
 
   const loadGroups = useCallback(() => {
@@ -195,8 +209,8 @@ export default function Results() {
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1.5">Age group</label>
               <div className="flex flex-wrap gap-1.5">
-                {groups.length === 0 && <span className="text-xs text-slate-400">No chest-assigned groups.</span>}
-                {groups.map((g) => (
+                {visibleGroups.length === 0 && <span className="text-xs text-slate-400">No chest-assigned groups for this date.</span>}
+                {visibleGroups.map((g) => (
                   <button key={g.age_group_id} onClick={() => setGroupId(g.age_group_id)}
                     className={`rounded-full border px-3 py-1 text-xs font-medium ${String(groupId) === String(g.age_group_id) ? 'border-navy-600 bg-navy-600 text-white' : 'border-slate-300 bg-white text-slate-600'}`}>
                     {g.code} · {g.participant_count}{g.published ? ' · published' : g.finalised ? ' · finalised' : ''}
