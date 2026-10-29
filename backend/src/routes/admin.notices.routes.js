@@ -136,15 +136,61 @@ async function resolveAudience(yearId, criteria = {}) {
                         AND pay.method = 'cash' AND pay.status = 'pending')
                 AND NOT EXISTS (SELECT 1 FROM payments pay WHERE pay.participant_id = p.id AND pay.status = 'confirmed')`);
 
-  const sql = `SELECT DISTINCT ON (p.guardian_phone) p.id, p.full_name AS name,
-                      p.guardian_phone AS phone, u.whatsapp_number_2 AS phone2
-               FROM participants p
-               LEFT JOIN users u ON u.id = p.created_by
-               WHERE ${where.join(' AND ')}
-               ORDER BY p.guardian_phone, p.full_name`;
-  const { rows } = await pool.query(sql, args);
-  // Each parent may have a second WhatsApp number (Dad & Mom) — message both.
-  return rows.map((r) => ({ ...r, phones: [r.phone, r.phone2].filter(Boolean) }));
+  // Team registrations: the recipient is the team LEADER (the parent who created
+  // the team), not a participant. Target all teams (criteria.teams) or specific
+  // team events (criteria.team_event_ids).
+  const teamEventIds = Array.isArray(criteria.team_event_ids) ? criteria.team_event_ids : [];
+  const teamsAll = criteria.teams === true || criteria.teams === 'all';
+  const hasTeam = teamsAll || teamEventIds.length > 0;
+  const hasIndiv = (Array.isArray(criteria.age_group_ids) && criteria.age_group_ids.length)
+    || (Array.isArray(criteria.school_ids) && criteria.school_ids.length)
+    || (Array.isArray(criteria.event_ids) && criteria.event_ids.length)
+    || (Array.isArray(criteria.participant_ids) && criteria.participant_ids.length)
+    || !!criteria.cpr || !!criteria.payment;
+
+  let individualRows = [];
+  // Run the individual query when individual filters are set, OR when nothing is
+  // selected at all (the "everyone who completed registration" default). When ONLY
+  // teams are targeted, skip it so individual parents aren't swept in.
+  if (hasIndiv || !hasTeam) {
+    const sql = `SELECT DISTINCT ON (p.guardian_phone) p.id, p.full_name AS name,
+                        p.guardian_phone AS phone, u.whatsapp_number_2 AS phone2
+                 FROM participants p
+                 LEFT JOIN users u ON u.id = p.created_by
+                 WHERE ${where.join(' AND ')}
+                 ORDER BY p.guardian_phone, p.full_name`;
+    const { rows } = await pool.query(sql, args);
+    individualRows = rows.map((r) => ({ ...r, phones: [r.phone, r.phone2].filter(Boolean) }));
+  }
+
+  let teamRows = [];
+  if (hasTeam) {
+    const targs = [yearId];
+    const tadd = (v) => { targs.push(v); return `$${targs.length}`; };
+    const twhere = ['t.year_id = $1', "COALESCE(u.whatsapp_number, u.phone) IS NOT NULL",
+                    "COALESCE(u.whatsapp_number, u.phone) <> ''"];
+    if (!teamsAll && teamEventIds.length) twhere.push(`t.event_id = ANY(${tadd(teamEventIds)})`);
+    const tsql = `SELECT DISTINCT ON (COALESCE(u.whatsapp_number, u.phone))
+                         u.id, COALESCE(u.full_name, t.team_name) AS name,
+                         COALESCE(u.whatsapp_number, u.phone) AS phone,
+                         u.phone AS phone_alt, u.whatsapp_number_2 AS phone2
+                  FROM teams t JOIN users u ON u.id = t.created_by
+                  WHERE ${twhere.join(' AND ')}
+                  ORDER BY COALESCE(u.whatsapp_number, u.phone), name`;
+    const { rows } = await pool.query(tsql, targs);
+    teamRows = rows.map((r) => ({
+      id: `u${r.id}`, name: r.name, phone: r.phone,
+      phones: [...new Set([r.phone, r.phone_alt, r.phone2].filter(Boolean))],
+    }));
+  }
+
+  // Merge individual + team recipients, deduped by primary phone (a parent with
+  // both an individual child and a team is messaged once).
+  const byPhone = new Map();
+  for (const r of [...individualRows, ...teamRows]) {
+    if (!byPhone.has(r.phone)) byPhone.set(r.phone, r);
+  }
+  return [...byPhone.values()];
 }
 
 // GET /api/admin/notices/lookups — options for the audience picker
@@ -152,12 +198,16 @@ router.get('/lookups', requireRole(...viewRoles), async (req, res, next) => {
   try {
     const yearId = await resolveYearId(req.query.year_id);
     if (!yearId) return res.json({ ageGroups: [], events: [], schools: [] });
-    const [ag, ev, sc] = await Promise.all([
+    const [ag, ev, sc, te] = await Promise.all([
       pool.query(`SELECT id, code, label FROM age_groups WHERE year_id = $1 ORDER BY sort_order, code`, [yearId]),
-      pool.query(`SELECT id, event_code, event_name FROM events WHERE year_id = $1 ORDER BY event_code`, [yearId]),
+      pool.query(`SELECT id, event_code, event_name FROM events WHERE year_id = $1 AND event_kind <> 'team' AND is_cancelled = FALSE ORDER BY event_code`, [yearId]),
       pool.query(`SELECT id, name FROM schools WHERE is_active = TRUE ORDER BY name`),
+      pool.query(`SELECT e.id, e.event_code, e.event_name,
+                         (SELECT COUNT(*)::int FROM teams t WHERE t.event_id = e.id) AS team_count
+                    FROM events e WHERE e.year_id = $1 AND e.event_kind = 'team' AND e.is_cancelled = FALSE
+                   ORDER BY e.event_code`, [yearId]),
     ]);
-    res.json({ ageGroups: ag.rows, events: ev.rows, schools: sc.rows });
+    res.json({ ageGroups: ag.rows, events: ev.rows, schools: sc.rows, teamEvents: te.rows });
   } catch (err) { next(err); }
 });
 

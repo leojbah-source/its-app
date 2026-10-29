@@ -26,7 +26,7 @@ export default function Notices() {
   const [busy, setBusy] = useState(false);
 
   // Broadcast
-  const [lookups, setLookups] = useState({ ageGroups: [], events: [], schools: [] });
+  const [lookups, setLookups] = useState({ ageGroups: [], events: [], schools: [], teamEvents: [] });
   const [groups, setGroups] = useState([]);
   const [sends, setSends] = useState([]);
   const [msg, setMsg] = useState('');
@@ -34,7 +34,7 @@ export default function Notices() {
   const [phoneRaw, setPhoneRaw] = useState('');
   const [phoneNums, setPhoneNums] = useState([]);
   const [groupId, setGroupId] = useState('');
-  const [crit, setCrit] = useState({ age_group_ids: [], event_ids: [], school_ids: [], payment: '', cpr: '' });
+  const [crit, setCrit] = useState({ age_group_ids: [], event_ids: [], school_ids: [], payment: '', cpr: '', teams: false, team_event_ids: [] });
   const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [sending, setSending] = useState(false);
@@ -97,7 +97,7 @@ export default function Notices() {
     });
   }
   function setCritField(field, val) { setPreview(null); setCrit((c) => ({ ...c, [field]: val })); }
-  function resetCrit() { setPreview(null); setCrit({ age_group_ids: [], event_ids: [], school_ids: [], payment: '', cpr: '' }); }
+  function resetCrit() { setPreview(null); setCrit({ age_group_ids: [], event_ids: [], school_ids: [], payment: '', cpr: '', teams: false, team_event_ids: [] }); }
 
   function audienceLabel() {
     const bits = [];
@@ -106,6 +106,8 @@ export default function Notices() {
     if (crit.school_ids.length) bits.push(`${crit.school_ids.length} school(s)`);
     if (crit.payment) bits.push(`${crit.payment}`);
     if (crit.cpr) bits.push(`CPR ${crit.cpr}`);
+    if (crit.teams) bits.push('all team leaders');
+    else if (crit.team_event_ids.length) bits.push(`${crit.team_event_ids.length} team event(s)`);
     return bits.length ? bits.join(', ') : 'All completed parents';
   }
 
@@ -288,11 +290,33 @@ export default function Notices() {
                 </select>
               </div>
             </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="text-xs font-medium text-slate-600">Team registrations</label>
+                <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                  <input type="checkbox" checked={crit.teams}
+                    onChange={(e) => setCritField('teams', e.target.checked)} />
+                  All team leaders
+                </label>
+              </div>
+              {!crit.teams && (
+                <select multiple size={3} value={crit.team_event_ids.map(String)}
+                  onChange={(e) => setCritField('team_event_ids', [...e.target.selectedOptions].map((o) => Number(o.value)))}
+                  className={`${input} h-auto mt-2`}>
+                  {(lookups.teamEvents || []).length === 0 && <option value="" disabled>No team events</option>}
+                  {(lookups.teamEvents || []).map((ev) => (
+                    <option key={ev.id} value={ev.id}>{ev.event_code} · {ev.event_name} ({ev.team_count} team{ev.team_count === 1 ? '' : 's'})</option>
+                  ))}
+                </select>
+              )}
+              <p className="mt-1 text-[11px] text-slate-400">Message the parents who registered a team. Tick "All team leaders" for every team, or pick specific team events. Combines with the filters above.</p>
+            </div>
+
             <p className="text-xs text-slate-400">Selected: <span className="font-medium text-slate-600">{audienceLabel()}</span> (filters combine; empty = everyone who completed registration). Ctrl/Cmd-click to pick several events or schools.</p>
 
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" icon={Users} loading={previewing} onClick={doPreview}>Preview audience</Button>
-              {crit.age_group_ids.length + crit.event_ids.length + crit.school_ids.length > 0 || crit.payment || crit.cpr ? (
+              {crit.age_group_ids.length + crit.event_ids.length + crit.school_ids.length + crit.team_event_ids.length > 0 || crit.payment || crit.cpr || crit.teams ? (
                 <button type="button" onClick={resetCrit} className="text-xs text-slate-500 hover:underline">clear filters</button>
               ) : null}
               {preview && (
