@@ -102,15 +102,20 @@ export default function LiveBoardInner() {
       ) : (
         <div className="space-y-2.5">
           {groups.map((g) => {
+            const published = !!g.published;
             const gt = g.group_timer;
             const gtRemaining = gt && gt.state === 'running'
               ? Math.max(0, Math.round((new Date(gt.ends_at).getTime() - Date.now()) / 1000)) : 0;
-            const meta = gt
+            const meta = published
+              ? { label: 'Finished', cls: 'bg-emerald-100 text-emerald-700' }
+              : gt
               ? (gt.state === 'running'
                   ? { label: gtRemaining <= 0 ? 'Time up' : 'In progress', cls: gtRemaining <= 0 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700' }
                   : { label: 'Finished', cls: 'bg-emerald-100 text-emerald-700' })
               : (STATE[g.state] || STATE.not_started);
-            const pct = gt
+            const pct = published
+              ? 100
+              : gt
               ? (gt.state === 'running' ? Math.min(100, Math.max(0, 100 * (1 - gtRemaining / Math.max(1, gt.duration_seconds)))) : 100)
               : (g.total ? Math.round((g.done / g.total) * 100) : 0);
             const isOpen = open.has(g.key);

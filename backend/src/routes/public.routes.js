@@ -403,7 +403,10 @@ router.get('/live/day', async (req, res, next) => {
               r.id AS registration_id, ca.chest_number,
               pt.start_time AS t_start, pt.end_time AS t_end, pt.flag_for_dq,
               egt.started_at AS gt_started, egt.ends_at AS gt_ends, egt.ended_at AS gt_ended,
-              egt.duration_seconds AS gt_duration
+              egt.duration_seconds AS gt_duration,
+              (SELECT (COUNT(*) > 0 AND COUNT(*) FILTER (WHERE er.is_published) = COUNT(*))
+                 FROM registrations rr LEFT JOIN event_results er ON er.registration_id = rr.id
+                WHERE rr.event_id = s.event_id AND rr.age_group_id = ag.id AND rr.status = 'attended') AS published
          FROM schedule s
          JOIN events e ON e.id = s.event_id
          JOIN age_groups ag ON ag.year_id = s.year_id AND ag.code = ANY(string_to_array(s.age_groups, ', '))
@@ -424,7 +427,7 @@ router.get('/live/day', async (req, res, next) => {
       if (!groups.has(key)) groups.set(key, {
         key, event_code: r.event_code, event_name: r.event_name,
         is_stage_event: r.is_stage_event, venue: r.venue, start_time: r.start_time,
-        age_group_code: r.ag_code, age_group_label: r.ag_label, participants: [],
+        age_group_code: r.ag_code, age_group_label: r.ag_label, published: !!r.published, participants: [],
         _gt: (r.gt_started ? { started_at: r.gt_started, ends_at: r.gt_ends, ended_at: r.gt_ended, duration_seconds: r.gt_duration } : null) });
       if (r.registration_id) {
         const status = r.t_start && r.t_end ? 'done' : r.t_start ? 'running' : 'pending';
@@ -450,7 +453,9 @@ router.get('/live/day', async (req, res, next) => {
       const total = g.participants.length;
       const done = g.participants.filter((p) => p.status === 'done').length;
       const running = g.participants.filter((p) => p.status === 'running');
-      const state = group_timer
+      const state = g.published
+        ? 'finished'               // results published → the contest is over, even if a chest was never timed
+        : group_timer
         ? group_timer.state
         : total === 0 ? 'empty'
           : done === total ? 'finished'
@@ -458,7 +463,7 @@ router.get('/live/day', async (req, res, next) => {
           : done > 0 ? 'in_progress' : 'not_started';
       return {
         ...rest, group_timer, total, done, running_count: running.length,
-        now: running.map((p) => ({ chest_number: p.chest_number })),
+        now: g.published ? [] : running.map((p) => ({ chest_number: p.chest_number })),
         state,
       };
     });
