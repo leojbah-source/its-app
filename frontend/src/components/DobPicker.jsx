@@ -56,11 +56,11 @@ export default function DobPicker({ value, onChange, minYear, maxYear, className
     onChange(toIso(merged));
   }
 
-  const sel = 'rounded-lg border border-slate-300 px-2 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300 bg-white';
+  const sel = 'min-w-0 rounded-lg border border-slate-300 px-2 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300 bg-white';
 
   return (
     <div className={`flex gap-2 ${className}`}>
-      <select aria-label="Day" value={parts.d} onChange={(e) => change({ d: e.target.value })} className={`${sel} w-[4.5rem]`}>
+      <select aria-label="Day" value={parts.d} onChange={(e) => change({ d: e.target.value })} className={`${sel} basis-16 shrink`}>
         <option value="">Day</option>
         {days.map((n) => <option key={n} value={n}>{n}</option>)}
       </select>
@@ -68,7 +68,7 @@ export default function DobPicker({ value, onChange, minYear, maxYear, className
         <option value="">Month</option>
         {MONTHS.map((mn, i) => <option key={mn} value={i + 1}>{mn}</option>)}
       </select>
-      <select aria-label="Year" value={parts.y} onChange={(e) => change({ y: e.target.value })} className={`${sel} w-[5.5rem]`}>
+      <select aria-label="Year" value={parts.y} onChange={(e) => change({ y: e.target.value })} className={`${sel} basis-20 shrink`}>
         <option value="">Year</option>
         {years.map((yr) => <option key={yr} value={yr}>{yr}</option>)}
       </select>

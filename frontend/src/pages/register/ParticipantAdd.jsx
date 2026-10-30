@@ -298,27 +298,26 @@ export default function ParticipantAdd() {
               />
             </div>
 
-            {/* DOB + Gender row */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Date of birth <span className="text-red-500">*</span>
-                </label>
-                <DobPicker value={form.dob} onChange={(iso) => setForm((f) => ({ ...f, dob: iso }))} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Gender <span className="text-red-500">*</span></label>
-                <select
-                  required
-                  value={form.gender}
-                  onChange={setField('gender')}
-                  className={inputClass}
-                >
-                  <option value="">Select</option>
-                  <option value="M">Male</option>
-                  <option value="F">Female</option>
-                </select>
-              </div>
+            {/* Date of birth — own full-width row so Day / Month / Year all fit */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                Date of birth <span className="text-red-500">*</span>
+              </label>
+              <DobPicker value={form.dob} onChange={(iso) => setForm((f) => ({ ...f, dob: iso }))} className="w-full" />
+            </div>
+            {/* Gender */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Gender <span className="text-red-500">*</span></label>
+              <select
+                required
+                value={form.gender}
+                onChange={setField('gender')}
+                className={inputClass}
+              >
+                <option value="">Select</option>
+                <option value="M">Male</option>
+                <option value="F">Female</option>
+              </select>
             </div>
 
             {/* School */}

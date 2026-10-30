@@ -148,20 +148,20 @@ function MemberRows({ members, setMembers, schools, max, token, firstIsCaptain =
             <>
               <input placeholder="Full name (as on CPR)" value={m.full_name}
                 onChange={(e) => update(i, { full_name: e.target.value })} className={inputCls} />
+              <DobPicker value={m.dob} onChange={(iso) => update(i, { dob: iso })} className="w-full" />
               <div className="grid grid-cols-2 gap-2">
-                <DobPicker value={m.dob} onChange={(iso) => update(i, { dob: iso })} />
                 <select value={m.gender}
                   onChange={(e) => update(i, { gender: e.target.value })} className={inputCls}>
                   <option value="">Gender</option>
                   <option value="M">Male</option>
                   <option value="F">Female</option>
                 </select>
+                <select value={m.school_id}
+                  onChange={(e) => update(i, { school_id: e.target.value })} className={inputCls}>
+                  <option value="">School</option>
+                  {schools.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
               </div>
-              <select value={m.school_id}
-                onChange={(e) => update(i, { school_id: e.target.value })} className={inputCls}>
-                <option value="">School</option>
-                {schools.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
               {m.found === false && (
                 <button onClick={() => setScanRow(scanRow === i ? null : i)}
                   className="text-xs font-medium text-navy-600 underline flex items-center gap-1">
@@ -398,11 +398,9 @@ function TeamCard({ token, team, schools, config, onChanged }) {
                     <div className="space-y-2">
                       <input value={editForm.full_name} onChange={(e) => setEditForm((f) => ({ ...f, full_name: e.target.value }))}
                         placeholder="Full name (as on CPR)" className={inputCls} />
-                      <div className="grid grid-cols-2 gap-2">
-                        <input value={editForm.cpr_number} onChange={(e) => setEditForm((f) => ({ ...f, cpr_number: e.target.value }))}
-                          placeholder="CPR number" inputMode="numeric" className={inputCls} />
-                        <DobPicker value={editForm.dob} onChange={(iso) => setEditForm((f) => ({ ...f, dob: iso }))} />
-                      </div>
+                      <input value={editForm.cpr_number} onChange={(e) => setEditForm((f) => ({ ...f, cpr_number: e.target.value }))}
+                        placeholder="CPR number" inputMode="numeric" className={inputCls} />
+                      <DobPicker value={editForm.dob} onChange={(iso) => setEditForm((f) => ({ ...f, dob: iso }))} className="w-full" />
                       <div className="grid grid-cols-2 gap-2">
                         <select value={editForm.gender} onChange={(e) => setEditForm((f) => ({ ...f, gender: e.target.value }))} className={inputCls}>
                           <option value="">Gender…</option><option value="M">Male</option><option value="F">Female</option>
