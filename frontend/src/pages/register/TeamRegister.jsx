@@ -29,6 +29,45 @@ const emptyMember = () => ({ full_name: '', dob: '', cpr_number: '', gender: '',
 const inputCls =
   'w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-400 bg-white';
 
+// ── Per-member validation (mirrors the server) ───────────────────────────────
+// A short, field-specific message for ONE member, or null when the row is
+// complete and consistent — so a parent entering several children is told
+// exactly which child and field is wrong, before the whole team is saved.
+function cprDobIssue(cpr, dobIso) {
+  const digits = String(cpr || '').replace(/\D/g, '');
+  if (digits.length !== 8 && digits.length !== 9) return 'CPR must be 8 or 9 digits';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dobIso || '')) return null; // DOB checked separately
+  const full = digits.length === 8 ? '0' + digits : digits;
+  const [y, m] = dobIso.split('-');
+  const yy = String(Number(y) % 100).padStart(2, '0');
+  if (full.slice(0, 2) !== yy || full.slice(2, 4) !== m)
+    return `CPR starts ${full.slice(0, 4)} but the date of birth needs ${yy}${m} (year + month)`;
+  return null;
+}
+function memberIssue(m) {
+  if (!m.cpr_number || !String(m.cpr_number).trim()) return 'Enter the CPR number';
+  const digits = String(m.cpr_number).replace(/\D/g, '');
+  if (digits.length !== 8 && digits.length !== 9) return 'CPR must be 8 or 9 digits';
+  if (m.found === null) return "Tap 'Check' to continue with this member";
+  if (!m.full_name || !String(m.full_name).trim()) return 'Enter the full name';
+  if (!m.dob) return 'Select the date of birth';
+  const cd = cprDobIssue(m.cpr_number, m.dob);
+  if (cd) return cd;
+  if (!m.gender) return 'Select gender';
+  if (!m.school_id) return 'Select the school';
+  return null;
+}
+const isStarted = (m) => !!(m.full_name || m.dob || m.cpr_number || m.gender || m.school_id);
+// First STARTED member that still has a problem, labelled for the parent.
+function firstMemberIssue(members, labelFor) {
+  for (let i = 0; i < members.length; i++) {
+    if (!isStarted(members[i])) continue;
+    const msg = memberIssue(members[i]);
+    if (msg) return { label: labelFor(i, members[i]), message: msg };
+  }
+  return null;
+}
+
 // ── Member rows editor (shared by create + add-later) ────────────────────────
 // CPR-first: enter the CPR and Check — if the child is already registered for
 // individual events, their details are taken from file and shown to confirm.
@@ -139,6 +178,9 @@ function MemberRows({ members, setMembers, schools, max, token, firstIsCaptain =
                 }} />
               )}
             </>
+          )}
+          {isStarted(m) && memberIssue(m) && (
+            <p className="text-xs font-medium text-red-600">{memberIssue(m)}</p>
           )}
         </div>
       ))}
@@ -293,11 +335,11 @@ function TeamCard({ token, team, schools, config, onChanged }) {
   }
 
   async function saveMembers() {
-    const filled = newMembers.filter((m) => m.full_name || m.dob || m.cpr_number || m.gender || m.school_id);
-    if (!filled.length) { setMsg('Add at least one member with name, CPR, date of birth, gender and school.'); return; }
-    if (filled.some((m) => !(m.full_name && m.dob && m.cpr_number && m.gender && m.school_id))) {
-      setMsg('Each member needs name, CPR, date of birth, gender and school.'); return; }
-    const valid = filled;
+    const started = newMembers.filter(isStarted);
+    if (!started.length) { setMsg('Add at least one member with CPR, name, date of birth, gender and school.'); return; }
+    const problem = firstMemberIssue(newMembers, (i, mm) => `Member ${team.members_count + i + 1}${mm.full_name ? ` (${mm.full_name})` : ''}`);
+    if (problem) { setMsg(`${problem.label}: ${problem.message}`); return; }
+    const valid = started;
     setBusy(true); setMsg('');
     try {
       const r = await portalApi.teamAddMembers(token, team.id, valid);
@@ -420,7 +462,12 @@ function TeamCard({ token, team, schools, config, onChanged }) {
                   <MemberRows members={newMembers} setMembers={setNewMembers}
                     schools={schools} max={team.size_max - team.members_count} token={token}
                     startIndex={team.members_count} />
-                  <button onClick={saveMembers} disabled={busy}
+                  {(() => {
+                    const p = firstMemberIssue(newMembers, (i, mm) => `Member ${team.members_count + i + 1}${mm.full_name ? ` (${mm.full_name})` : ''}`);
+                    return p ? <p className="text-xs font-medium text-amber-700">{p.label}: {p.message}</p> : null;
+                  })()}
+                  <button onClick={saveMembers}
+                    disabled={busy || !newMembers.some(isStarted) || !!firstMemberIssue(newMembers, () => '')}
                     className="w-full rounded-lg bg-navy-700 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
                     {busy ? 'Saving…' : 'Save Members'}
                   </button>
@@ -505,6 +552,8 @@ export default function TeamRegister() {
     ? new Date() > new Date(config.team_reg_deadline) : false;
   const selectedEvent = teamEvents.find((e) => e.id === Number(eventId));
   const needsTeacher = /natya|dance|sangeet|music|song/i.test(selectedEvent?.category_name || '');
+  const memberProblem = firstMemberIssue(members, (i, m) => `${i === 0 ? 'Team Captain' : `Member ${i + 1}`}${m.full_name ? ` (${m.full_name})` : ''}`);
+  const anyMemberStarted = members.some(isStarted);
 
   async function handleCreate() {
     setError('');
@@ -512,11 +561,11 @@ export default function TeamRegister() {
     if (captainPhone.trim() && !isBahrainPhone(captainPhone)) {
       setError("Captain's contact number must be a valid Bahrain number (8 digits)."); return;
     }
-    const filled = members.filter((m) => m.full_name || m.dob || m.cpr_number || m.gender || m.school_id);
-    if (!filled.length) { setError('Enter at least one member with name, CPR, date of birth, gender and school.'); return; }
-    if (filled.some((m) => !(m.full_name && m.dob && m.cpr_number && m.gender && m.school_id))) {
-      setError('Each member needs name, CPR, date of birth, gender and school.'); return; }
-    const valid = filled;
+    const started = members.filter(isStarted);
+    if (!started.length) { setError('Enter at least one member with CPR, name, date of birth, gender and school.'); return; }
+    const problem = firstMemberIssue(members, (i, m) => `${i === 0 ? 'Team Captain' : `Member ${i + 1}`}${m.full_name ? ` (${m.full_name})` : ''}`);
+    if (problem) { setError(`${problem.label}: ${problem.message}`); return; }
+    const valid = started;
     if (!agreed) { setError('Please agree to the General Rules & Regulations before registering.'); return; }
     setBusy(true);
     try {
@@ -663,13 +712,16 @@ export default function TeamRegister() {
               {error && (
                 <p className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{error}</p>
               )}
+              {!error && memberProblem && (
+                <p className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">{memberProblem.label}: {memberProblem.message}</p>
+              )}
 
               <div className="flex gap-2">
                 <button onClick={() => { setShowForm(false); setError(''); }}
                   className="flex-1 rounded-xl border border-slate-300 py-3 text-sm font-medium text-slate-600">
                   Cancel
                 </button>
-                <button onClick={handleCreate} disabled={busy || !agreed}
+                <button onClick={handleCreate} disabled={busy || !agreed || !anyMemberStarted || !!memberProblem}
                   className="flex-1 rounded-xl bg-navy-700 py-3 text-sm font-semibold text-white hover:bg-navy-800 disabled:opacity-60">
                   {busy ? 'Registering…' : 'Register Team'}
                 </button>

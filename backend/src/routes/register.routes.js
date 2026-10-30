@@ -100,6 +100,21 @@ function cprDobMismatch(cpr, dob) {
   return null;
 }
 
+/**
+ * Specific, member-named "which field is missing" message for a typed member,
+ * so a parent entering several members is told exactly which child and field
+ * is the problem instead of a generic "a member is incomplete". Returns the
+ * message, or null when all required fields are present.
+ */
+function memberFieldError(m, label) {
+  if (!m.cpr_number || !String(m.cpr_number).trim()) return `${label}: CPR number is required`;
+  if (!m.full_name || !String(m.full_name).trim()) return `${label}: full name is required`;
+  if (!m.dob) return `${label}: date of birth is required`;
+  if (!['M', 'F'].includes(m.gender)) return `${label}: gender (M/F) is required`;
+  if (!m.school_id) return `${label}: school is required`;
+  return null;
+}
+
 /** The PARENT account's membership drives member rates (collected at signup). */
 async function parentMemberActive(db, userId) {
   const { rows } = await db.query(
@@ -1539,10 +1554,11 @@ router.post('/team', authenticate, async (req, res, next) => {
     const memberResults = [];
     let firstAgeGroupId = null;
     for (const [idx, m] of members.entries()) {
-      if (!m.full_name || !m.dob || !m.cpr_number || !m.school_id || !['M', 'F'].includes(m.gender)) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'Each member needs full name, CPR, date of birth, gender (M/F) and school.' });
-      }
+      const label = `Member ${idx + 1}${m.full_name ? ` (${String(m.full_name).trim()})` : ''}`;
+      const fieldErr = memberFieldError(m, label);
+      if (fieldErr) { await client.query('ROLLBACK'); return res.status(400).json({ error: fieldErr }); }
+      const cprErr = cprDobMismatch(m.cpr_number, m.dob);
+      if (cprErr) { await client.query('ROLLBACK'); return res.status(400).json({ error: `${label}: ${cprErr}` }); }
       const elig = await dobEligibleForEvent(client, event_id, m.dob);
       if (!firstAgeGroupId && elig.ok) firstAgeGroupId = elig.age_group_id;
       const r = await addMemberToTeam(client, { ...team, year_id: cfg.id, event_id }, m, req.user.id);
@@ -1683,11 +1699,12 @@ router.post('/team/:id/members', authenticate, async (req, res, next) => {
     }
 
     const added = [];
-    for (const m of members) {
-      if (!m.full_name || !m.dob || !m.cpr_number || !m.school_id || !['M', 'F'].includes(m.gender)) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'Each member needs full name, CPR, date of birth, gender (M/F) and school.' });
-      }
+    for (const [i, m] of members.entries()) {
+      const label = `Member ${cnt[0].n + i + 1}${m.full_name ? ` (${String(m.full_name).trim()})` : ''}`;
+      const fieldErr = memberFieldError(m, label);
+      if (fieldErr) { await client.query('ROLLBACK'); return res.status(400).json({ error: fieldErr }); }
+      const cprErr = cprDobMismatch(m.cpr_number, m.dob);
+      if (cprErr) { await client.query('ROLLBACK'); return res.status(400).json({ error: `${label}: ${cprErr}` }); }
       added.push(await addMemberToTeam(client, team, m, req.user.id));
     }
     await client.query('COMMIT');
