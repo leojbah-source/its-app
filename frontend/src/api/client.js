@@ -556,7 +556,7 @@ export const timerApi = {
 
 export const mcApi = {
   myEvents: (token) => request('/api/mc/my-events', { token }),
-  script: (token, eventId) => request(`/api/mc/script/${eventId}`, { token }),
+  script: (token, eventId, ageGroupId) => request(`/api/mc/script/${eventId}${ageGroupId ? `?age_group_id=${ageGroupId}` : ''}`, { token }),
   participants: (token, eventId) => request(`/api/mc/participants/${eventId}`, { token }),
 };
 

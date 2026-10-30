@@ -36,7 +36,7 @@ export default function McPortal() {
     mcApi.myEvents(token).then((evs) => { setEvents(evs); if (evs.length === 1) setSel(evs[0]); }).catch((e) => setFlash(e.message));
   }, [token]);
 
-  const loadScript = useCallback(() => { if (sel) mcApi.script(token, sel.event_id).then(setScript).catch((e) => setFlash(e.message)); }, [token, sel]);
+  const loadScript = useCallback(() => { if (sel) mcApi.script(token, sel.event_id, sel.age_group_id).then(setScript).catch((e) => setFlash(e.message)); }, [token, sel]);
   const loadParticipants = useCallback(async () => {
     if (!sel) return;
     try {

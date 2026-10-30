@@ -54,12 +54,18 @@ router.get('/script/:event_id', async (req, res, next) => {
               c.name AS category_name, c.code AS category_code
        FROM events e LEFT JOIN categories c ON c.id = e.category_id WHERE e.id = $1`, [req.params.event_id]);
     if (!ev[0]) return res.status(404).json({ error: 'Event not found' });
+    // Judges are assigned PER (event, age group). Scope to the age group the MC
+    // is presenting so only that group's assigned judges appear (max 3), never
+    // judges from the event's other groups.
+    const ageGroupId = req.query.age_group_id ? Number(req.query.age_group_id) : null;
     const { rows: judges } = await pool.query(
       `SELECT DISTINCT j.full_name,
               COALESCE(NULLIF(btrim(j.category_bios->>$2), ''), j.detailed_bio, j.bio) AS detailed_bio,
               j.bio, j.expertise
        FROM judge_assignments ja JOIN judges j ON j.id = ja.judge_id
-       WHERE ja.event_id = $1 ORDER BY j.full_name`, [req.params.event_id, ev[0].category_code || null]);
+       WHERE ja.event_id = $1
+         AND ($3::int IS NULL OR ja.age_group_id = $3)
+       ORDER BY j.full_name`, [req.params.event_id, ev[0].category_code || null, ageGroupId]);
     const { rows: criteria } = await pool.query(
       `SELECT criterion_name AS label, max_score, sequence_order
        FROM event_criteria WHERE event_id = $1 ORDER BY sequence_order, id`, [req.params.event_id]);
