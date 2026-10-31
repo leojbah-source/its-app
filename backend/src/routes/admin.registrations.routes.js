@@ -1021,6 +1021,34 @@ router.put('/teams/:team_id/members/:member_id/verify', requireRole(...editRoles
   } catch (err) { next(err); }
 });
 
+// ── DELETE /api/admin/teams/:team_id/members/:member_id ──────────────────────
+// Remove a member a team added by mistake (staff action; works regardless of
+// the parent member deadline). UNLINKS from the team only — the participant
+// record is kept, so any INDIVIDUAL-event entries for that child are untouched.
+// Keeps at least one member; if the captain is removed, promotes the earliest.
+router.delete('/teams/:team_id/members/:member_id', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const { rows: cnt } = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM team_members WHERE team_id = $1`, [req.params.team_id]);
+    if (cnt[0].n <= 1)
+      return res.status(400).json({ error: 'A team must have at least one member. Edit this member instead of removing the last one.' });
+    const { rows } = await pool.query(
+      `DELETE FROM team_members WHERE id = $1 AND team_id = $2 RETURNING participant_id, is_captain`,
+      [req.params.member_id, req.params.team_id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Team member not found' });
+    if (rows[0].is_captain) {
+      await pool.query(
+        `UPDATE team_members SET is_captain = TRUE
+          WHERE id = (SELECT id FROM team_members WHERE team_id = $1 ORDER BY created_at LIMIT 1)`,
+        [req.params.team_id]);
+    }
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'REMOVE_TEAM_MEMBER', entity: 'team_members', entityId: req.params.member_id,
+      details: { team_id: Number(req.params.team_id), participant_id: rows[0].participant_id, by: 'admin' } });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/admin/teams/:id/notify — WhatsApp the team leader (editable) ────
 router.post('/teams/:id/notify', requireRole('SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Registrar'), async (req, res, next) => {
   try {

@@ -178,6 +178,17 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
       setFlash('');
     } catch (e) { setFlash(e.message); }
   }
+
+  async function removeTeamMember(m) {
+    if (!window.confirm(`Remove ${m.full_name} from this team? This only takes them off the team roster — any individual-event entries for this child are kept.`)) return;
+    setTeamBusyMember(m.id);
+    try {
+      await teamsApi.removeMember(token, teamId, m.id);
+      setTeam(await teamsApi.members(token, teamId));
+      setFlash('');
+    } catch (e) { setFlash(e.message); }
+    finally { setTeamBusyMember(null); }
+  }
   async function sendTeamNote() {
     if (!teamMsg.trim()) { setFlash('Enter a message first.'); return; }
     setTeamNotifyBusy(true); setFlash('');
@@ -515,10 +526,14 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                           <td className="px-3 py-2 text-slate-600">{m.dob ? new Date(m.dob).toLocaleDateString('en-GB') : '—'}</td>
                           <td className="px-3 py-2 text-slate-500">{m.age_group_code || '—'}</td>
                           {canEditParent && (
-                            <td className="px-3 py-2 text-right">
+                            <td className="px-3 py-2 text-right whitespace-nowrap">
                               <button onClick={() => (editMemberId === m.id ? setEditMemberId(null) : startEditMember(m))}
                                 className="text-[11px] font-medium text-navy-600 underline" title="Correct name / CPR / date of birth">
                                 {editMemberId === m.id ? 'Close' : 'Edit'}
+                              </button>
+                              <button onClick={() => removeTeamMember(m)} disabled={teamBusyMember === m.id}
+                                className="ml-2 text-[11px] font-medium text-red-500 underline disabled:opacity-50" title="Remove this member from the team (kept for individual events)">
+                                Remove
                               </button>
                             </td>
                           )}
