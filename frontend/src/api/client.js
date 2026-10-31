@@ -112,6 +112,8 @@ export const pwaApi = {
 export const awardsApi = {
   standings: (token, yearId = 'active') => request(`/api/admin/awards/${yearId}/standings`, { token }),
   exportCsv: (token, yearId = 'active') => request(`/api/admin/awards/${yearId}/export`, { token }),
+  teacherEntries: (token, yearId, teacher) =>
+    request(`/api/admin/awards/${yearId}/teacher-entries?teacher=${encodeURIComponent(teacher)}`, { token }),
 };
 
 // Branded print-outs (data only; the page renders + prints).

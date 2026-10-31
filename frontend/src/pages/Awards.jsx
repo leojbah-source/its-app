@@ -2,9 +2,9 @@
 // Awards standings (Chairman/SuperAdmin, rule #24). School awards (rule #16) and
 // Group Championship per age group (rule #15), computed live from FINALISED
 // results. Read-only view + CSV export.
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Download, Trophy, School, GraduationCap, Award } from 'lucide-react';
+import { RefreshCw, Download, Trophy, School, GraduationCap, Award, ChevronRight } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -51,6 +51,24 @@ export default function Awards() {
   }
 
   const num = (v) => Number(v || 0).toFixed(1);
+
+  // Teacher drill-down (view only): expand a teacher to see their finalised entries.
+  const [openT, setOpenT] = useState(null);
+  const [tEntries, setTEntries] = useState({});
+  const [tBusy, setTBusy] = useState(null);
+  async function toggleTeacher(name) {
+    if (openT === name) { setOpenT(null); return; }
+    setOpenT(name);
+    if (!tEntries[name]) {
+      setTBusy(name);
+      try {
+        const r = await awardsApi.teacherEntries(token, 'active', name);
+        setTEntries((m) => ({ ...m, [name]: r.entries || [] }));
+      } catch (e) { setFlash(e.message); }
+      finally { setTBusy(null); }
+    }
+  }
+  const placeLabel = (n) => (n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : n ? String(n) : '—');
 
   return (
     <AdminLayout title="Awards" subtitle="School awards and Group Championship, from finalised results. Chairman/SuperAdmin.">
@@ -141,12 +159,64 @@ export default function Awards() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {data.teacher_awards.map((t, i) => (
-                        <tr key={t.teacher_name} className={i === 0 ? 'bg-gold-50/40' : ''}>
-                          <td className="px-3 py-2">{i === 0 ? '🏆' : i + 1}</td>
-                          <td className="px-3 py-2 font-medium text-slate-800">{t.teacher_name}</td>
-                          <td className="px-2 py-2 text-center text-slate-600">{t.entries}</td>
-                          <td className="px-2 py-2 text-center font-semibold text-navy-800">{num(t.total_points)}</td>
-                        </tr>
+                        <Fragment key={t.teacher_name}>
+                          <tr onClick={() => toggleTeacher(t.teacher_name)}
+                            className={`cursor-pointer hover:bg-slate-50 ${i === 0 ? 'bg-gold-50/40' : ''} ${openT === t.teacher_name ? 'bg-slate-50' : ''}`}
+                            title="Click to view this teacher's entries">
+                            <td className="px-3 py-2">{i === 0 ? '🏆' : i + 1}</td>
+                            <td className="px-3 py-2 font-medium text-slate-800">
+                              <span className="inline-flex items-center gap-1">
+                                <ChevronRight size={13} className={`text-slate-400 transition-transform ${openT === t.teacher_name ? 'rotate-90' : ''}`} />
+                                {t.teacher_name}
+                              </span>
+                            </td>
+                            <td className="px-2 py-2 text-center text-navy-600 font-medium">{t.entries}</td>
+                            <td className="px-2 py-2 text-center font-semibold text-navy-800">{num(t.total_points)}</td>
+                          </tr>
+                          {openT === t.teacher_name && (
+                            <tr>
+                              <td colSpan={4} className="bg-slate-50 px-4 py-3">
+                                {tBusy === t.teacher_name ? (
+                                  <p className="text-xs text-slate-400">Loading entries…</p>
+                                ) : (tEntries[t.teacher_name] || []).length === 0 ? (
+                                  <p className="text-xs text-slate-400">No finalised entries found for this teacher.</p>
+                                ) : (
+                                  <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                                    <table className="min-w-full text-xs">
+                                      <thead className="text-[11px] uppercase tracking-wide text-slate-400">
+                                        <tr>
+                                          <th className="px-2 py-1.5 text-left">Participant / Team</th>
+                                          <th className="px-2 py-1.5 text-left">Event</th>
+                                          <th className="px-2 py-1.5 text-left">Group</th>
+                                          <th className="px-2 py-1.5 text-left">Role</th>
+                                          <th className="px-2 py-1.5 text-center">Prize</th>
+                                          <th className="px-2 py-1.5 text-center">Grade</th>
+                                          <th className="px-2 py-1.5 text-center">Points</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100">
+                                        {tEntries[t.teacher_name].map((e, j) => (
+                                          <tr key={j} className={e.prize_place ? 'bg-amber-50/40' : ''}>
+                                            <td className="px-2 py-1.5 font-medium text-slate-700">
+                                              {e.entry_name || '—'}{e.is_team ? ' (team)' : ''}
+                                              {e.school ? <span className="block text-[10px] font-normal text-slate-400">{e.school}</span> : null}
+                                            </td>
+                                            <td className="px-2 py-1.5 text-slate-600"><span className="font-mono text-slate-400">{e.event_code}</span> {e.event_name}</td>
+                                            <td className="px-2 py-1.5 text-slate-600">{e.age_group_label || e.age_group_code || '—'}</td>
+                                            <td className="px-2 py-1.5 text-slate-500">{e.taught_as || '—'}</td>
+                                            <td className="px-2 py-1.5 text-center font-medium text-slate-700">{placeLabel(e.prize_place)}</td>
+                                            <td className="px-2 py-1.5 text-center text-slate-600">{e.grade || '—'}</td>
+                                            <td className="px-2 py-1.5 text-center font-semibold text-navy-800">{num(e.total_points)}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>

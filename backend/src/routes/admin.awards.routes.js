@@ -59,6 +59,42 @@ router.get('/:year_id/standings', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /api/admin/awards/:year_id/teacher-entries?teacher=<name>
+// View-only drill-down into one teacher's finalised entries: participant/team,
+// event, age group, role (dance/music), prize and points — the rows that sum to
+// the teacher's total.
+router.get('/:year_id/teacher-entries', async (req, res, next) => {
+  try {
+    const yearId = await resolveYearId(req.params.year_id);
+    if (!yearId) return res.status(400).json({ error: 'No active year' });
+    const teacher = String(req.query.teacher || '').trim();
+    if (!teacher) return res.status(400).json({ error: 'teacher query parameter is required' });
+    const { rows } = await pool.query(
+      `SELECT COALESCE(p.full_name, tm.team_name) AS entry_name,
+              (reg.team_id IS NOT NULL) AS is_team,
+              sch.name AS school,
+              e.event_code, e.event_name, c.name AS category_name,
+              ag.code AS age_group_code, ag.label AS age_group_label,
+              er.prize_place, er.grade, er.total_points,
+              CASE WHEN TRIM(COALESCE(reg.dance_teacher, '')) = $2 THEN 'Dance'
+                   WHEN TRIM(COALESCE(reg.music_teacher, '')) = $2 THEN 'Music' END AS taught_as
+         FROM event_results er
+         JOIN registrations reg ON reg.id = er.registration_id
+         JOIN events e ON e.id = reg.event_id
+         LEFT JOIN categories c ON c.id = e.category_id
+         LEFT JOIN age_groups ag ON ag.id = reg.age_group_id
+         LEFT JOIN participants p ON p.id = reg.participant_id
+         LEFT JOIN teams tm ON tm.id = reg.team_id
+         LEFT JOIN schools sch ON sch.id = COALESCE(p.school_id, tm.school_id)
+        WHERE reg.year_id = $1 AND er.is_finalised = TRUE
+          AND ( (reg.dance_teacher <> 'NOT_APPLICABLE' AND TRIM(COALESCE(reg.dance_teacher, '')) = $2)
+             OR (reg.music_teacher <> 'NOT_APPLICABLE' AND TRIM(COALESCE(reg.music_teacher, '')) = $2) )
+        ORDER BY e.event_code, ag.sort_order NULLS LAST, entry_name`,
+      [yearId, teacher]);
+    res.json({ teacher, entries: rows });
+  } catch (err) { next(err); }
+});
+
 // GET /api/admin/awards/:year_id/export  -> CSV (both tables stacked)
 router.get('/:year_id/export', async (req, res, next) => {
   try {
