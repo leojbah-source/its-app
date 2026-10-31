@@ -326,6 +326,9 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
         <div className="text-lg font-semibold">{current.event_code} · {current.event_name}</div>
         {whenLine(current) && <div className="mt-0.5 text-xs text-navy-200">{whenLine(current)}</div>}
         <div className="mt-0.5 inline-block rounded-full bg-gold-500 px-3 py-0.5 text-sm font-semibold">Group {gcode}</div>
+        {sheet.event?.min_time_seconds > 0 && (
+          <div className="mt-1 text-xs text-navy-200">Minimum time: {mmss(sheet.event.min_time_seconds)} — a shorter performance is flagged below.</div>
+        )}
       </div>
       {finalised && (
         <button onClick={() => setShowResult(true)}
@@ -334,6 +337,11 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
         </button>
       )}
       {!canScore && <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Scoring opens once all judges agree the weightages on the briefing screen ({ag.agreed}/{ag.total} agreed).</div>}
+      {(sheet.participants || []).some((p) => p.under_minimum) && (
+        <div className="mb-3 rounded-xl border-2 border-red-300 bg-red-50 p-3 text-sm text-red-800">
+          <b>⚠ Minimum time not met.</b> Chest {sheet.participants.filter((p) => p.under_minimum).map((p) => `#${p.chest_number}`).join(', ')} performed under the required minimum{sheet.event?.min_time_seconds ? ` of ${mmss(sheet.event.min_time_seconds)}` : ''}. They do not meet the timing criteria — no need to score them.
+        </div>
+      )}
       {sheet.participants.length === 0 ? <p className="rounded-xl bg-white p-4 text-sm text-slate-500 shadow-sm">No chest numbers assigned for this group yet.</p> : (
         <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
           <table className="min-w-full text-sm">
@@ -345,7 +353,10 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
             <tbody className="divide-y divide-slate-100">
               {sheet.participants.map((p) => { const reg = p.registration_id; const total = totalFor(reg); return (
                 <tr key={reg}>
-                  <td className="sticky left-0 z-10 bg-white px-3 py-2"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-navy-100 font-mono text-base font-bold text-navy-800">{p.chest_number}</span></td>
+                  <td className="sticky left-0 z-10 bg-white px-3 py-2">
+                    <span className={`flex h-9 w-9 items-center justify-center rounded-lg font-mono text-base font-bold ${p.under_minimum ? 'bg-red-100 text-red-700' : 'bg-navy-100 text-navy-800'}`}>{p.chest_number}</span>
+                    {p.under_minimum && <span className="mt-1 block rounded bg-red-100 px-1 py-0.5 text-center text-[9px] font-bold uppercase text-red-700">Under min</span>}
+                  </td>
                   {criteria.map((c) => { const key = `${reg}:${c.id}`; return (
                     <td key={c.id} className="px-1 py-1 text-center">
                       <input type="number" min={0} max={c.max_score} step={1} inputMode="numeric" disabled={!canScore || isDone || published} value={vals[key] ?? ''}

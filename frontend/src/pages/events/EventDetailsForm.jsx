@@ -121,7 +121,7 @@ export default function EventDetailsForm({ event, onChange, errors, categories =
       {/* ── Performance timing (Addendum 1) ── */}
       <div>
         <span className="text-sm font-medium text-navy-800">Performance timing</span>
-        <div className="mt-2 grid gap-4 sm:grid-cols-3">
+        <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Input
             label="Allotted time (seconds)"
             type="number"
@@ -145,6 +145,14 @@ export default function EventDetailsForm({ event, onChange, errors, categories =
             value={event.yellow_alert_seconds ?? ''}
             onChange={(e) => onChange({ ...event, yellow_alert_seconds: e.target.value })}
             hint="Warning light cue. Default 60"
+          />
+          <Input
+            label="Minimum time (seconds)"
+            type="number"
+            min={0}
+            value={event.min_time_seconds ?? ''}
+            onChange={(e) => onChange({ ...event, min_time_seconds: e.target.value })}
+            hint={event.min_time_seconds ? `= ${Math.floor(event.min_time_seconds / 60)}m ${event.min_time_seconds % 60}s · judges alerted if under` : '0 / blank = none (e.g. 180 = 3 min)'}
           />
         </div>
 

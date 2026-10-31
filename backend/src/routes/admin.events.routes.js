@@ -450,6 +450,7 @@ router.post('/events', requireRole(...editRoles), async (req, res, next) => {
       allotted_time_seconds = null,
       grace_period_seconds = null,
       yellow_alert_seconds = null,
+      min_time_seconds = 0,
       age_group_durations = {},
       preferred_venue_id = null,
       keep_groups_together = false,
@@ -475,12 +476,13 @@ router.post('/events', requireRole(...editRoles), async (req, res, next) => {
           is_stage_event, time_slot_mode, fee_amount, member_fee_amount,
           gender_split, allotted_time_seconds, grace_period_seconds,
           yellow_alert_seconds, preferred_venue_id, keep_groups_together,
-          requires_tables, deferred_judging, sort_order, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,0,NOW(),NOW()) RETURNING *`,
+          requires_tables, deferred_judging, min_time_seconds, sort_order, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,0,NOW(),NOW()) RETURNING *`,
       [year_id, category_id, event_code, event_name, event_kind, is_stage_event,
        time_slot_mode, fee_amount, member_fee_amount, gender_split,
        allotted_time_seconds || null, grace_period_seconds || null, yellow_alert_seconds || null,
-       preferred_venue_id ? Number(preferred_venue_id) : null, !!keep_groups_together, !!requires_tables, !!deferred_judging],
+       preferred_venue_id ? Number(preferred_venue_id) : null, !!keep_groups_together, !!requires_tables, !!deferred_judging,
+       Number(min_time_seconds) || 0],
     );
     const eventId = rows[0].id;
 
@@ -513,7 +515,7 @@ router.put('/events/:id', requireRole(...editRoles), async (req, res, next) => {
       is_stage_event, time_slot_mode, deferred_judging,
       criteria, age_groups, age_group_durations,
       fee_amount, member_fee_amount, gender_split,
-      allotted_time_seconds, grace_period_seconds, yellow_alert_seconds,
+      allotted_time_seconds, grace_period_seconds, yellow_alert_seconds, min_time_seconds,
       preferred_venue_id, keep_groups_together, requires_tables,
       slots,
     } = req.body;
@@ -540,6 +542,7 @@ router.put('/events/:id', requireRole(...editRoles), async (req, res, next) => {
          keep_groups_together  = COALESCE($16, keep_groups_together),
          requires_tables       = COALESCE($17, requires_tables),
          deferred_judging      = COALESCE($18, deferred_judging),
+         min_time_seconds      = COALESCE($19, min_time_seconds),
          updated_at     = NOW()
        WHERE id = $13 RETURNING *`,
       [event_code, event_name, category_id, event_kind, is_stage_event, time_slot_mode,
@@ -548,7 +551,8 @@ router.put('/events/:id', requireRole(...editRoles), async (req, res, next) => {
        req.params.id,
        preferred_venue_id === undefined ? null : String(preferred_venue_id ?? ''),
        preferred_venue_id === undefined || preferred_venue_id === '' || preferred_venue_id === null ? null : Number(preferred_venue_id),
-       boolOrNull(keep_groups_together), boolOrNull(requires_tables), boolOrNull(deferred_judging)],
+       boolOrNull(keep_groups_together), boolOrNull(requires_tables), boolOrNull(deferred_judging),
+       min_time_seconds === undefined ? null : (min_time_seconds === '' ? 0 : Number(min_time_seconds))],
     );
     if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Event not found' }); }
 

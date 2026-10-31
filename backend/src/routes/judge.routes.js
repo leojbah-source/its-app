@@ -259,6 +259,7 @@ router.get('/sheet/:assignment_id', async (req, res, next) => {
 
     const { rows: ev } = await pool.query(
       `SELECT e.id, e.event_code, e.event_name, c.name AS category_name,
+              e.allotted_time_seconds, e.grace_period_seconds, e.min_time_seconds,
               ag.code AS age_group_code, ag.label AS age_group_label
        FROM events e LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN age_groups ag ON ag.id = $2
@@ -266,8 +267,18 @@ router.get('/sheet/:assignment_id', async (req, res, next) => {
     const criteria = await effectiveCriteria(asg.event_id, ag);
     // CHEST NUMBERS ONLY (rule #5), scoped to this group.
     const { rows: participants } = await pool.query(
-      `SELECT r.id AS registration_id, ca.chest_number
-       FROM registrations r JOIN chest_assignments ca ON ca.registration_id = r.id
+      `SELECT r.id AS registration_id, ca.chest_number,
+              pt.time_taken_seconds,
+              (e.min_time_seconds > 0 AND pt.time_taken_seconds IS NOT NULL
+               AND pt.time_taken_seconds < e.min_time_seconds) AS under_minimum
+       FROM registrations r
+       JOIN chest_assignments ca ON ca.registration_id = r.id
+       JOIN events e ON e.id = r.event_id
+       LEFT JOIN LATERAL (
+         SELECT time_taken_seconds FROM participant_timings t
+         WHERE t.registration_id = r.id AND t.event_id = r.event_id AND t.end_time IS NOT NULL
+         ORDER BY t.id DESC LIMIT 1
+       ) pt ON TRUE
        WHERE r.event_id = $1 AND r.age_group_id = $2 AND r.status = 'attended'
        ORDER BY ca.chest_number`, [asg.event_id, ag]);
     const { rows: scores } = await pool.query(
