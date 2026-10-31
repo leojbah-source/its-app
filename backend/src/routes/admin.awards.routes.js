@@ -36,6 +36,49 @@ const teacherSql = `
   GROUP BY teacher
   ORDER BY total_points DESC NULLS LAST, teacher`;
 
+// Top participants by TOTAL finalised points, within each age group (top 5,
+// ties shown). Individual participants only (team entries excluded).
+const ageGroupToppersSql = `
+  SELECT * FROM (
+    SELECT q.*, RANK() OVER (PARTITION BY q.age_group_id ORDER BY q.total_points DESC) AS rnk
+    FROM (
+      SELECT ag.id AS age_group_id, ag.label AS age_group_label, ag.code AS age_group_code, ag.sort_order,
+             p.id AS participant_id, p.full_name, sch.name AS school,
+             ROUND(SUM(er.total_points)::numeric, 2) AS total_points, COUNT(*)::int AS entries
+      FROM event_results er
+      JOIN registrations reg ON reg.id = er.registration_id
+      JOIN participants p ON p.id = reg.participant_id
+      JOIN age_groups ag ON ag.id = reg.age_group_id
+      LEFT JOIN schools sch ON sch.id = p.school_id
+      WHERE reg.year_id = $1 AND er.is_finalised = TRUE AND reg.participant_id IS NOT NULL
+      GROUP BY ag.id, ag.label, ag.code, ag.sort_order, p.id, p.full_name, sch.name
+    ) q
+  ) r
+  WHERE rnk <= 5
+  ORDER BY sort_order NULLS LAST, rnk, full_name`;
+
+// Overall top participants by TOTAL finalised points, within each event
+// category across ALL age groups (top 5, ties shown). Individuals only.
+const categoryToppersSql = `
+  SELECT * FROM (
+    SELECT q.*, RANK() OVER (PARTITION BY q.category_id ORDER BY q.total_points DESC) AS rnk
+    FROM (
+      SELECT c.id AS category_id, c.name AS category_name, c.sort_order,
+             p.id AS participant_id, p.full_name, sch.name AS school,
+             ROUND(SUM(er.total_points)::numeric, 2) AS total_points, COUNT(*)::int AS entries
+      FROM event_results er
+      JOIN registrations reg ON reg.id = er.registration_id
+      JOIN participants p ON p.id = reg.participant_id
+      JOIN events e ON e.id = reg.event_id
+      JOIN categories c ON c.id = e.category_id
+      LEFT JOIN schools sch ON sch.id = p.school_id
+      WHERE reg.year_id = $1 AND er.is_finalised = TRUE AND reg.participant_id IS NOT NULL
+      GROUP BY c.id, c.name, c.sort_order, p.id, p.full_name, sch.name
+    ) q
+  ) r
+  WHERE rnk <= 5
+  ORDER BY sort_order NULLS LAST, rnk, full_name`;
+
 // GET /api/admin/awards/:year_id/standings   (year_id may be 'active')
 router.get('/:year_id/standings', async (req, res, next) => {
   try {
@@ -54,8 +97,11 @@ router.get('/:year_id/standings', async (req, res, next) => {
        ORDER BY age_group_label, total_points DESC NULLS LAST`, [yearId]);
 
     const { rows: teacherAwards } = await pool.query(teacherSql, [yearId]);
+    const { rows: ageGroupToppers } = await pool.query(ageGroupToppersSql, [yearId]);
+    const { rows: categoryToppers } = await pool.query(categoryToppersSql, [yearId]);
 
-    res.json({ year_id: yearId, school_awards: schoolAwards, group_championship: groupChampionship, teacher_awards: teacherAwards });
+    res.json({ year_id: yearId, school_awards: schoolAwards, group_championship: groupChampionship,
+      teacher_awards: teacherAwards, age_group_toppers: ageGroupToppers, category_toppers: categoryToppers });
   } catch (err) { next(err); }
 });
 

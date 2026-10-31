@@ -12,6 +12,15 @@ import { PageLoader } from '../components/ui/States';
 import { useAuth } from '../context/AuthContext';
 import { awardsApi } from '../api/client';
 
+function toSections(rows, keyField, labelField) {
+  const map = new Map();
+  for (const r of rows || []) {
+    if (!map.has(r[keyField])) map.set(r[keyField], { key: r[keyField], label: r[labelField], rows: [] });
+    map.get(r[keyField]).rows.push(r);
+  }
+  return [...map.values()];
+}
+
 export default function Awards() {
   const { token } = useAuth();
   const navigate = useNavigate();
@@ -69,6 +78,8 @@ export default function Awards() {
     }
   }
   const placeLabel = (n) => (n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : n ? String(n) : '—');
+  const ageSections = useMemo(() => toSections(data?.age_group_toppers, 'age_group_id', 'age_group_label'), [data]);
+  const catSections = useMemo(() => toSections(data?.category_toppers, 'category_id', 'category_name'), [data]);
 
   return (
     <AdminLayout title="Awards" subtitle="School awards and Group Championship, from finalised results. Chairman/SuperAdmin.">
@@ -222,6 +233,60 @@ export default function Awards() {
                   </table>
                 )}
             </Card>
+
+            {(data.age_group_toppers || []).length > 0 && (
+              <Card className="p-0 overflow-hidden">
+                <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2 text-sm font-semibold text-navy-800">
+                  <Trophy size={15} /> Top 5 participants by age group
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  {ageSections.map((sec) => (
+                    <div key={sec.key} className="rounded-lg border border-slate-200">
+                      <div className="border-b border-slate-100 bg-slate-50/60 px-3 py-1.5 text-xs font-semibold text-navy-700">{sec.label}</div>
+                      <table className="min-w-full text-xs">
+                        <tbody className="divide-y divide-slate-100">
+                          {sec.rows.map((r) => (
+                            <tr key={r.participant_id} className={r.rnk === 1 ? 'bg-gold-50/40' : ''}>
+                              <td className="px-2 py-1.5 w-7 text-slate-400">{r.rnk === 1 ? '🏆' : r.rnk}</td>
+                              <td className="px-2 py-1.5 font-medium text-slate-700">{r.full_name}{r.school ? <span className="block text-[10px] font-normal text-slate-400">{r.school}</span> : null}</td>
+                              <td className="px-2 py-1.5 text-center text-slate-400 whitespace-nowrap">{r.entries} ent.</td>
+                              <td className="px-2 py-1.5 text-right font-semibold text-navy-800 whitespace-nowrap">{num(r.total_points)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+
+            {(data.category_toppers || []).length > 0 && (
+              <Card className="p-0 overflow-hidden">
+                <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2 text-sm font-semibold text-navy-800">
+                  <Award size={15} /> Overall top 5 by event category (all age groups combined)
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  {catSections.map((sec) => (
+                    <div key={sec.key} className="rounded-lg border border-slate-200">
+                      <div className="border-b border-slate-100 bg-slate-50/60 px-3 py-1.5 text-xs font-semibold text-navy-700">{sec.label}</div>
+                      <table className="min-w-full text-xs">
+                        <tbody className="divide-y divide-slate-100">
+                          {sec.rows.map((r) => (
+                            <tr key={r.participant_id} className={r.rnk === 1 ? 'bg-gold-50/40' : ''}>
+                              <td className="px-2 py-1.5 w-7 text-slate-400">{r.rnk === 1 ? '🏆' : r.rnk}</td>
+                              <td className="px-2 py-1.5 font-medium text-slate-700">{r.full_name}{r.school ? <span className="block text-[10px] font-normal text-slate-400">{r.school}</span> : null}</td>
+                              <td className="px-2 py-1.5 text-center text-slate-400 whitespace-nowrap">{r.entries} ent.</td>
+                              <td className="px-2 py-1.5 text-right font-semibold text-navy-800 whitespace-nowrap">{num(r.total_points)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
 
             <p className="text-xs text-slate-500">
               School awards = sum of rank + grade + participation points per school (rule #16). Group Championship = the top school per age group from team events (rule #15). Teacher Awards sum each teacher's students' points, excluding self-taught entries (rule #17). Figures use finalised results; publish them from the Results screen to show on the public board.
