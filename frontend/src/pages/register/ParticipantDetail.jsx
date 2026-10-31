@@ -758,6 +758,17 @@ export default function ParticipantDetail() {
               </div>
             ) : null}
 
+            {!confirmResult && participant?.confirmed_at && (
+              <div className="rounded-2xl bg-emerald-50 border border-emerald-300 p-5 text-center space-y-1.5">
+                <CheckCircle2 size={28} className="mx-auto text-emerald-600" />
+                <p className="font-semibold text-emerald-800">Registration complete</p>
+                <p className="text-sm text-emerald-700">
+                  {participant?.full_name} is registered for {activeEventIds.length} event{activeEventIds.length !== 1 ? 's' : ''}.
+                  You can still make changes to the events above until the registration deadline — your registration stays confirmed.
+                </p>
+              </div>
+            )}
+
             {confirmResult && (
               <div className="mt-3 rounded-2xl bg-navy-50 border border-navy-200 p-5 space-y-2">
                 <p className="flex items-center gap-2 font-semibold text-navy-800">
@@ -783,7 +794,7 @@ export default function ParticipantDetail() {
               </div>
             )}
 
-            {!confirmResult && (
+            {!confirmResult && !participant?.confirmed_at && (
               <div className="space-y-2">
                 {confirmError && <Alert variant="danger">{confirmError}</Alert>}
 

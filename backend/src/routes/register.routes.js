@@ -1899,7 +1899,7 @@ router.post('/participant/:id/confirm', authenticate, async (req, res, next) => 
     if (!_own.ok) return res.status(_own.status).json({ error: _own.error });
     const { rows: pRows } = await pool.query(
       `SELECT p.id, p.year_id, p.full_name, p.cpr_number, p.dob, p.gender,
-              p.guardian_name, p.guardian_phone,
+              p.guardian_name, p.guardian_phone, p.confirmed_at,
               ag.label AS age_group_label, s.name AS school_name
        FROM participants p
        LEFT JOIN age_groups ag ON ag.id = p.age_group_id
@@ -1915,6 +1915,14 @@ router.post('/participant/:id/confirm', authenticate, async (req, res, next) => 
        ORDER BY e.event_code`, [p.id]);
     if (!items.length)
       return res.status(400).json({ error: 'No events selected yet — choose events before confirming' });
+
+    // Already completed earlier: this is a no-op re-confirm (e.g. the parent
+    // revisited the flow, updated a photo, or the client re-posted). Do NOT
+    // resend the acknowledgement or re-log — otherwise a duplicate
+    // "registration received" message goes out long after the real registration.
+    if (p.confirmed_at) {
+      return res.json({ confirmed: true, events: items.length, email_sent: false, already_confirmed: true });
+    }
 
     const { rows: pays } = await pool.query(
       `SELECT amount, method, status FROM payments WHERE participant_id = $1 ORDER BY created_at`, [p.id]);
