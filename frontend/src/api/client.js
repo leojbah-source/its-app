@@ -407,6 +407,8 @@ export const teamsApi = {
     request(`/api/admin/teams/${teamId}/members/${memberId}/verify`, { method: 'PUT', token, body: { verified } }),
   notify: (token, teamId, body) =>
     request(`/api/admin/teams/${teamId}/notify`, { method: 'POST', token, body }),
+  deleteDocument: (token, teamId, docId) =>
+    request(`/api/admin/teams/${teamId}/documents/${docId}`, { method: 'DELETE', token }),
 };
 
 export const listsApi = {

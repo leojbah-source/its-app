@@ -45,6 +45,21 @@ export default function MediaResults() {
   useEffect(() => { setGroups([]); if (!eventId) return; resultsApi.groups(token, eventId).then(setGroups).catch((e) => setFlash(e.message)); }, [token, eventId]);
   useEffect(() => { setEventId(''); setGroups([]); }, [date]);
 
+  // Age-group codes actually scheduled for the selected event on the selected
+  // date, so only that day's groups show (not groups from the event's other days).
+  const scheduledCodes = useMemo(() => {
+    const set = new Set();
+    for (const r of schedule) {
+      if (String(r.event_id) !== String(eventId)) continue;
+      if (date && String(r.event_date).slice(0, 10) !== date) continue;
+      for (const c of (r.age_groups || '').split(',').map((x) => x.trim()).filter(Boolean)) set.add(c);
+    }
+    return set;
+  }, [schedule, eventId, date]);
+  const visibleGroups = useMemo(
+    () => (date && scheduledCodes.size ? groups.filter((g) => scheduledCodes.has(g.code)) : groups),
+    [groups, scheduledCodes, date]);
+
   async function downloadPack() {
     setPackBusy(true); setFlash('');
     try {
@@ -123,11 +138,11 @@ export default function MediaResults() {
       {eventId && (
         <div className="mt-4">
           <Card title={evName ? `${evName.code} · ${evName.name}` : 'Groups'}>
-            {groups.length === 0 ? (
-              <div className="py-8 text-center text-sm text-slate-400">No groups found for this event.</div>
+            {visibleGroups.length === 0 ? (
+              <div className="py-8 text-center text-sm text-slate-400">No groups for this event on the selected date.</div>
             ) : (
               <ul className="divide-y divide-slate-100">
-                {groups.map((g) => (
+                {visibleGroups.map((g) => (
                   <li key={g.age_group_id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                     <div>
                       <span className="text-sm font-semibold text-navy-800">{g.label || g.code}</span>

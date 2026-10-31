@@ -10,7 +10,7 @@
 
 import { useEffect, useState, useCallback, Fragment } from 'react';
 import {
-  X, User, CreditCard, Tag, ScrollText, CheckCircle2, AlertTriangle, ExternalLink, MessageSquare, Upload,
+  X, User, CreditCard, Tag, ScrollText, CheckCircle2, AlertTriangle, ExternalLink, MessageSquare, Upload, Trash2,
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Card';
@@ -168,6 +168,15 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
     try { await teamsApi.verifyMember(token, teamId, m.id, !m.cpr_verified); }
     catch (e) { setFlash(e.message); setTeam((t) => ({ ...t, members: t.members.map((x) => (x.id === m.id ? { ...x, cpr_verified: m.cpr_verified } : x)) })); }
     finally { setTeamBusyMember(null); }
+  }
+
+  async function removeTeamDoc(docId) {
+    if (!window.confirm('Remove this uploaded file from the team? This cannot be undone.')) return;
+    try {
+      await teamsApi.deleteDocument(token, teamId, docId);
+      setTeam(await teamsApi.members(token, teamId));
+      setFlash('');
+    } catch (e) { setFlash(e.message); }
   }
   async function sendTeamNote() {
     if (!teamMsg.trim()) { setFlash('Enter a message first.'); return; }
@@ -598,18 +607,27 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                     <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">CPR documents ({team.documents.length})</h4>
                     <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                       {team.documents.map((d) => (
-                        <a key={d.id} href={d.url} target="_blank" rel="noreferrer" title={d.original_name || 'Document'}
-                          className="group block overflow-hidden rounded-md border border-slate-200 hover:border-navy-400">
-                          {isImageUrl(d.url) ? (
-                            <img src={d.url} alt={d.original_name || 'CPR'} loading="lazy"
-                              className="h-24 w-full object-cover" />
-                          ) : (
-                            <div className="flex h-24 w-full items-center justify-center bg-slate-50 text-[11px] text-navy-700">
-                              <ExternalLink size={14} className="mr-1" /> Open
-                            </div>
+                        <div key={d.id} className="relative">
+                          <a href={d.url} target="_blank" rel="noreferrer" title={d.original_name || 'Document'}
+                            className="group block overflow-hidden rounded-md border border-slate-200 hover:border-navy-400">
+                            {isImageUrl(d.url) ? (
+                              <img src={d.url} alt={d.original_name || 'CPR'} loading="lazy"
+                                className="h-24 w-full object-cover" />
+                            ) : (
+                              <div className="flex h-24 w-full items-center justify-center bg-slate-50 text-[11px] text-navy-700">
+                                <ExternalLink size={14} className="mr-1" /> Open
+                              </div>
+                            )}
+                            <div className="truncate px-1.5 py-1 text-[10px] text-slate-500">{d.original_name || 'Document'}</div>
+                          </a>
+                          {canEditParent && (
+                            <button type="button" title="Remove this file"
+                              onClick={() => removeTeamDoc(d.id)}
+                              className="absolute right-1 top-1 rounded-full bg-white/90 p-1 text-red-500 shadow ring-1 ring-slate-200 hover:bg-red-50 hover:text-red-700">
+                              <Trash2 size={13} />
+                            </button>
                           )}
-                          <div className="truncate px-1.5 py-1 text-[10px] text-slate-500">{d.original_name || 'Document'}</div>
-                        </a>
+                        </div>
                       ))}
                     </div>
                   </div>

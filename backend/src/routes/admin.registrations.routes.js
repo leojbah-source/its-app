@@ -900,6 +900,27 @@ router.get('/teams/:id/members', requireRole(...staffRoles), async (req, res, ne
   } catch (err) { next(err); }
 });
 
+// ── DELETE /api/admin/teams/:id/documents/:docId ─────────────────────────────
+// Remove a wrongly-uploaded team file (e.g. a photo uploaded instead of a CPR).
+router.delete('/teams/:id/documents/:docId', requireRole(...editRoles), async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM team_documents WHERE id = $1 AND team_id = $2 RETURNING url, original_name`,
+      [req.params.docId, req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Document not found' });
+    // Best-effort: also remove the stored file. Never fatal if it is already gone
+    // or lives on a different store.
+    try {
+      const u = String(rows[0].url || '');
+      if (u.startsWith('/uploads/')) require('fs').unlinkSync(path.join(uploadDir, path.basename(u)));
+    } catch { /* ignore */ }
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'DELETE_TEAM_DOCUMENT', entity: 'teams', entityId: Number(req.params.id),
+      details: { document_id: Number(req.params.docId), name: rows[0].original_name } });
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
 // ── PUT /api/admin/teams/:team_id/members/:member_id/verify — CPR tick ────────
 router.put('/teams/:team_id/members/:member_id/verify', requireRole(...editRoles), async (req, res, next) => {
   try {
