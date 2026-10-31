@@ -226,6 +226,48 @@ router.get('/registrations/export', requireRole(...staffRoles), async (req, res,
       [year_id],
     );
 
+    // ── Sheet: Team Roster ──────────────────────────────────────────────────
+    // One row per TEAM MEMBER, with the team's name, contact and payment details
+    // repeated on every row (so it sorts/filters cleanly), plus each member's
+    // details and whether their CPR has been verified by the office. Teams with
+    // no members yet still appear once (member columns blank).
+    const { rows: roster } = await pool.query(
+      `SELECT
+         t.team_name,
+         e.event_code || ' ' || e.event_name AS event,
+         tag.code AS team_age_group_code, ts.name AS team_school_name,
+         to_char(t.created_at AT TIME ZONE 'Asia/Bahrain', 'YYYY-MM-DD') AS reg_date,
+         pu.full_name AS contact_name, pu.email AS contact_email,
+         pu.phone AS contact_phone, pu.whatsapp_number AS contact_whatsapp,
+         pu.whatsapp_number_2 AS contact_whatsapp_2,
+         pu.kca_member_no, pu.membership_status AS kca_membership,
+         (SELECT COALESCE(SUM(r.fee_amount), 0) FROM registrations r
+            WHERE r.team_id = t.id AND r.status NOT IN ('withdrawn','swapped')) AS total_fee,
+         (SELECT CASE
+            WHEN COUNT(*) FILTER (WHERE pay.status = 'confirmed') > 0 THEN 'verified'
+            WHEN COUNT(*) FILTER (WHERE pay.status = 'pending') > 0 THEN 'pending'
+            ELSE 'none' END FROM payments pay WHERE pay.team_id = t.id) AS payment_status,
+         (SELECT string_agg(DISTINCT pay.method::text, ' | ') FROM payments pay WHERE pay.team_id = t.id) AS payment_methods,
+         (SELECT COALESCE(SUM(pay.amount), 0) FROM payments pay
+            WHERE pay.status = 'confirmed' AND pay.team_id = t.id) AS paid_confirmed,
+         mp.full_name AS member_name, mp.cpr_number AS member_cpr,
+         to_char(mp.dob, 'YYYY-MM-DD') AS member_dob, mp.gender AS member_gender,
+         mag.code AS member_age_group, ms.name AS member_school,
+         tm.is_captain, tm.is_substitute, tm.cpr_verified
+       FROM teams t
+       LEFT JOIN events e ON e.id = t.event_id
+       LEFT JOIN age_groups tag ON tag.id = t.age_group_id
+       LEFT JOIN schools ts ON ts.id = t.school_id
+       LEFT JOIN users pu ON pu.id = t.created_by
+       LEFT JOIN team_members tm ON tm.team_id = t.id
+       LEFT JOIN participants mp ON mp.id = tm.participant_id
+       LEFT JOIN schools ms ON ms.id = mp.school_id
+       LEFT JOIN age_groups mag ON mag.id = mp.age_group_id
+       WHERE ($1::int IS NULL OR t.year_id = $1)
+       ORDER BY t.team_name, tm.is_captain DESC NULLS LAST, mp.full_name`,
+      [year_id],
+    );
+
     const bd = (v) => Number(v || 0).toFixed(3);
     const wb = new ExcelJS.Workbook();
     wb.creator = 'KCA ITS';
@@ -297,6 +339,46 @@ router.get('/registrations/export', requireRole(...staffRoles), async (req, res,
       paid_confirmed: Number(bd(r.paid_confirmed)),
     }));
     styleHeader(wsT);
+
+    // Sheet — Team Roster (one row per member; team details repeated)
+    const yn = (v) => (v === true ? 'Yes' : v === false ? 'No' : '');
+    const wsR = wb.addWorksheet('Team Roster');
+    wsR.columns = [
+      { header: 'Team Name', key: 'team_name', width: 28 },
+      { header: 'Event', key: 'event', width: 34 },
+      { header: 'Team Age Group', key: 'team_age_group_code', width: 13 },
+      { header: 'Team School', key: 'team_school_name', width: 24 },
+      { header: 'Registered On', key: 'reg_date', width: 14 },
+      { header: 'Registered By', key: 'contact_name', width: 22 },
+      { header: 'Email', key: 'contact_email', width: 26 },
+      { header: 'Phone', key: 'contact_phone', width: 15 },
+      { header: 'WhatsApp', key: 'contact_whatsapp', width: 15 },
+      { header: 'WhatsApp 2', key: 'contact_whatsapp_2', width: 15 },
+      { header: 'KCA Member No', key: 'kca_member_no', width: 15 },
+      { header: 'KCA Membership', key: 'kca_membership', width: 15 },
+      { header: 'Total Fee (BD)', key: 'total_fee', width: 14 },
+      { header: 'Payment Status', key: 'payment_status', width: 15 },
+      { header: 'Payment Methods', key: 'payment_methods', width: 18 },
+      { header: 'Paid Confirmed (BD)', key: 'paid_confirmed', width: 18 },
+      { header: 'Member Name', key: 'member_name', width: 26 },
+      { header: 'Member CPR', key: 'member_cpr', width: 14 },
+      { header: 'Member DOB', key: 'member_dob', width: 12 },
+      { header: 'Member Gender', key: 'member_gender', width: 8 },
+      { header: 'Member Age Group', key: 'member_age_group', width: 13 },
+      { header: 'Member School', key: 'member_school', width: 24 },
+      { header: 'Captain', key: 'is_captain', width: 9 },
+      { header: 'Substitute', key: 'is_substitute', width: 11 },
+      { header: 'CPR Verified', key: 'cpr_verified', width: 12 },
+    ];
+    roster.forEach((r) => wsR.addRow({
+      ...r,
+      total_fee: Number(bd(r.total_fee)),
+      paid_confirmed: Number(bd(r.paid_confirmed)),
+      is_captain: yn(r.is_captain),
+      is_substitute: yn(r.is_substitute),
+      cpr_verified: yn(r.cpr_verified),
+    }));
+    styleHeader(wsR);
 
     // Sheet 2 — In Progress
     const ws2 = wb.addWorksheet('In Progress');
