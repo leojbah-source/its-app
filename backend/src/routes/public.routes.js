@@ -162,7 +162,11 @@ router.get('/results', async (req, res, next) => {
               res.rank_points, res.grade_points,
               p.full_name AS child_name, sch.name AS school,
               ca.chest_number,
-              (SELECT to_char(MIN(s.event_date), 'YYYY-MM-DD') FROM schedule s WHERE s.event_id = res.event_id) AS event_date
+              to_char(COALESCE(
+                (SELECT MIN(sc.event_date) FROM schedule sc
+                  WHERE sc.event_id = res.event_id
+                    AND ag.code = ANY(string_to_array(replace(sc.age_groups, ' ', ''), ','))),
+                (SELECT MIN(s.event_date) FROM schedule s WHERE s.event_id = res.event_id)), 'YYYY-MM-DD') AS event_date
        FROM event_results res
        JOIN events e ON e.id = res.event_id
        JOIN registrations r ON r.id = res.registration_id

@@ -762,7 +762,11 @@ router.get('/results/:event_id/:age_group_id/winners', requireRole(...posterRole
     const { rows: ev } = await pool.query(
       `SELECT e.event_name, e.event_code, e.gender_split, c.name AS category_name,
               ag.code AS age_group_code, ag.label AS age_group_label,
-              (SELECT MIN(event_date) FROM schedule WHERE event_id = $1) AS event_date
+              COALESCE(
+                (SELECT MIN(sc.event_date) FROM schedule sc
+                  WHERE sc.event_id = $1
+                    AND ag.code = ANY(string_to_array(replace(sc.age_groups, ' ', ''), ','))),
+                (SELECT MIN(event_date) FROM schedule WHERE event_id = $1)) AS event_date
          FROM events e LEFT JOIN categories c ON c.id = e.category_id
          LEFT JOIN age_groups ag ON ag.id = $2 WHERE e.id = $1`, [eventId, ag]);
     const state = await groupState(eventId, ag);
@@ -824,7 +828,11 @@ router.get('/results/winners-pack', requireRole(...posterRoles), async (req, res
       const { rows: meta } = await pool.query(
         `SELECT e.event_code, e.event_name, c.name AS category_name,
                 ag.code AS age_group_code, ag.label AS age_group_label,
-                to_char((SELECT MIN(event_date) FROM schedule WHERE event_id = $1), 'YYYY-MM-DD') AS event_date
+                to_char(COALESCE(
+                  (SELECT MIN(sc.event_date) FROM schedule sc
+                    WHERE sc.event_id = $1
+                      AND ag.code = ANY(string_to_array(replace(sc.age_groups, ' ', ''), ','))),
+                  (SELECT MIN(event_date) FROM schedule WHERE event_id = $1)), 'YYYY-MM-DD') AS event_date
            FROM events e LEFT JOIN categories c ON c.id = e.category_id
            LEFT JOIN age_groups ag ON ag.id = $2 WHERE e.id = $1`, [eventId, ag]);
       const m = meta[0] || {};
