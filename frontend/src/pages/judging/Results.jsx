@@ -102,6 +102,11 @@ export default function Results() {
         const chests = over.map((r) => `#${r.chest_number}`).join(', ');
         if (!window.confirm(`${chests} went over time + grace and ${over.length === 1 ? 'has' : 'have'} NOT been disqualified or cleared.\n\nReview the DQ column first — click Disqualify if the rules require it. Finalise anyway?`)) return;
       }
+      const under = (data?.results || []).filter((r) => r.under_minimum && !r.is_disqualified);
+      if (under.length) {
+        const chests = under.map((r) => `#${r.chest_number}`).join(', ');
+        if (!window.confirm(`${chests} ${under.length === 1 ? 'is' : 'are'} UNDER the minimum time and ${under.length === 1 ? 'has' : 'have'} NOT been disqualified or cleared.\n\nReview the DQ column first — click Disqualify if the rules require it. Finalise anyway?`)) return;
+      }
     }
     setBusy(true); setFlash('');
     try {
@@ -141,6 +146,7 @@ export default function Results() {
   const unreviewedDiv = useMemo(() => (data?.results || []).filter((r) => r.divergence_flag && !r.divergence_notes).length, [data]);
   const tieRows = useMemo(() => (data?.results || []).filter((r) => r.needs_tiebreak), [data]);
   const overUnhandled = useMemo(() => (data?.results || []).filter((r) => r.over_time && !r.is_disqualified), [data]);
+  const underUnhandled = useMemo(() => (data?.results || []).filter((r) => r.under_minimum && !r.is_disqualified), [data]);
   const showTiebreak = Boolean(data?.complete && data?.tiebreak_needed);
 
   // Auto-refresh the live state (judges done, flags, finalise/publish/stale) every
@@ -167,7 +173,7 @@ export default function Results() {
     catch (e) { setFlash(e.message); }
   }
   async function disqualify(row) {
-    const reason = window.prompt(`Disqualify chest ${row.chest_number}? They are removed from the ranking and get NO grade or rank points (rule #22). Judges are not notified. Enter the reason:`, row.over_time ? 'Exceeded time limit and grace period' : '');
+    const reason = window.prompt(`Disqualify chest ${row.chest_number}? They are removed from the ranking and get NO grade or rank points (rule #22). Judges are not notified. Enter the reason:`, row.under_minimum ? 'Under the minimum time requirement' : row.over_time ? 'Exceeded time limit and grace period' : '');
     if (reason == null) return;
     if (!reason.trim()) { setFlash('A disqualification reason is required.'); return; }
     setBusy(true); setFlash('');
@@ -251,6 +257,7 @@ export default function Results() {
             {!data.complete && <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">Not all judges have scored every participant yet — you can compute a preview, but finalising is disabled until scoring is complete.</div>}
             {data.complete && data.judges_total > 0 && !data.all_done && <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">Judges are still finishing — {data.judges_done}/{data.judges_total} have clicked “Done scoring”. Finalise unlocks once all judges mark done.</div>}
             {overUnhandled.length > 0 && <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">⏱ Chest {overUnhandled.map((r) => r.chest_number).join(', ')} went over time + grace and {overUnhandled.length === 1 ? 'has' : 'have'} not been reviewed. Check the <b>DQ</b> column — <b>Disqualify</b> if the rules require it, or leave it and finalise if allowed.</div>}
+            {underUnhandled.length > 0 && <div className="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs font-medium text-red-800">⏱ Chest {underUnhandled.map((r) => r.chest_number).join(', ')} {underUnhandled.length === 1 ? 'is' : 'are'} under the minimum time and {underUnhandled.length === 1 ? 'has' : 'have'} not been reviewed. Check the <b>DQ</b> column — <b>Disqualify</b> if the rules require it.</div>}
             {data.complete && unreviewedDiv > 0 && <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{unreviewedDiv} result(s) have diverging judge ranks — click “review diverge” on each and add a note before finalising.</div>}
             {showTiebreak && (
               <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -315,6 +322,7 @@ export default function Results() {
                             {showTiebreak && r.needs_tiebreak
                               ? <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700" title="Exact tie — needs a rule #8 tiebreaker">tiebreak{r.mark_sum ? ` · ${r.mark_sum}` : ''}</span>
                               : r.exact_tie && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700" title="Exact tie — identical on rank sum and every criterion">tie</span>}
+                            {r.under_minimum && <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700" title="Performed under the minimum time">under min</span>}
                             {r.divergence_flag && (state.published
                               ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600" title={r.divergence_notes || ''}>diverge</span>
                               : r.divergence_notes

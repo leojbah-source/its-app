@@ -108,6 +108,21 @@ async function computeGroup(eventId, ageGroupId, cfg) {
         ORDER BY registration_id, id DESC`, [regIds]);
     for (const o of ov.rows) overMap[o.registration_id] = !!o.flag_for_dq;
   }
+  // Under-minimum evidence (events with a minimum set): latest completed timing
+  // below the event's minimum. Informational for the Chairman — like over_time,
+  // it does NOT auto-disqualify or change ranking.
+  const underMap = {};
+  if (regIds.length) {
+    const { rows: evMin } = await pool.query(`SELECT min_time_seconds FROM events WHERE id = $1`, [eventId]);
+    const minT = Number(evMin[0]?.min_time_seconds) || 0;
+    if (minT > 0) {
+      const um = await pool.query(
+        `SELECT DISTINCT ON (registration_id) registration_id, time_taken_seconds
+           FROM participant_timings WHERE registration_id = ANY($1) AND end_time IS NOT NULL
+          ORDER BY registration_id, id DESC`, [regIds]);
+      for (const u of um.rows) if (u.time_taken_seconds != null && u.time_taken_seconds < minT) underMap[u.registration_id] = true;
+    }
+  }
   // Extra/consolation prizes (additional_3rd shows '3' and earns 3rd-place points).
   const extraMap = {};
   if (regIds.length) {
@@ -245,6 +260,7 @@ async function computeGroup(eventId, ageGroupId, cfg) {
         rank_points: r.rank_points, grade_points: r.grade_points,
         participation_bonus_pts: r.participation_bonus_pts, total_points: r.total_points,
         is_disqualified: false, dq_reason: null, over_time: !!overMap[r.registration_id],
+        under_minimum: !!underMap[r.registration_id],
         extra_prize_type: r.extra_prize_type || null,
       })),
       // Disqualified participants: shown after the ranked list, no place/grade/points (rule #22).
@@ -254,6 +270,7 @@ async function computeGroup(eventId, ageGroupId, cfg) {
         tie_flag: false, divergence_flag: false, exact_tie: false, needs_tiebreak: false, mark_sum: 0,
         rank_points: 0, grade_points: 0, participation_bonus_pts: 0, total_points: 0,
         is_disqualified: true, dq_reason: dqMap[p.registration_id], over_time: !!overMap[p.registration_id],
+        under_minimum: !!underMap[p.registration_id],
       })),
     ],
   };
