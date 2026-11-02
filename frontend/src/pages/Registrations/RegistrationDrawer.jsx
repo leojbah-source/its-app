@@ -192,15 +192,16 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
   }
 
   const [deletingTeam, setDeletingTeam] = useState(false);
+  const [deleteErr, setDeleteErr] = useState('');
   async function deleteTeam() {
     const name = team?.team?.team_name || 'this team';
     if (!window.confirm(`Delete "${name}" entirely?\n\nThis removes the team, its roster, documents and payments, and its team-event entry. Each member's INDIVIDUAL-event entries are kept. This cannot be undone.`)) return;
-    setDeletingTeam(true);
+    setDeletingTeam(true); setDeleteErr('');
     try {
       await teamsApi.deleteTeam(token, teamId);
       onUpdated?.();
       onClose?.();
-    } catch (e) { setFlash(e.message); setDeletingTeam(false); }
+    } catch (e) { setDeleteErr(e.message || 'Could not delete the team.'); setDeletingTeam(false); }
   }
   async function sendTeamNote() {
     if (!teamMsg.trim()) { setFlash('Enter a message first.'); return; }
@@ -710,6 +711,7 @@ export default function RegistrationDrawer({ registration, token, onClose, onUpd
                         className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50">
                         <Trash2 size={13} /> {deletingTeam ? 'Deleting…' : 'Delete team'}
                       </button>
+                      {deleteErr && <p className="mt-2 text-xs font-medium text-red-700">{deleteErr}</p>}
                     </div>
                   )}
                 </div>
