@@ -1049,6 +1049,62 @@ router.delete('/teams/:team_id/members/:member_id', requireRole(...editRoles), a
   } catch (err) { next(err); }
 });
 
+// ── DELETE /api/admin/teams/:id ──────────────────────────────────────────────
+// Delete a whole team entry (duplicate, or a team that did not pay). Removes the
+// team, its roster, documents, payments and its team-event registration (and
+// everything hanging off that registration). Participant records are KEPT, so
+// each child's INDIVIDUAL-event entries are untouched. Blocked if the team's
+// results are finalised or published (reverse/unpublish first). SuperAdmin/Admin.
+router.delete('/teams/:id', requireRole('SuperAdmin', 'Admin'), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const teamId = Number(req.params.id);
+    const { rows: tRows } = await client.query(`SELECT id, team_name FROM teams WHERE id = $1`, [teamId]);
+    if (!tRows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Team not found' }); }
+
+    const { rows: regs } = await client.query(`SELECT id FROM registrations WHERE team_id = $1`, [teamId]);
+    const regIds = regs.map((r) => r.id);
+
+    if (regIds.length) {
+      const { rows: locked } = await client.query(
+        `SELECT 1 FROM event_results WHERE registration_id = ANY($1) AND (is_finalised = TRUE OR is_published = TRUE) LIMIT 1`,
+        [regIds]);
+      if (locked[0]) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'This team has finalised or published results. Reverse/unpublish them before deleting the team.' });
+      }
+    }
+
+    // Payments first (they reference both the team and its registration).
+    await client.query(`DELETE FROM payments WHERE team_id = $1${regIds.length ? ' OR registration_id = ANY($2)' : ''}`,
+      regIds.length ? [teamId, regIds] : [teamId]);
+
+    if (regIds.length) {
+      // Everything hanging off the team's registration(s).
+      await client.query(`DELETE FROM tiebreaker_marks   WHERE participant_reg_id = ANY($1)`, [regIds]);
+      await client.query(`DELETE FROM event_results      WHERE registration_id   = ANY($1)`, [regIds]);
+      await client.query(`DELETE FROM scores             WHERE registration_id   = ANY($1)`, [regIds]);
+      await client.query(`DELETE FROM participant_timings WHERE registration_id  = ANY($1)`, [regIds]);
+      await client.query(`DELETE FROM chest_assignments  WHERE registration_id   = ANY($1)`, [regIds]);
+      await client.query(`DELETE FROM event_swap_requests WHERE registration_id  = ANY($1)`, [regIds]);
+      await client.query(`DELETE FROM registrations       WHERE team_id = $1`, [teamId]);
+    }
+
+    // team_members, team_documents and schedule_email_log cascade on team delete.
+    await client.query(`DELETE FROM teams WHERE id = $1`, [teamId]);
+    await client.query('COMMIT');
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'DELETE_TEAM', entity: 'teams', entityId: teamId,
+      details: { team_name: tRows[0].team_name, registrations_removed: regIds.length } });
+    res.json({ ok: true, team_name: tRows[0].team_name });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => null);
+    next(err);
+  } finally { client.release(); }
+});
+
 // ── POST /api/admin/teams/:id/notify — WhatsApp the team leader (editable) ────
 router.post('/teams/:id/notify', requireRole('SuperAdmin', 'Admin', 'Coordinator', 'Chairman', 'Registrar'), async (req, res, next) => {
   try {
