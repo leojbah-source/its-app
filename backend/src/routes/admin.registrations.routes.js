@@ -1076,13 +1076,11 @@ router.delete('/teams/:id', requireRole('SuperAdmin', 'Admin'), async (req, res,
       }
     }
 
-    // registrations.payment_id references payments(id); clear that link first so
-    // the payments can be removed, then delete the payments (which in turn
-    // reference the team and its registration).
-    const payArgs = regIds.length ? [teamId, regIds] : [teamId];
-    const payWhere = `team_id = $1${regIds.length ? ' OR registration_id = ANY($2)' : ''}`;
-    await client.query(`UPDATE registrations SET payment_id = NULL WHERE payment_id IN (SELECT id FROM payments WHERE ${payWhere})`, payArgs);
-    await client.query(`DELETE FROM payments WHERE ${payWhere}`, payArgs);
+    // Team payments are keyed by team_id (the payments table has no registration_id).
+    // registrations.payment_id references payments(id), so clear that link first,
+    // then remove the team's payments.
+    await client.query(`UPDATE registrations SET payment_id = NULL WHERE payment_id IN (SELECT id FROM payments WHERE team_id = $1)`, [teamId]);
+    await client.query(`DELETE FROM payments WHERE team_id = $1`, [teamId]);
 
     if (regIds.length) {
       // Everything that references the team's registration(s).
