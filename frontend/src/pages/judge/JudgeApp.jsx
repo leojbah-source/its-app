@@ -337,16 +337,29 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
     <div>
       <button onClick={onBack} className="mb-2 inline-flex items-center gap-1 text-sm text-navy-600 hover:underline"><ChevronLeft size={16} /> Groups</button>
       <div className="mb-3 rounded-xl bg-navy-700 p-4 text-white">
-        <div className="text-xs uppercase tracking-wide text-navy-200">Now scoring</div>
-        <div className="text-lg font-semibold">{current.event_code} · {current.event_name}</div>
-        {whenLine(current) && <div className="mt-0.5 text-xs text-navy-200">{whenLine(current)}</div>}
-        <div className="mt-0.5 inline-block rounded-full bg-gold-500 px-3 py-0.5 text-sm font-semibold">Group {gcode}</div>
-        {ageBracket(sheet.event?.dob_from, sheet.event?.dob_to) && (
-          <div className="mt-1 text-xs text-navy-200">{ageBracket(sheet.event?.dob_from, sheet.event?.dob_to)}</div>
-        )}
-        {sheet.event?.min_time_seconds > 0 && (
-          <div className="mt-1 text-xs text-navy-200">Minimum time: {mmss(sheet.event.min_time_seconds)} — a shorter performance is flagged below.</div>
-        )}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs uppercase tracking-wide text-navy-200">Now scoring</div>
+            <div className="text-lg font-semibold">{current.event_code} · {current.event_name}</div>
+            {whenLine(current) && <div className="mt-0.5 text-xs text-navy-200">{whenLine(current)}</div>}
+            <div className="mt-0.5 inline-block rounded-full bg-gold-500 px-3 py-0.5 text-sm font-semibold">Group {gcode}</div>
+            {ageBracket(sheet.event?.dob_from, sheet.event?.dob_to) && (
+              <div className="mt-1 text-xs text-navy-200">{ageBracket(sheet.event?.dob_from, sheet.event?.dob_to)}</div>
+            )}
+            {sheet.event?.min_time_seconds > 0 && (
+              <div className="mt-1 text-xs text-navy-200">Minimum time: {mmss(sheet.event.min_time_seconds)} — a shorter performance is flagged below.</div>
+            )}
+          </div>
+          {sheet.grade_bands && (
+            <div className="shrink-0 rounded-lg bg-white/10 px-3 py-2 text-[11px] leading-snug">
+              <div className="font-semibold text-white">Grade key</div>
+              <div className="text-navy-100">A — {sheet.grade_bands.grade_a_pct}%+</div>
+              <div className="text-navy-100">B — {sheet.grade_bands.grade_b_pct}–{Number(sheet.grade_bands.grade_a_pct) - 1}%</div>
+              <div className="text-navy-100">C — {sheet.grade_bands.grade_c_pct}–{Number(sheet.grade_bands.grade_b_pct) - 1}%</div>
+              <div className="mt-0.5 text-[10px] text-navy-300">from panel average · below {sheet.grade_bands.grade_c_pct}% none</div>
+            </div>
+          )}
+        </div>
       </div>
       {finalised && (
         <button onClick={() => setShowResult(true)}
@@ -388,15 +401,6 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
           </table>
         </div>)}
       <p className="mt-2 text-xs text-slate-500">Scores can't exceed a criterion's weightage. Enter whole numbers only. They save as you leave each box; Total &amp; Rank (only you see it) update live.</p>
-      {sheet.grade_bands && (
-        <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-          <b>Grade key</b> (awarded from the panel's average score, not your marks alone):
-          {' '}<b>A</b> {sheet.grade_bands.grade_a_pct}%+
-          {' '}· <b>B</b> {sheet.grade_bands.grade_b_pct}–{Number(sheet.grade_bands.grade_a_pct) - 1}%
-          {' '}· <b>C</b> {sheet.grade_bands.grade_c_pct}–{Number(sheet.grade_bands.grade_b_pct) - 1}%
-          {' '}· below {sheet.grade_bands.grade_c_pct}% no grade.
-        </p>
-      )}
 
       {published ? (
         <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-50 p-3 text-sm text-slate-600">
