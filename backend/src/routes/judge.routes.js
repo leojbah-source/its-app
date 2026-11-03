@@ -285,11 +285,14 @@ router.get('/sheet/:assignment_id', async (req, res, next) => {
       `SELECT s.registration_id, s.criterion_id, s.score_value FROM scores s
        JOIN registrations r ON r.id = s.registration_id
        WHERE s.judge_assignment_id = $1 AND r.age_group_id = $2`, [asg.id, ag]);
+    const { rows: gb } = await pool.query(
+      `SELECT grade_a_pct, grade_b_pct, grade_c_pct FROM year_config WHERE is_active = TRUE LIMIT 1`);
 
     res.json({
       assignment_id: asg.id,
       event: ev[0] || null,
       age_group_id: ag,
+      grade_bands: gb[0] || null,
       criteria,
       weightages_locked: await groupScored(asg.event_id, ag),
       weightage_total: criteria.reduce((t, c) => t + Number(c.max_score), 0),

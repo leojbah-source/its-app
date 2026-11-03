@@ -170,6 +170,7 @@ function Briefing({ token, current, onBack, onContinue, setFlash }) {
         <div className="text-xs uppercase tracking-wide text-navy-200">Judges' briefing</div>
         <div className="text-lg font-semibold">{ev.event_code} · {ev.event_name}</div>
         <div className="text-sm text-navy-200">{ev.category_name}{ev.age_group_code ? ` · Group ${ev.age_group_code}` : ''}</div>
+        {ev.age_group_label && <div className="text-xs text-navy-300">{ev.age_group_label}</div>}
         {whenLine(current) && <div className="mt-0.5 text-xs text-navy-300">{whenLine(current)}</div>}
       </div>
 
@@ -247,6 +248,7 @@ function GroupPicker({ current, groups, onBack, onPick }) {
         : <div className="grid gap-2 sm:grid-cols-2">{groups.map((g) => (
           <button key={g.age_group_id} onClick={() => onPick(g.age_group_id)} className="rounded-xl bg-white p-4 text-left shadow-sm hover:bg-slate-50">
             <div className="text-base font-semibold text-navy-800">Group {g.code}</div>
+            {g.label && <div className="text-xs font-medium text-navy-600">{g.label}</div>}
             <div className="text-xs text-slate-500">{g.participant_count} participants · scored {g.scored_count}/{g.participant_count}</div></button>))}</div>}
     </div>
   );
@@ -326,6 +328,9 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
         <div className="text-lg font-semibold">{current.event_code} · {current.event_name}</div>
         {whenLine(current) && <div className="mt-0.5 text-xs text-navy-200">{whenLine(current)}</div>}
         <div className="mt-0.5 inline-block rounded-full bg-gold-500 px-3 py-0.5 text-sm font-semibold">Group {gcode}</div>
+        {sheet.event?.age_group_label && (
+          <div className="mt-1 text-xs text-navy-200">{sheet.event.age_group_label}</div>
+        )}
         {sheet.event?.min_time_seconds > 0 && (
           <div className="mt-1 text-xs text-navy-200">Minimum time: {mmss(sheet.event.min_time_seconds)} — a shorter performance is flagged below.</div>
         )}
@@ -370,6 +375,15 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
           </table>
         </div>)}
       <p className="mt-2 text-xs text-slate-500">Scores can't exceed a criterion's weightage. Enter whole numbers only. They save as you leave each box; Total &amp; Rank (only you see it) update live.</p>
+      {sheet.grade_bands && (
+        <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <b>Grade key</b> (awarded from the panel's average score, not your marks alone):
+          {' '}<b>A</b> {sheet.grade_bands.grade_a_pct}%+
+          {' '}· <b>B</b> {sheet.grade_bands.grade_b_pct}–{Number(sheet.grade_bands.grade_a_pct) - 1}%
+          {' '}· <b>C</b> {sheet.grade_bands.grade_c_pct}–{Number(sheet.grade_bands.grade_b_pct) - 1}%
+          {' '}· below {sheet.grade_bands.grade_c_pct}% no grade.
+        </p>
+      )}
 
       {published ? (
         <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-50 p-3 text-sm text-slate-600">
