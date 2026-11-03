@@ -123,6 +123,16 @@ async function computeGroup(eventId, ageGroupId, cfg) {
       for (const u of um.rows) if (u.time_taken_seconds != null && u.time_taken_seconds < minT) underMap[u.registration_id] = true;
     }
   }
+  // Timer time taken (latest completed timing per chest) — shown to the Chairman
+  // on the Results page for a picture of what happened. Informational only.
+  const timeMap = {};
+  if (regIds.length) {
+    const tm = await pool.query(
+      `SELECT DISTINCT ON (registration_id) registration_id, time_taken_seconds
+         FROM participant_timings WHERE registration_id = ANY($1) AND end_time IS NOT NULL
+        ORDER BY registration_id, id DESC`, [regIds]);
+    for (const t of tm.rows) timeMap[t.registration_id] = t.time_taken_seconds;
+  }
   // Extra/consolation prizes (additional_3rd shows '3' and earns 3rd-place points).
   const extraMap = {};
   if (regIds.length) {
@@ -261,6 +271,7 @@ async function computeGroup(eventId, ageGroupId, cfg) {
         participation_bonus_pts: r.participation_bonus_pts, total_points: r.total_points,
         is_disqualified: false, dq_reason: null, over_time: !!overMap[r.registration_id],
         under_minimum: !!underMap[r.registration_id],
+        time_taken_seconds: timeMap[r.registration_id] ?? null,
         extra_prize_type: r.extra_prize_type || null,
       })),
       // Disqualified participants: shown after the ranked list, no place/grade/points (rule #22).
@@ -271,6 +282,7 @@ async function computeGroup(eventId, ageGroupId, cfg) {
         rank_points: 0, grade_points: 0, participation_bonus_pts: 0, total_points: 0,
         is_disqualified: true, dq_reason: dqMap[p.registration_id], over_time: !!overMap[p.registration_id],
         under_minimum: !!underMap[p.registration_id],
+        time_taken_seconds: timeMap[p.registration_id] ?? null,
       })),
     ],
   };

@@ -147,6 +147,8 @@ export default function Results() {
   const tieRows = useMemo(() => (data?.results || []).filter((r) => r.needs_tiebreak), [data]);
   const overUnhandled = useMemo(() => (data?.results || []).filter((r) => r.over_time && !r.is_disqualified), [data]);
   const underUnhandled = useMemo(() => (data?.results || []).filter((r) => r.under_minimum && !r.is_disqualified), [data]);
+  const showTime = (data?.results || []).some((r) => r.time_taken_seconds != null);
+  const fmtTime = (s) => (s == null ? '—' : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
   const showTiebreak = Boolean(data?.complete && data?.tiebreak_needed);
 
   // Auto-refresh the live state (judges done, flags, finalise/publish/stale) every
@@ -287,6 +289,7 @@ export default function Results() {
                       ))}
                       <th className="px-2 py-2 text-center">Rank sum</th>
                       <th className="px-2 py-2 text-center">Avg %</th>
+                      {showTime && <th className="px-2 py-2 text-center">Time</th>}
                       <th className="px-2 py-2 text-center">Grade</th>
                       <th className="px-2 py-2 text-center">Points</th>
                       <th className="px-2 py-2 text-center">Extra</th>
@@ -303,6 +306,12 @@ export default function Results() {
                         {r.per_judge.map((pj, i) => <td key={i} className="px-2 py-2 text-center text-slate-600" title={`total ${pj.total}`}>{pj.rank}</td>)}
                         <td className="px-2 py-2 text-center font-semibold text-navy-800">{r.rank_sum}</td>
                         <td className="px-2 py-2 text-center text-slate-600">{r.avg_pct}</td>
+                        {showTime && (
+                          <td className={`px-2 py-2 text-center font-mono ${r.under_minimum ? 'text-red-600 font-semibold' : r.over_time ? 'text-amber-600 font-semibold' : 'text-slate-600'}`}
+                            title={r.under_minimum ? 'Under the minimum time' : r.over_time ? 'Over time + grace' : 'Timer time taken'}>
+                            {fmtTime(r.time_taken_seconds)}
+                          </td>
+                        )}
                         <td className="px-2 py-2 text-center">{r.grade ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-navy-700">{r.grade}</span> : <span className="text-slate-300">—</span>}</td>
                         <td className="px-2 py-2 text-center text-slate-600">{r.total_points}</td>
                         <td className="px-2 py-2 text-center">
