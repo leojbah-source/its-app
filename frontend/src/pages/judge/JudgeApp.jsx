@@ -9,6 +9,19 @@ import { useJudgeAuth } from '../../context/JudgeAuthContext';
 import { judgeApi } from '../../api/client';
 
 const mmss = (s) => (s == null ? '—' : `${Math.floor(s / 60)}m${s % 60 ? ` ${s % 60}s` : ''}`);
+// Birth-date bracket for an age group (reliable, from dob_from/dob_to) — e.g.
+// "born Oct 2014 – Sep 2016 · approx. ages 9–10". The label alone can be just
+// "Group 3", so we compute this from the actual date range instead.
+const ageBracket = (df, dt) => {
+  if (!df || !dt) return '';
+  const a = new Date(df), b = new Date(dt);
+  if (isNaN(a.getTime()) || isNaN(b.getTime())) return '';
+  const mo = (d) => d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+  const yrs = (d) => Math.max(0, Math.floor((Date.now() - d.getTime()) / 31557600000));
+  const older = yrs(a), younger = yrs(b);
+  const ages = older === younger ? `age ${older}` : `ages ${younger}–${older}`;
+  return `born ${mo(a)} – ${mo(b)} · approx. ${ages}`;
+};
 
 export default function JudgeApp() {
   const { token, judge, logout } = useJudgeAuth();
@@ -170,7 +183,7 @@ function Briefing({ token, current, onBack, onContinue, setFlash }) {
         <div className="text-xs uppercase tracking-wide text-navy-200">Judges' briefing</div>
         <div className="text-lg font-semibold">{ev.event_code} · {ev.event_name}</div>
         <div className="text-sm text-navy-200">{ev.category_name}{ev.age_group_code ? ` · Group ${ev.age_group_code}` : ''}</div>
-        {ev.age_group_label && <div className="text-xs text-navy-300">{ev.age_group_label}</div>}
+        {ageBracket(ev.dob_from, ev.dob_to) && <div className="text-xs text-navy-300">{ageBracket(ev.dob_from, ev.dob_to)}</div>}
         {whenLine(current) && <div className="mt-0.5 text-xs text-navy-300">{whenLine(current)}</div>}
       </div>
 
@@ -248,7 +261,7 @@ function GroupPicker({ current, groups, onBack, onPick }) {
         : <div className="grid gap-2 sm:grid-cols-2">{groups.map((g) => (
           <button key={g.age_group_id} onClick={() => onPick(g.age_group_id)} className="rounded-xl bg-white p-4 text-left shadow-sm hover:bg-slate-50">
             <div className="text-base font-semibold text-navy-800">Group {g.code}</div>
-            {g.label && <div className="text-xs font-medium text-navy-600">{g.label}</div>}
+            {ageBracket(g.dob_from, g.dob_to) && <div className="text-xs font-medium text-navy-600">{ageBracket(g.dob_from, g.dob_to)}</div>}
             <div className="text-xs text-slate-500">{g.participant_count} participants · scored {g.scored_count}/{g.participant_count}</div></button>))}</div>}
     </div>
   );
@@ -328,8 +341,8 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
         <div className="text-lg font-semibold">{current.event_code} · {current.event_name}</div>
         {whenLine(current) && <div className="mt-0.5 text-xs text-navy-200">{whenLine(current)}</div>}
         <div className="mt-0.5 inline-block rounded-full bg-gold-500 px-3 py-0.5 text-sm font-semibold">Group {gcode}</div>
-        {sheet.event?.age_group_label && (
-          <div className="mt-1 text-xs text-navy-200">{sheet.event.age_group_label}</div>
+        {ageBracket(sheet.event?.dob_from, sheet.event?.dob_to) && (
+          <div className="mt-1 text-xs text-navy-200">{ageBracket(sheet.event?.dob_from, sheet.event?.dob_to)}</div>
         )}
         {sheet.event?.min_time_seconds > 0 && (
           <div className="mt-1 text-xs text-navy-200">Minimum time: {mmss(sheet.event.min_time_seconds)} — a shorter performance is flagged below.</div>

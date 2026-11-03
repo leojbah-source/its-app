@@ -208,7 +208,8 @@ router.get('/briefing/:assignment_id', async (req, res, next) => {
     const { rows: ev } = await pool.query(
       `SELECT e.event_code, e.event_name, c.name AS category_name,
               e.allotted_time_seconds, e.grace_period_seconds, e.yellow_alert_seconds, e.is_stage_event,
-              ag.code AS age_group_code, ag.label AS age_group_label
+              ag.code AS age_group_code, ag.label AS age_group_label,
+              to_char(ag.dob_from, 'YYYY-MM-DD') AS dob_from, to_char(ag.dob_to, 'YYYY-MM-DD') AS dob_to
        FROM events e LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN age_groups ag ON ag.id = $2
        WHERE e.id = $1`, [asg.event_id, asg.age_group_id]);
@@ -231,6 +232,7 @@ router.get('/events/:assignment_id/groups', async (req, res, next) => {
     if (!asg) return res.status(404).json({ error: 'Assignment not found' });
     const { rows } = await pool.query(
       `SELECT ag.id AS age_group_id, ag.code, ag.label, ag.sort_order,
+              to_char(ag.dob_from, 'YYYY-MM-DD') AS dob_from, to_char(ag.dob_to, 'YYYY-MM-DD') AS dob_to,
               COUNT(DISTINCT ca.registration_id)::int AS participant_count,
               COUNT(DISTINCT s.registration_id)::int AS scored_count
        FROM registrations r
@@ -260,7 +262,8 @@ router.get('/sheet/:assignment_id', async (req, res, next) => {
     const { rows: ev } = await pool.query(
       `SELECT e.id, e.event_code, e.event_name, c.name AS category_name,
               e.allotted_time_seconds, e.grace_period_seconds, e.min_time_seconds,
-              ag.code AS age_group_code, ag.label AS age_group_label
+              ag.code AS age_group_code, ag.label AS age_group_label,
+              to_char(ag.dob_from, 'YYYY-MM-DD') AS dob_from, to_char(ag.dob_to, 'YYYY-MM-DD') AS dob_to
        FROM events e LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN age_groups ag ON ag.id = $2
        WHERE e.id = $1`, [asg.event_id, ag]);
