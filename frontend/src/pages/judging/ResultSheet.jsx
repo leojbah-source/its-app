@@ -107,7 +107,7 @@ export default function ResultSheet() {
           <tbody>
             {data.results.map((r) => (
               <tr key={r.chest_number} className={`border-b border-slate-100 print:break-inside-avoid ${r.is_disqualified ? 'text-slate-400' : r.place ? 'bg-gold-50/40' : ''}`}>
-                <td className="px-2 py-1 text-slate-500">{r.is_disqualified ? '—' : r.order}</td>
+                <td className="px-2 py-1 text-slate-500">{r.is_disqualified ? '—' : (r.final_rank ?? r.order)}</td>
                 <td className="px-2 py-1 font-bold text-navy-800">{r.is_disqualified ? 'DQ' : (r.place || '—')}</td>
                 <td className="px-2 py-1 font-mono">{r.chest_number}</td>
                 <td className="px-2 py-1 font-medium">{r.name || '—'}{r.is_disqualified && <span className="ml-1 text-[10px] font-normal text-red-600">(Disqualified{r.dq_reason ? ` — ${r.dq_reason}` : ''})</span>}</td>

@@ -718,7 +718,7 @@ router.get('/results/:event_id/:age_group_id/sheet', requireRole(...mediaRoles),
     }
     // data.results is already in ranked (placement) order
     const results = data.results.map((r, i) => ({
-      order: i + 1, place: r.place, chest_number: r.chest_number,
+      order: i + 1, final_rank: r.final_rank, place: r.place, chest_number: r.chest_number,
       name: nameMap.get(r.registration_id) || null, school: schoolMap.get(r.registration_id) || null,
       rank_sum: r.rank_sum, avg_pct: r.avg_pct, grade: r.grade,
       rank_points: r.rank_points, grade_points: r.grade_points,
