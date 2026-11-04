@@ -106,10 +106,12 @@ function WinnerCard({ w, big, onReplace, busyId }) {
     el.addEventListener('wheel', onWheelNative, { passive: false });
     return () => el.removeEventListener('wheel', onWheelNative);
   }, [w.photo_url]);
+  // Photo frame tone matched to the medal: gold / silver / bronze.
+  const accent = w.place === 1 ? '#e7c24a' : w.place === 2 ? '#c7ccd3' : w.place === 3 ? '#d79350' : 'rgba(255,255,255,.7)';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: frameW, marginBottom: big ? 36 : 0 }}>
       <div ref={frameRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
-        style={{ width: frameW, height: frameH, borderRadius: '16px', overflow: 'hidden', background: '#e2e8f0', border: '3px solid rgba(255,255,255,.7)', boxShadow: '0 4px 14px rgba(0,0,0,.35)', cursor: w.photo_url ? 'move' : 'default', touchAction: 'none' }}>
+        style={{ width: frameW, height: frameH, borderRadius: '16px', overflow: 'hidden', background: '#e2e8f0', border: `4px solid ${accent}`, boxShadow: `0 6px 18px rgba(0,0,0,.4), 0 0 0 2px rgba(255,255,255,.35)`, cursor: w.photo_url ? 'move' : 'default', touchAction: 'none' }}>
         {/* Photo as a background-image (not <img objectFit:cover>): html2canvas
             honours background-size:cover on download, so the saved image matches
             the screen instead of stretching/skewing the face. */}
@@ -117,8 +119,8 @@ function WinnerCard({ w, big, onReplace, busyId }) {
           <div style={{ width: '100%', height: '100%', backgroundImage: `url("${asset(w.photo_url)}")`, backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: `${pos.x}% ${pos.y}%`, transform: `scale(${zoom})`, transformOrigin: `${pos.x}% ${pos.y}%` }} />
         ) : silhouette}
       </div>
-      <div style={{ color: '#fde047', fontWeight: 800, fontSize: big ? 24 : 20, textAlign: 'center', lineHeight: 1.1, marginTop: 10, textShadow: '0 1px 2px rgba(0,0,0,.4)' }}>{w.name || `Chest ${w.chest_number}`}</div>
-      {w.grade && <div style={{ marginTop: 5, fontSize: 12, fontWeight: 800, color: '#1b2a4a', background: 'rgba(253,224,71,.95)', borderRadius: 999, padding: '2px 12px', boxShadow: '0 1px 3px rgba(0,0,0,.25)' }}>Grade {w.grade}</div>}
+      <div style={{ color: '#ffffff', fontWeight: 800, fontSize: big ? 25 : 21, textAlign: 'center', lineHeight: 1.12, marginTop: 11, letterSpacing: 0.3, textShadow: '0 2px 6px rgba(0,0,0,.5), 0 1px 1px rgba(0,0,0,.45)' }}>{w.name || `Chest ${w.chest_number}`}</div>
+      {w.grade && <div style={{ marginTop: 7, fontSize: 12.5, fontWeight: 800, color: '#4a3600', background: 'linear-gradient(180deg,#ffe99a,#f3cf4e)', border: '1px solid rgba(255,255,255,.65)', borderRadius: 999, padding: '3px 15px', letterSpacing: 0.3, boxShadow: '0 2px 5px rgba(0,0,0,.28)' }}>Grade {w.grade}</div>}
       <Medal place={w.place} />
       {onReplace && (
         <div className="noshot" style={{ marginTop: 6, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
@@ -275,7 +277,7 @@ export default function WinnersPoster() {
               <div style={{ color: '#0f2f5f', fontWeight: 700, fontSize: 22 }}>{fmtDate(ev.event_date)}</div>
             </div>
             <div style={{ textAlign: 'center', marginTop: 14 }}>
-              <span style={{ display: 'inline-block', color: '#fde047', fontWeight: 800, fontSize: 24, padding: '6px 22px', borderRadius: 999, background: 'rgba(0,0,0,.22)', boxShadow: '0 2px 6px rgba(0,0,0,.25)', textShadow: '0 1px 2px rgba(0,0,0,.5)' }}>{eventLine}</span>
+              <span style={{ display: 'inline-block', color: '#ffffff', fontWeight: 800, fontSize: 24, letterSpacing: 0.4, padding: '8px 26px', borderRadius: 999, background: 'rgba(6,28,34,.34)', border: '1.5px solid rgba(231,194,74,.6)', boxShadow: '0 2px 8px rgba(0,0,0,.3)', textShadow: '0 1px 3px rgba(0,0,0,.55)' }}>{eventLine}</span>
             </div>
           </div>
 
@@ -299,7 +301,8 @@ export default function WinnersPoster() {
             </div>
           )}
 
-          <div style={{ color: '#ffffff', fontWeight: 800, fontSize: 40, letterSpacing: 1, textAlign: 'center', marginTop: 18, textShadow: '0 2px 4px rgba(0,0,0,.4)' }}>CONGRATULATIONS</div>
+          <div style={{ width: 130, height: 3, margin: '24px auto 0', borderRadius: 2, background: 'linear-gradient(90deg,rgba(231,194,74,0),#e7c24a,rgba(231,194,74,0))' }} />
+          <div style={{ color: '#ffffff', fontWeight: 800, fontSize: 40, letterSpacing: 3, textAlign: 'center', marginTop: 10, textShadow: '0 2px 6px rgba(0,0,0,.45)' }}>CONGRATULATIONS</div>
         </div>
       </div>
     </div>
