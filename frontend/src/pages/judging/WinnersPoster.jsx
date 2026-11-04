@@ -120,7 +120,7 @@ function WinnerCard({ w, big, onReplace, busyId }) {
         ) : silhouette}
       </div>
       <div style={{ color: '#ffffff', fontWeight: 800, fontSize: big ? 25 : 21, textAlign: 'center', lineHeight: 1.12, marginTop: 11, letterSpacing: 0.3, textShadow: '0 2px 6px rgba(0,0,0,.5), 0 1px 1px rgba(0,0,0,.45)' }}>{w.name || `Chest ${w.chest_number}`}</div>
-      {w.grade && <div style={{ marginTop: 7, fontSize: 12.5, fontWeight: 800, color: '#4a3600', background: 'linear-gradient(180deg,#ffe99a,#f3cf4e)', border: '1px solid rgba(255,255,255,.65)', borderRadius: 999, padding: '3px 15px', letterSpacing: 0.3, boxShadow: '0 2px 5px rgba(0,0,0,.28)' }}>Grade {w.grade}</div>}
+      {w.grade && <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, marginTop: 7, fontSize: 12.5, fontWeight: 800, color: '#4a3600', background: 'linear-gradient(180deg,#ffe99a,#f3cf4e)', border: '1px solid rgba(255,255,255,.65)', borderRadius: 999, padding: '6px 15px', letterSpacing: 0.3, boxShadow: '0 2px 5px rgba(0,0,0,.28)' }}>Grade {w.grade}</div>}
       <Medal place={w.place} />
       {onReplace && (
         <div className="noshot" style={{ marginTop: 6, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
@@ -277,7 +277,7 @@ export default function WinnersPoster() {
               <div style={{ color: '#0f2f5f', fontWeight: 700, fontSize: 22 }}>{fmtDate(ev.event_date)}</div>
             </div>
             <div style={{ textAlign: 'center', marginTop: 14 }}>
-              <span style={{ display: 'inline-block', color: '#ffffff', fontWeight: 800, fontSize: 24, letterSpacing: 0.4, padding: '8px 26px', borderRadius: 999, background: 'rgba(6,28,34,.34)', border: '1.5px solid rgba(231,194,74,.6)', boxShadow: '0 2px 8px rgba(0,0,0,.3)', textShadow: '0 1px 3px rgba(0,0,0,.55)' }}>{eventLine}</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, color: '#ffffff', fontWeight: 800, fontSize: 24, letterSpacing: 0.4, padding: '12px 26px', borderRadius: 999, background: 'rgba(6,28,34,.34)', border: '1.5px solid rgba(231,194,74,.6)', boxShadow: '0 2px 8px rgba(0,0,0,.3)', textShadow: '0 1px 3px rgba(0,0,0,.55)' }}>{eventLine}</span>
             </div>
           </div>
 
