@@ -15,6 +15,7 @@ import { publicApi, API_BASE } from '../../api/client';
 const asset = (u) => (!u ? null : /^https?:\/\//.test(u) ? u : `${API_BASE}${u}`);
 const MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : '');
+const dayKey = (d) => { if (!d) return 0; const x = new Date(d); return x.getFullYear() * 10000 + (x.getMonth() + 1) * 100 + x.getDate(); };
 
 export default function PublicBoard() {
   const [year, setYear] = useState(null);
@@ -44,7 +45,14 @@ export default function PublicBoard() {
       map.get(key).rows.push(r);
     }
     for (const g of map.values()) g.rows.sort((a, b) => (a.rank || 99) - (b.rank || 99) || (a.child_name || '').localeCompare(b.child_name || ''));
-    return [...map.values()];
+    const arr = [...map.values()];
+    // Newest events on top: sort by schedule date descending.
+    // Stable within a date (keeps the server's event / age-group order) via index tiebreaker.
+    const ts = (d) => (d ? new Date(d).getTime() : 0);
+    return arr
+      .map((g, i) => ({ g, i }))
+      .sort((a, b) => (ts(b.g.event_date) - ts(a.g.event_date)) || (a.i - b.i))
+      .map((x) => x.g);
   }, [results]);
 
   const shownGroups = useMemo(() => {
@@ -54,6 +62,14 @@ export default function PublicBoard() {
       `${g.event_code || ''} ${g.event_name || ''} ${g.age_group || ''}`.toLowerCase().includes(term) ||
       g.rows.some((r) => (r.child_name || '').toLowerCase().includes(term) || (r.school || '').toLowerCase().includes(term)));
   }, [resultGroups, q]);
+
+  // Schedule tab shows only remaining events (today and later), today first.
+  const remainingSchedule = useMemo(() => {
+    const today = dayKey(new Date());
+    return schedule
+      .filter((s) => dayKey(s.event_date) >= today)
+      .sort((a, b) => dayKey(a.event_date) - dayKey(b.event_date));
+  }, [schedule]);
 
   const toggle = (key) => setOpenKeys((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
 
@@ -207,11 +223,17 @@ export default function PublicBoard() {
         )}
 
         {tab === 'schedule' && (
-          schedule.length === 0 ? <Empty text="No confirmed schedule yet." />
-          : (
+          <>
+            <div className="mb-3 flex items-center gap-2">
+              <CalendarDays size={16} className="text-navy-600" />
+              <h2 className="text-sm font-semibold text-navy-800">Remaining Schedule</h2>
+              <span className="text-[11px] text-slate-400">Today&rsquo;s and upcoming events</span>
+            </div>
+            {remainingSchedule.length === 0 ? <Empty text="No remaining events — the schedule is complete." />
+            : (
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
               <ul className="divide-y divide-slate-100">
-                {schedule.map((s, i) => (
+                {remainingSchedule.map((s, i) => (
                   <li key={i} className="px-4 py-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-semibold text-navy-800">{s.event_name}{s.is_team_event && <span className="ml-2 rounded bg-gold-100 px-1.5 py-0.5 text-[10px] font-medium text-gold-700">TEAM</span>}</span>
@@ -242,7 +264,8 @@ export default function PublicBoard() {
                 ))}
               </ul>
             </div>
-          )
+            )}
+          </>
         )}
 
         {tab === 'live' && <LiveBoardInner />}
