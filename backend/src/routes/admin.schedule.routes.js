@@ -1509,4 +1509,72 @@ router.post('/unlock', requireRole('SuperAdmin', 'Admin', 'Chairman'), async (re
   } catch (err) { next(err); }
 });
 
+// ── Parent-facing PUBLISHED snapshot (migration 069) ─────────────────────────
+// Parents read schedule_public, not the live schedule, so staff can rework the
+// schedule privately. These two endpoints report the publish state and push the
+// current confirmed/completed schedule to parents on demand. Distinct from
+// POST /publish (which confirms locked DRAFT rows); this one copies the current
+// confirmed/completed rows into the frozen parent snapshot.
+
+// GET /api/admin/schedule/public-status — what parents currently see vs live.
+router.get('/public-status', requireRole(...staffRoles, 'Media'), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.json({ has_snapshot: false, published_at: null, snapshot_count: 0, live_count: 0, has_unpublished_changes: false });
+    const sig = `md5(coalesce(event_date::text,'') || '|' || coalesce(start_time::text,'') || '|' || coalesce(venue,'') || '|' || coalesce(age_groups,''))`;
+    const q = await pool.query(
+      `WITH live AS (
+         SELECT id, ${sig} AS sig FROM schedule
+          WHERE year_id = $1 AND status IN ('confirmed','completed')
+       ), snap AS (
+         SELECT id, ${sig} AS sig FROM schedule_public WHERE year_id = $1
+       )
+       SELECT (SELECT count(*) FROM live)  AS live_count,
+              (SELECT count(*) FROM snap)  AS snap_count,
+              (SELECT count(*) FROM schedule WHERE year_id = $1 AND status = 'draft') AS draft_count,
+              (SELECT max(published_at) FROM schedule_public WHERE year_id = $1) AS published_at,
+              ( (SELECT count(*) FROM (SELECT id, sig FROM live EXCEPT SELECT id, sig FROM snap) a)
+              + (SELECT count(*) FROM (SELECT id, sig FROM snap EXCEPT SELECT id, sig FROM live) b) ) AS diff`,
+      [yc.id]);
+    const r = q.rows[0];
+    const snapCount = Number(r.snap_count) || 0;
+    res.json({
+      has_snapshot: snapCount > 0,
+      published_at: r.published_at || null,
+      snapshot_count: snapCount,
+      live_count: Number(r.live_count) || 0,
+      draft_count: Number(r.draft_count) || 0,
+      // Before the first publish there is no snapshot, so everything is "unpublished".
+      has_unpublished_changes: snapCount === 0 ? (Number(r.live_count) || 0) > 0 : Number(r.diff) > 0,
+    });
+  } catch (err) { next(err); }
+});
+
+// POST /api/admin/schedule/publish-public — freeze the current confirmed/
+// completed schedule as what parents see. Replaces the previous snapshot.
+router.post('/publish-public', requireRole('SuperAdmin', 'Admin', 'Chairman'), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+    await client.query('BEGIN');
+    await client.query('DELETE FROM schedule_public WHERE year_id = $1', [yc.id]);
+    const ins = await client.query(
+      `INSERT INTO schedule_public (id, year_id, event_id, event_date, start_time, end_time,
+                                    venue, age_groups, group_meta, status, published_at)
+       SELECT id, year_id, event_id, event_date, start_time, end_time,
+              venue, age_groups, group_meta, status, NOW()
+       FROM schedule
+       WHERE year_id = $1 AND status IN ('confirmed','completed')`, [yc.id]);
+    await client.query('COMMIT');
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'PUBLISH_SCHEDULE_TO_PARENTS', entity: 'schedule_public', entityId: yc.id,
+      details: { rows: ins.rowCount } });
+    res.json({ published: ins.rowCount, published_at: new Date().toISOString() });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    next(err);
+  } finally { client.release(); }
+});
+
 module.exports = router;

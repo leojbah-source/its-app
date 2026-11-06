@@ -4,7 +4,7 @@
 // same-category venue clustering), review & adjust rows, then publish.
 
 import { useEffect, useState, useCallback, useRef, useLayoutEffect } from 'react';
-import { RefreshCw, Wand2, CheckCircle2, Save, Lock, Unlock, Trash2, Download } from 'lucide-react';
+import { RefreshCw, Wand2, CheckCircle2, Save, Lock, Unlock, Trash2, Download, Send } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -189,6 +189,7 @@ export default function Schedule() {
   const [moveDates, setMoveDates] = useState({});  // date -> new date value
   const [addable, setAddable] = useState([]);       // unscheduled event cells
   const [addForms, setAddForms] = useState({});     // key -> { date, venue, start }
+  const [pubStatus, setPubStatus] = useState(null); // parent-facing publish state
 
   // Preserve scroll position across reloads (adjusting a row shouldn't jump the
   // page back to the top), and only show the full-page loader on the first load.
@@ -199,16 +200,18 @@ export default function Schedule() {
     if (firstLoad.current) setLoading(true);
     setError('');
     try {
-      const [rowsData, venueData, catData, addableData] = await Promise.all([
+      const [rowsData, venueData, catData, addableData, pubStat] = await Promise.all([
         scheduleApi.list(token),
         venuesApi.list(token).catch(() => []),
         scheduleApi.categoryDates(token).catch(() => []),
         scheduleApi.addable(token).catch(() => []),
+        scheduleApi.publicStatus(token).catch(() => null),
       ]);
       setRows(rowsData);
       setVenues(venueData);
       setCatDates(catData);
       setAddable(addableData || []);
+      setPubStatus(pubStat);
     } catch (err) {
       setError(err.message || 'Failed to load schedule');
     } finally { setLoading(false); firstLoad.current = false; }
@@ -262,17 +265,29 @@ export default function Schedule() {
       const already = rows.filter((r) => (r.status === 'confirmed' || r.status === 'completed')
         && (!pubDate || String(r.event_date).slice(0, 10) <= pubDate)).length;
       setFlash(already > 0
-        ? `Those day(s)${pubDate ? ` up to ${pubDate}` : ''} are already published. To change a published day just edit it (SuperAdmin) — the change is live on the participants' page right away; you don't re-publish. Refresh the participants' page to see it.`
+        ? `Those day(s)${pubDate ? ` up to ${pubDate}` : ''} are already confirmed. To change them, just edit the rows (SuperAdmin) — your edits stay in this working copy and reach parents only when you press “Publish to parents” above.`
         : 'No Locked rows to publish for that cut-off. Lock the day(s) you want to publish first.');
       return;
     }
-    if (!window.confirm(`Publish ${pubCount} locked event row(s)${pubDate ? ` up to and including ${pubDate}` : ''}? They appear on the participants’ page and can then be changed only by the SuperAdmin.`)) return;
+    if (!window.confirm(`Confirm ${pubCount} locked event row(s)${pubDate ? ` up to and including ${pubDate}` : ''}? This finalises them on the schedule. They reach parents only when you press “Publish to parents”.`)) return;
     try {
       const r = await scheduleApi.publish(token, pubDate || undefined);
       setFlash(`Published ${r.confirmed} event(s)${r.cutoff_date ? ` up to ${r.cutoff_date}` : ''}.`);
       setShowPub(false);
       load();
     } catch (err) { setFlash(err.message); }
+  }
+
+  async function publishToParents() {
+    const n = pubStatus?.live_count ?? 0;
+    if (!window.confirm(
+      `Show parents the current schedule now?\n\nThis replaces what parents see with exactly the ${n} confirmed event row(s) on the schedule. Rows still in draft are NOT included. Your working edits stay private until you do this.`)) return;
+    setFlash('');
+    try {
+      const r = await scheduleApi.publishPublic(token);
+      setFlash(`Published ${r.published} event row(s) to parents \u2014 the participants' page now shows the updated schedule.`);
+      load();
+    } catch (e) { setFlash(e.message || 'Could not publish to parents.'); }
   }
 
   async function lock() {
@@ -480,6 +495,26 @@ export default function Schedule() {
     >
       {flash && (
         <p className="mb-4 rounded-lg bg-navy-50 border border-navy-200 px-4 py-2 text-sm text-navy-700">{flash}</p>
+      )}
+
+      {canEdit && pubStatus && (
+        <div className={`mb-4 rounded-lg border px-4 py-3 ${(!pubStatus.has_snapshot || pubStatus.has_unpublished_changes) ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm">
+              {!pubStatus.has_snapshot ? (
+                <span className="text-amber-800"><b>The schedule is not frozen for parents yet.</b> Parents currently see the live schedule, so edits reach them immediately. Press “Publish to parents” once to freeze it — after that you can rework privately.</span>
+              ) : pubStatus.has_unpublished_changes ? (
+                <span className="text-amber-800"><b>Parents are NOT seeing your latest changes.</b> They still see the schedule you last published{pubStatus.published_at ? ` on ${new Date(pubStatus.published_at).toLocaleString()}` : ''}. Rework freely — press “Publish to parents” when you’re ready to reveal it.</span>
+              ) : (
+                <span className="text-emerald-800"><b>Parents are up to date.</b> They’re seeing the current schedule{pubStatus.published_at ? ` (published ${new Date(pubStatus.published_at).toLocaleString()})` : ''}.</span>
+              )}
+            </div>
+            <Button variant="gold" icon={Send} onClick={publishToParents}>Publish to parents</Button>
+          </div>
+          {pubStatus.draft_count > 0 && (
+            <p className="mt-2 text-xs text-amber-700">⚠ {pubStatus.draft_count} event row(s) are still in <b>draft</b> and won’t be shown to parents until you finalise them (Lock phase → “Publish locked…”).</p>
+          )}
+        </div>
       )}
 
       {showGen && (

@@ -70,6 +70,13 @@ router.get('/schedule', async (req, res, next) => {
     const yearId = await resolveYearId(req.query.year_id);
     if (!yearId) return res.json([]);
 
+    // Parents read the FROZEN published snapshot (schedule_public) when one
+    // exists for this year; otherwise fall back to the live `schedule` table
+    // (pre-snapshot behaviour). schedTbl is a controlled constant, safe to inline.
+    const snapExists = await pool.query(
+      'SELECT EXISTS(SELECT 1 FROM schedule_public WHERE year_id = $1) AS e', [yearId]);
+    const schedTbl = snapExists.rows[0].e ? 'schedule_public' : 'schedule';
+
     // schedule_draft -> schedule; time_slots -> event_time_slots.
     // status IN ('confirmed','completed') is the public-visible equivalent
     // of "published" (confirmed Admin-publish, completed once the event has
@@ -93,7 +100,7 @@ router.get('/schedule', async (req, res, next) => {
                 WHERE r.event_id = sd.event_id AND r.status NOT IN ('withdrawn','swapped')
                   AND (pr.confirmed_at IS NOT NULL OR r.team_id IS NOT NULL)
                   AND r.age_group_id = ag.id) AS cnt
-         FROM schedule sd
+         FROM ${schedTbl} sd
          JOIN events e ON e.id = sd.event_id
          JOIN age_groups ag ON ag.year_id = sd.year_id
               AND ag.code = ANY(string_to_array(sd.age_groups, ', '))

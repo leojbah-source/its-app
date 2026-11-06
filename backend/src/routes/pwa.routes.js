@@ -16,6 +16,17 @@ router.get('/my-schedule', async (req, res, next) => {
     // scheduled row (that also contains the child's age group) and sched_groups is
     // the ordered list of that row's groups + confirmed counts, used to compute the
     // child's own staggered reporting time.
+    // Parents read the FROZEN published snapshot when one exists for their year;
+    // otherwise fall back to the live `schedule` (pre-snapshot behaviour).
+    const myYearRes = await pool.query(
+      'SELECT year_id FROM registrations WHERE participant_id = $1 ORDER BY id LIMIT 1',
+      [req.user.participantId]);
+    const myYear = myYearRes.rows[0] ? myYearRes.rows[0].year_id : null;
+    const snapExists = myYear
+      ? await pool.query('SELECT EXISTS(SELECT 1 FROM schedule_public WHERE year_id = $1) AS e', [myYear])
+      : { rows: [{ e: false }] };
+    const schedTbl = snapExists.rows[0].e ? 'schedule_public' : 'schedule';
+
     const { rows } = await pool.query(
       `SELECT e.event_name, (e.event_kind = 'team') AS is_team_event,
               ag.code AS my_code, ag.label AS age_group,
@@ -37,7 +48,7 @@ router.get('/my-schedule', async (req, res, next) => {
        LEFT JOIN age_groups ag ON ag.id = r.age_group_id
        LEFT JOIN LATERAL (
          SELECT venue, event_date, start_time, age_groups
-         FROM schedule sd
+         FROM ${schedTbl} sd
          WHERE sd.event_id = r.event_id AND sd.year_id = r.year_id
            AND sd.status IN ('confirmed','completed')
            AND ag.code = ANY(string_to_array(sd.age_groups, ', '))
