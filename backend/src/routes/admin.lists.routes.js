@@ -534,4 +534,186 @@ router.put('/board-files', requireRole('SuperAdmin', 'Admin'), async (req, res, 
   } catch (err) { next(err); }
 });
 
+// ── Teams list (membership completeness) ─────────────────────────────────────
+// Lists every team with its members and details, flagging teams that are below
+// their event's minimum size (COALESCE(event min, year team_size_min, 5)).
+// Substitutes are counted separately: a team at/above the minimum only because
+// of substitutes is flagged "check" rather than "ok". Short teams come first.
+async function teamsWithStrength(yearId, teamSizeMin) {
+  const { rows } = await pool.query(
+    `SELECT t.id, t.team_name,
+            e.event_code, e.event_name,
+            tag.code AS age_group_code, tag.label AS age_group_label,
+            ts.name AS school_name,
+            pu.full_name AS contact_name, pu.phone AS contact_phone,
+            pu.whatsapp_number AS contact_whatsapp, pu.email AS contact_email,
+            pu.kca_member_no,
+            COALESCE(e.min_participants_per_team, $2::int, 5)  AS min_required,
+            COALESCE(e.max_participants_per_team, NULL)        AS max_allowed,
+            (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = t.id) AS member_count,
+            (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = t.id AND NOT tm.is_substitute) AS regular_count,
+            (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = t.id AND tm.is_substitute) AS sub_count,
+            (SELECT CASE
+               WHEN COUNT(*) FILTER (WHERE pay.status = 'confirmed') > 0 THEN 'verified'
+               WHEN COUNT(*) FILTER (WHERE pay.status = 'pending')   > 0 THEN 'pending'
+               ELSE 'none' END FROM payments pay WHERE pay.team_id = t.id) AS payment_status
+       FROM teams t
+       LEFT JOIN events e ON e.id = t.event_id
+       LEFT JOIN age_groups tag ON tag.id = t.age_group_id
+       LEFT JOIN schools ts ON ts.id = t.school_id
+       LEFT JOIN users pu ON pu.id = t.created_by
+      WHERE t.year_id = $1`,
+    [yearId, teamSizeMin ?? null]);
+  const statusOf = (r) => {
+    const total = Number(r.member_count) || 0;
+    const regular = Number(r.regular_count) || 0;
+    const min = Number(r.min_required) || 5;
+    if (total < min) return 'short';
+    if (regular < min) return 'check';
+    return 'ok';
+  };
+  const rank = { short: 0, check: 1, ok: 2 };
+  return rows
+    .map((r) => ({
+      ...r,
+      member_count: Number(r.member_count) || 0,
+      regular_count: Number(r.regular_count) || 0,
+      sub_count: Number(r.sub_count) || 0,
+      min_required: Number(r.min_required) || 5,
+      status: statusOf(r),
+    }))
+    .sort((a, b) => (rank[a.status] - rank[b.status])
+      || String(a.event_name || '').localeCompare(String(b.event_name || ''))
+      || String(a.team_name || '').localeCompare(String(b.team_name || '')));
+}
+
+// GET /api/admin/lists/teams — JSON summary (on-page strength check).
+router.get('/teams', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.json({ teams: [], short_count: 0, check_count: 0, total: 0 });
+    const { rows: ycx } = await pool.query(
+      `SELECT team_size_min FROM year_config WHERE id = $1`, [yc.id]);
+    const teams = await teamsWithStrength(yc.id, ycx[0] ? ycx[0].team_size_min : null);
+    res.json({
+      teams,
+      total: teams.length,
+      short_count: teams.filter((t) => t.status === 'short').length,
+      check_count: teams.filter((t) => t.status === 'check').length,
+    });
+  } catch (err) { next(err); }
+});
+
+// GET /api/admin/lists/teams-xlsx — Teams + Team Members workbook, short first.
+router.get('/teams-xlsx', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const yc = await activeYear();
+    if (!yc) return res.status(400).json({ error: 'No active year' });
+    const { rows: ycx } = await pool.query(
+      `SELECT team_size_min FROM year_config WHERE id = $1`, [yc.id]);
+    const teams = await teamsWithStrength(yc.id, ycx[0] ? ycx[0].team_size_min : null);
+
+    const { rows: members } = await pool.query(
+      `SELECT t.team_name, e.event_code, e.event_name,
+              mp.full_name AS member_name, mp.cpr_number AS member_cpr,
+              to_char(mp.dob, 'YYYY-MM-DD') AS member_dob, mp.gender AS member_gender,
+              mag.code AS member_age_group, ms.name AS member_school,
+              tm.is_captain, tm.is_substitute, tm.cpr_verified, tm.attendance_confirmed
+         FROM teams t
+         LEFT JOIN events e ON e.id = t.event_id
+         JOIN team_members tm ON tm.team_id = t.id
+         LEFT JOIN participants mp ON mp.id = tm.participant_id
+         LEFT JOIN schools ms ON ms.id = mp.school_id
+         LEFT JOIN age_groups mag ON mag.id = mp.age_group_id
+        WHERE t.year_id = $1
+        ORDER BY e.event_name, t.team_name, tm.is_captain DESC NULLS LAST, mp.full_name`,
+      [yc.id]);
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'KCA ITS'; wb.created = new Date();
+    const RED = 'FFF8D7DA', AMBER = 'FFFFF2CC';
+    const statusLabel = { short: 'SHORT', check: 'CHECK', ok: 'OK' };
+
+    // Sheet 1 — Teams (one row per team; short teams first, highlighted)
+    const ws = wb.addWorksheet('Teams');
+    ws.columns = [
+      { header: 'Status', key: 'status', width: 9 },
+      { header: 'Team', key: 'team', width: 26 },
+      { header: 'Event', key: 'event', width: 30 },
+      { header: 'Age Group', key: 'ag', width: 11 },
+      { header: 'School', key: 'school', width: 24 },
+      { header: 'Members', key: 'members', width: 9 },
+      { header: 'of which Subs', key: 'subs', width: 13 },
+      { header: 'Min Required', key: 'min', width: 13 },
+      { header: 'Short By', key: 'shortby', width: 9 },
+      { header: 'Contact', key: 'contact', width: 22 },
+      { header: 'Phone', key: 'phone', width: 14 },
+      { header: 'WhatsApp', key: 'whatsapp', width: 14 },
+      { header: 'Payment', key: 'payment', width: 11 },
+    ];
+    ws.getColumn('phone').numFmt = '@'; ws.getColumn('whatsapp').numFmt = '@';
+    teams.forEach((t) => {
+      const row = ws.addRow({
+        status: statusLabel[t.status] || t.status,
+        team: t.team_name, event: `${t.event_code || ''} ${t.event_name || ''}`.trim(),
+        ag: t.age_group_code || '', school: t.school_name || '',
+        members: t.member_count, subs: t.sub_count, min: t.min_required,
+        shortby: t.member_count < t.min_required ? (t.min_required - t.member_count) : '',
+        contact: t.contact_name || '', phone: t.contact_phone ? String(t.contact_phone) : '',
+        whatsapp: t.contact_whatsapp ? String(t.contact_whatsapp) : '',
+        payment: t.payment_status || 'none',
+      });
+      if (t.status === 'short' || t.status === 'check') {
+        const fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: t.status === 'short' ? RED : AMBER } };
+        row.eachCell((c) => { c.fill = fill; });
+      }
+    });
+    ws.getRow(1).font = { bold: true };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    ws.autoFilter = { from: 'A1', to: 'M1' };
+
+    // Sheet 2 — Team Members (one row per member, all details)
+    const wm = wb.addWorksheet('Team Members');
+    wm.columns = [
+      { header: 'Team', key: 'team', width: 26 },
+      { header: 'Event', key: 'event', width: 30 },
+      { header: 'Member', key: 'name', width: 26 },
+      { header: 'CPR', key: 'cpr', width: 14 },
+      { header: 'CPR Verified', key: 'cprv', width: 12 },
+      { header: 'DOB', key: 'dob', width: 12 },
+      { header: 'Gender', key: 'gender', width: 8 },
+      { header: 'Age Group', key: 'ag', width: 11 },
+      { header: 'School', key: 'school', width: 24 },
+      { header: 'Role', key: 'role', width: 12 },
+      { header: 'Attendance', key: 'att', width: 11 },
+    ];
+    wm.getColumn('cpr').numFmt = '@';
+    members.forEach((m) => {
+      wm.addRow({
+        team: m.team_name, event: `${m.event_code || ''} ${m.event_name || ''}`.trim(),
+        name: String(m.member_name || '').toUpperCase(),
+        cpr: m.member_cpr ? String(m.member_cpr) : '',
+        cprv: m.cpr_verified ? 'Yes' : 'No',
+        dob: m.member_dob || '', gender: m.member_gender || '',
+        ag: m.member_age_group || '', school: m.member_school || '',
+        role: m.is_captain ? 'Captain' : (m.is_substitute ? 'Substitute' : 'Member'),
+        att: m.attendance_confirmed ? 'Confirmed' : '',
+      });
+    });
+    wm.getRow(1).font = { bold: true };
+    wm.views = [{ state: 'frozen', ySplit: 1 }];
+    wm.autoFilter = { from: 'A1', to: 'K1' };
+
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'EXPORT_TEAMS_XLSX', entity: 'teams', details: { teams: teams.length, members: members.length } });
+
+    const buf = await wb.xlsx.writeBuffer();
+    const label = String(yc.event_year_label || 'ITS').replace(/[^A-Za-z0-9]+/g, '-');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="teams-${label}.xlsx"`);
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

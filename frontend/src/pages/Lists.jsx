@@ -56,24 +56,27 @@ export default function Lists() {
   const [byEvent, setByEvent] = useState(null);
   const [byParticipant, setByParticipant] = useState(null);
   const [finalList, setFinalList] = useState(null);
+  const [teams, setTeams] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [publishing, setPublishing] = useState(false);
   const [dlZip, setDlZip] = useState(false);
   const [dlFinalZip, setDlFinalZip] = useState(false);
+  const [dlTeams, setDlTeams] = useState(false);
   const [flash, setFlash] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [ev, pa, fi] = await Promise.all([
+      const [ev, pa, fi, tm] = await Promise.all([
         listsApi.byEvent(token), listsApi.byParticipant(token), listsApi.final(token),
+        listsApi.teams(token).catch(() => null),
       ]);
       // Final participant list = individual events only. Team events have their
       // own flow (Team Event Day) and should not appear in the age-group lists.
       const evIndividual = { ...ev, events: (ev?.events || []).filter((e) => e.event_kind !== 'team') };
-      setByEvent(evIndividual); setByParticipant(pa); setFinalList(fi);
+      setByEvent(evIndividual); setByParticipant(pa); setFinalList(fi); setTeams(tm);
     } catch (err) {
       setError(err.message || 'Failed to load lists');
     } finally { setLoading(false); }
@@ -181,6 +184,20 @@ export default function Lists() {
     finally { setDlXlsx(false); }
   }
 
+  async function downloadTeamsXlsx() {
+    setDlTeams(true); setFlash('');
+    try {
+      const blob = await listsApi.teamsXlsx(token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `teams-${(year?.event_year_label || 'ITS').replace(/[^a-z0-9]+/gi, '_')}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (err) { setFlash(err.message || 'Could not generate the Teams Excel.'); }
+    finally { setDlTeams(false); }
+  }
+
   async function downloadFinalZip() {
     setDlFinalZip(true);
     setFlash('');
@@ -211,6 +228,7 @@ export default function Lists() {
     ['by-event', 'By Event & Age Group'],
     ['by-participant', 'By Participant'],
     ['final', 'Final List'],
+    ['teams', 'Teams'],
   ];
 
   return (
@@ -232,12 +250,15 @@ export default function Lists() {
           <Button variant="outline" icon={Download} onClick={downloadByEventXlsx} loading={dlXlsx} disabled={loading || !!error}>
             Participants Excel (by event)
           </Button>
+          <Button variant="outline" icon={Download} onClick={downloadTeamsXlsx} loading={dlTeams} disabled={loading || !!error}>
+            Teams Excel (members &amp; strength)
+          </Button>
           <Button
             variant="gold"
             icon={Printer}
             onClick={() => tab === 'by-event' ? printByEvent()
-              : tab === 'by-participant' ? printByParticipant() : printFinal()}
-            disabled={loading || !!error}
+              : tab === 'by-participant' ? printByParticipant() : tab === 'final' ? printFinal() : null}
+            disabled={loading || !!error || tab === 'teams'}
           >
             Print this list
           </Button>
@@ -293,6 +314,35 @@ export default function Lists() {
                 </div>
               ))}
             </div>
+          ) : tab === 'teams' ? (
+            teams ? (
+              <div>
+                <p className="mb-3 text-sm">
+                  <b>{teams.total}</b> team(s).{' '}
+                  {teams.short_count > 0
+                    ? <span className="font-semibold text-red-700">{teams.short_count} below the minimum size</span>
+                    : <span className="font-semibold text-emerald-700">none below the minimum size</span>}
+                  {teams.check_count > 0 && <span className="text-amber-700"> · {teams.check_count} reach the minimum only by counting substitutes</span>}
+                </p>
+                <div className="divide-y divide-slate-100">
+                  {teams.teams.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between gap-3 py-2.5">
+                      <div className="min-w-0">
+                        <span className="text-sm font-medium text-slate-800">{t.team_name}</span>
+                        <span className="ml-2 text-xs text-slate-500">{t.event_code} {t.event_name}{t.age_group_code ? ` \u00b7 ${t.age_group_code}` : ''}</span>
+                        <div className="text-xs text-slate-400">
+                          {[t.school_name, t.contact_name, t.contact_phone].filter(Boolean).join(' \u00b7 ') || '\u2014'}
+                        </div>
+                      </div>
+                      <Badge tone={t.status === 'short' ? 'danger' : t.status === 'check' ? 'warning' : 'success'}>
+                        {t.member_count}/{t.min_required}{t.sub_count ? ` (${t.sub_count} sub)` : ''}
+                      </Badge>
+                    </div>
+                  ))}
+                  {teams.teams.length === 0 && <p className="py-6 text-center text-sm text-slate-400">No teams registered yet.</p>}
+                </div>
+              </div>
+            ) : <p className="py-6 text-center text-sm text-slate-400">Loading teams\u2026</p>
           ) : finalList && (
             <div>
               <p className="text-sm text-slate-600 mb-3">

@@ -426,6 +426,13 @@ export const listsApi = {
     return res.blob();
   },
   byParticipant: (token) => request('/api/admin/lists/by-participant', { token }),
+  teams: (token) => request('/api/admin/lists/teams', { token }),
+  /** Teams + members workbook (short teams flagged). Returns a Blob. */
+  teamsXlsx: async (token) => {
+    const res = await fetch(`${API_BASE}/api/admin/lists/teams-xlsx`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
+    return res.blob();
+  },
   final: (token) => request('/api/admin/lists/final', { token }),
   publishInitial: (token) => request('/api/admin/lists/publish-initial', { method: 'POST', token, body: {} }),
   boardFiles: (token) => request('/api/admin/lists/board-files', { token }),
