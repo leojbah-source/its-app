@@ -75,8 +75,10 @@ export default function JudgeApp() {
         {!current ? <EventsList events={events} onOpen={openEvent} />
           : phase === 'briefing' ? <Briefing token={token} current={current} setFlash={setFlash}
               onBack={events.length > 1 ? () => setCurrent(null) : null} onContinue={() => setPhase('score')} />
-          : !groupId ? <GroupPicker current={current} groups={groups} onBack={() => setPhase('briefing')} onPick={setGroupId} />
-          : <ScoreGrid token={token} current={current} groupId={groupId} onBack={() => setGroupId(null)} setFlash={setFlash} reloadGroups={reloadGroups} />}
+          : (groupId ?? current.age_group_id)
+            ? <ScoreGrid token={token} current={current} groupId={groupId ?? current.age_group_id}
+                onBack={() => { setGroupId(null); setPhase('briefing'); }} setFlash={setFlash} reloadGroups={reloadGroups} />
+            : <GroupPicker current={current} groups={groups} onBack={() => setPhase('briefing')} onPick={setGroupId} />}
       </main>
       {confirmExit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -373,7 +375,7 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
           <b>⚠ Minimum time not met.</b> Chest {sheet.participants.filter((p) => p.under_minimum).map((p) => `#${p.chest_number}`).join(', ')} performed under the required minimum{sheet.event?.min_time_seconds ? ` of ${mmss(sheet.event.min_time_seconds)}` : ''}. They do not meet the timing criteria — no need to score them.
         </div>
       )}
-      {sheet.participants.length === 0 ? <p className="rounded-xl bg-white p-4 text-sm text-slate-500 shadow-sm">No chest numbers assigned for this group yet.</p> : (
+      {sheet.participants.length === 0 ? <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 shadow-sm">Chest numbers haven\u2019t been assigned for this group yet, so scoring can\u2019t start. This screen updates on its own \u2014 the participants will appear here as soon as the organiser assigns their chest numbers.</p> : (
         <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
