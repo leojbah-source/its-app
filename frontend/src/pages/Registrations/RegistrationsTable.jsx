@@ -75,7 +75,12 @@ export default function RegistrationsTable({ registrations, onView, onComplete }
       });
     }
     if (cprVerify) rows = rows.filter((r) => (r.cpr_verified_method || 'manual') === cprVerify);
-    if (adminVerify) rows = rows.filter((r) => (r.admin_verified_status || 'pending') === adminVerify);
+    if (adminVerify) rows = rows.filter((r) => {
+      const st = r.team_id
+        ? ((r.team_member_count > 0 && (r.team_cpr_verified_count ?? 0) >= r.team_member_count) ? 'verified' : 'pending')
+        : (r.admin_verified_status || 'pending');
+      return st === adminVerify;
+    });
     if (payStatus) rows = rows.filter((r) => (r.payment_status || 'none') === payStatus);
     if (member) rows = rows.filter((r) =>
       member === 'yes'
@@ -112,6 +117,7 @@ export default function RegistrationsTable({ registrations, onView, onComplete }
           captain_name: r.captain_name || null,
           is_team: !r.participant_id,
           team_member_count: r.team_member_count,
+          team_cpr_verified_count: r.team_cpr_verified_count,
           admin_verified_status: r.admin_verified_status,
           payment_status: r.payment_status,
           cpr_number: r.cpr_number,
@@ -300,11 +306,22 @@ export default function RegistrationsTable({ registrations, onView, onComplete }
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-col gap-1">
-                      <Badge tone={g.admin_verified_status === 'verified' ? 'success'
-                        : g.admin_verified_status === 'issue' ? 'danger' : 'slate'}>
-                        {g.admin_verified_status === 'verified' ? 'CPR ✓'
-                          : g.admin_verified_status === 'issue' ? 'CPR issue' : 'CPR pending'}
-                      </Badge>
+                      {g.is_team ? (() => {
+                        const total = g.team_member_count ?? 0;
+                        const ok = g.team_cpr_verified_count ?? 0;
+                        const done = total > 0 && ok >= total;
+                        return (
+                          <Badge tone={done ? 'success' : ok > 0 ? 'gold' : 'slate'}>
+                            {done ? `CPR ✓ ${ok}/${total}` : `CPR ${ok}/${total}`}
+                          </Badge>
+                        );
+                      })() : (
+                        <Badge tone={g.admin_verified_status === 'verified' ? 'success'
+                          : g.admin_verified_status === 'issue' ? 'danger' : 'slate'}>
+                          {g.admin_verified_status === 'verified' ? 'CPR ✓'
+                            : g.admin_verified_status === 'issue' ? 'CPR issue' : 'CPR pending'}
+                        </Badge>
+                      )}
                       <Badge tone={g.payment_status === 'verified' ? 'success'
                         : g.payment_status === 'pending' ? 'gold' : 'slate'}>
                         {g.payment_status === 'verified' ? 'Paid ✓'

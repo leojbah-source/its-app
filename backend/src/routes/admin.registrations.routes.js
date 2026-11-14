@@ -742,6 +742,7 @@ router.get('/registrations', requireRole(...staffRoles), async (req, res, next) 
            WHERE tm2.team_id = r.team_id AND tm2.is_captain = TRUE
            ORDER BY tm2.created_at LIMIT 1) AS captain_name,
          (SELECT COUNT(*)::int FROM team_members tm WHERE tm.team_id = r.team_id) AS team_member_count,
+         (SELECT COUNT(*)::int FROM team_members tm WHERE tm.team_id = r.team_id AND tm.cpr_verified = TRUE) AS team_cpr_verified_count,
          s.name AS school_name,
          e.event_name, e.event_code, e.event_kind,
          c.name AS category_name,
