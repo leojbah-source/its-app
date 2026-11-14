@@ -677,6 +677,7 @@ export const judgesApi = {
   scheduleEvents: (token) => request('/api/admin/judges/schedule-events', { token }),
   candidates: (token, eventId, ageGroupId) => request(`/api/admin/judges/candidates/${eventId}${qs({ age_group_id: ageGroupId })}`, { token }),
   eventAssignments: (token) => request('/api/admin/judges/event-assignments', { token }),
+  judgesByEvent: (token) => request('/api/admin/judges/by-event', { token }),
   sendEventOtps: (token, eventId, ageGroupId) => request(`/api/admin/judges/event/${eventId}/send-otps`, { method: 'POST', token, body: { age_group_id: ageGroupId } }),
   assign: (token, body) => request('/api/admin/judges/assign', { method: 'POST', token, body }),
   unassign: (token, assignmentId) => request(`/api/admin/judges/assign/${assignmentId}`, { method: 'DELETE', token }),

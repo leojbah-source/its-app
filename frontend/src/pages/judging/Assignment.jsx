@@ -6,7 +6,7 @@
 // are assigned per event. Chairman/SuperAdmin only.
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { pickDefaultDate } from '../../utils/dates';
-import { RefreshCw, UserPlus, KeyRound, Mic, Timer, Award } from 'lucide-react';
+import { RefreshCw, UserPlus, KeyRound, Mic, Timer, Award, Search } from 'lucide-react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { Card, Badge } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -27,6 +27,10 @@ export default function Assignment() {
   const [sendingId, setSendingId] = useState(null);
   const [otpInfo, setOtpInfo] = useState(null);
   const [otpBusy, setOtpBusy] = useState(false);
+  const [viewMode, setViewMode] = useState('group'); // 'group' | 'event'
+  const [byEventRows, setByEventRows] = useState([]);
+  const [eventQuery, setEventQuery] = useState('');
+  const [candQuery, setCandQuery] = useState('');
 
   const [modalRow, setModalRow] = useState(null);
   const [candidates, setCandidates] = useState([]);
@@ -44,7 +48,13 @@ export default function Assignment() {
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
-    try { setRows(await judgesApi.eventAssignments(token)); }
+    try {
+      const [ea, be] = await Promise.all([
+        judgesApi.eventAssignments(token),
+        judgesApi.judgesByEvent(token).catch(() => []),
+      ]);
+      setRows(ea); setByEventRows(be);
+    }
     catch (err) { setError(err.message || 'Failed to load assignments'); }
     finally { setLoading(false); }
   }, [token]);
@@ -57,7 +67,7 @@ export default function Assignment() {
 
   async function openAssign(row) {
     if (row.results_published) return; // panel locked once results are published
-    setModalRow(row); setModalErr(''); setCandidates([]);
+    setModalRow(row); setModalErr(''); setCandidates([]); setCandQuery('');
     setSelected(new Set(row.judges.map((j) => j.judge_id)));
     try {
       const r = await judgesApi.candidates(token, row.event_id, row.age_group_id);
@@ -67,6 +77,11 @@ export default function Assignment() {
       setCandidates([...r.candidates, ...extra]);
     } catch (err) { setModalErr(err.message); }
   }
+
+  const shownCandidates = useMemo(() => {
+    const q = candQuery.trim().toLowerCase();
+    return q ? candidates.filter((c) => (c.full_name || '').toLowerCase().includes(q)) : candidates;
+  }, [candidates, candQuery]);
 
   function toggle(id) {
     setSelected((prev) => {
@@ -155,11 +170,19 @@ export default function Assignment() {
       subtitle="Assign 3 judges per age group (matched to the event's category), then send their briefing OTPs. Each age group is a separate contest, listed by date."
       actions={
         <div className="flex items-center gap-2">
-          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300">
-            <option value="">All dates</option>
-            {dates.map((d) => <option key={d} value={d}>{d}</option>)}
-          </select>
+          <div className="flex overflow-hidden rounded-md border border-slate-300 text-sm">
+            <button onClick={() => setViewMode('group')}
+              className={`px-3 py-2 ${viewMode === 'group' ? 'bg-navy-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>By age group</button>
+            <button onClick={() => setViewMode('event')}
+              className={`px-3 py-2 ${viewMode === 'event' ? 'bg-navy-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>By event (who came)</button>
+          </div>
+          {viewMode === 'group' && (
+            <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300">
+              <option value="">All dates</option>
+              {dates.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          )}
           <Button variant="outline" icon={RefreshCw} onClick={load}>Refresh</Button>
         </div>
       }>
@@ -169,6 +192,7 @@ export default function Assignment() {
       <Card className="p-0 overflow-hidden">
         {loading ? <div className="p-6"><PageLoader label="Loading assignments…" /></div>
           : error ? <div className="p-6"><ErrorBanner message={error} onRetry={load} /></div>
+          : viewMode === 'event' ? <ByEvent rows={byEventRows} query={eventQuery} setQuery={setEventQuery} />
           : rows.length === 0 ? (
             <p className="py-10 text-center text-sm text-slate-400">No scheduled events yet — generate the schedule first.</p>
           ) : (
@@ -248,13 +272,21 @@ export default function Assignment() {
         description={modalRow ? `${modalRow.event_date} · Category: ${modalRow.category_name || '—'}. Showing judges whose expertise matches; pick 3 for this age group.` : ''}
         confirmLabel="Save" variant="primary" loading={busy}
         onCancel={() => setModalRow(null)} onConfirm={saveAssign}>
+        <div className="relative mb-2">
+          <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input value={candQuery} onChange={(e) => setCandQuery(e.target.value)} placeholder="Search judge by name\u2026"
+            className="w-full rounded-md border border-slate-200 py-1.5 pl-8 pr-2 text-sm outline-none focus:border-navy-400" />
+        </div>
         <div className="max-h-72 overflow-y-auto rounded-md border border-slate-200 divide-y divide-slate-100">
           {candidates.length === 0 && (
             <p className="px-3 py-4 text-xs text-slate-400">
               No judges have this category in their expertise. Add it on the Judges page first.
             </p>
           )}
-          {candidates.map((c) => (
+          {candidates.length > 0 && shownCandidates.length === 0 && (
+            <p className="px-3 py-4 text-xs text-slate-400">No judge matches \u201c{candQuery}\u201d.</p>
+          )}
+          {shownCandidates.map((c) => (
             <label key={c.id} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 cursor-pointer">
               <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)}
                 className="h-4 w-4 rounded border-slate-300" />
@@ -353,5 +385,48 @@ export default function Assignment() {
         </div>
       )}
     </AdminLayout>
+  );
+}
+
+function ByEvent({ rows, query, setQuery }) {
+  const q = query.trim().toLowerCase();
+  const list = q
+    ? rows.filter((ev) => `${ev.event_code} ${ev.event_name} ${ev.category_name || ''}`.toLowerCase().includes(q))
+    : rows;
+  return (
+    <div className="p-4">
+      <div className="relative mb-3 max-w-sm">
+        <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search an event\u2026"
+          className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-navy-400" />
+      </div>
+      {rows.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">No judges assigned to any event yet.</p>
+        : list.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">No event matches \u201c{query}\u201d.</p>
+        : (
+          <div className="divide-y divide-slate-100">
+            {list.map((ev) => (
+              <div key={ev.event_id} className="py-3">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-xs text-navy-600">{ev.event_code}</span>
+                  <span className="font-medium text-slate-800">{ev.event_name}</span>
+                  {ev.category_name && <span className="text-xs text-slate-400">{ev.category_name}</span>}
+                  <span className="ml-auto text-xs text-slate-500">{ev.came_count} of {ev.total_count} came</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {ev.judges.map((j) => (
+                    <span key={j.judge_id}
+                      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${j.came ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-100 text-slate-500'}`}
+                      title={j.came ? `Took part \u00b7 groups ${j.age_groups || '\u2014'}` : `Assigned, no activity recorded \u00b7 groups ${j.age_groups || '\u2014'}`}>
+                      {j.came ? '\u2713' : '\u25cb'} {j.full_name}
+                      {j.age_groups && <span className="text-[10px] opacity-70">({j.age_groups})</span>}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      <p className="mt-3 text-[11px] text-slate-400">\u2713 came = agreed the weightages, entered scores, finished scoring, or agreed the result. \u25cb = assigned but no activity recorded yet.</p>
+    </div>
   );
 }

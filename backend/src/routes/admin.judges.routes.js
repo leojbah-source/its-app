@@ -405,6 +405,50 @@ router.get('/event-assignments', requireRole(...staffRoles), async (req, res, ne
   } catch (err) { next(err); }
 });
 
+// ── GET /api/admin/judges/by-event — judges per event, ALL age groups merged ──
+// One entry per event (active year) with its distinct judges across every age
+// group, each marked whether they actually took part ("came"): agreed the
+// weightages, marked scoring done, agreed the result, or entered any score.
+// Names only (no contact details — rule #11). Powers the "who came" lookup.
+router.get('/by-event', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const { rows: yc } = await pool.query(`SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    if (!yc[0]) return res.json([]);
+    const { rows } = await pool.query(
+      `SELECT e.id AS event_id, e.event_code, e.event_name, c.name AS category_name,
+              j.id AS judge_id, j.full_name,
+              string_agg(DISTINCT ag.code, ', ' ORDER BY ag.code) AS age_groups,
+              bool_or(
+                ja.weightages_agreed_at IS NOT NULL
+                OR ja.scoring_done_at IS NOT NULL
+                OR ja.result_agreed_at IS NOT NULL
+                OR EXISTS (SELECT 1 FROM scores s WHERE s.judge_assignment_id = ja.id)
+              ) AS came
+         FROM judge_assignments ja
+         JOIN judges j ON j.id = ja.judge_id
+         JOIN events e ON e.id = ja.event_id
+         LEFT JOIN categories c ON c.id = e.category_id
+         LEFT JOIN age_groups ag ON ag.id = ja.age_group_id
+        WHERE e.year_id = $1
+        GROUP BY e.id, e.event_code, e.event_name, c.name, j.id, j.full_name
+        ORDER BY e.event_code, j.full_name`, [yc[0].id]);
+    const byEvent = new Map();
+    for (const r of rows) {
+      if (!byEvent.has(r.event_id)) byEvent.set(r.event_id, {
+        event_id: r.event_id, event_code: r.event_code, event_name: r.event_name,
+        category_name: r.category_name, judges: [] });
+      byEvent.get(r.event_id).judges.push({
+        judge_id: r.judge_id, full_name: r.full_name, age_groups: r.age_groups, came: !!r.came });
+    }
+    const out = [...byEvent.values()].map((ev) => ({
+      ...ev,
+      total_count: ev.judges.length,
+      came_count: ev.judges.filter((j) => j.came).length,
+    }));
+    res.json(out);
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/admin/judges/event/:eventId/send-otps — OTP all assigned judges ─
 router.post('/event/:eventId/send-otps', requireRole(...assignRoles), async (req, res, next) => {
   try {
