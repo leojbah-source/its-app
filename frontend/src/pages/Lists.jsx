@@ -329,9 +329,9 @@ export default function Lists() {
                     <div key={t.id} className="flex items-center justify-between gap-3 py-2.5">
                       <div className="min-w-0">
                         <span className="text-sm font-medium text-slate-800">{t.team_name}</span>
-                        <span className="ml-2 text-xs text-slate-500">{t.event_code} {t.event_name}{t.age_group_code ? ` \u00b7 ${t.age_group_code}` : ''}</span>
+                        <span className="ml-2 text-xs text-slate-500">{t.event_code} {t.event_name}{t.age_group_code ? ` · ${t.age_group_code}` : ''}</span>
                         <div className="text-xs text-slate-400">
-                          {[t.school_name, t.contact_name, t.contact_phone].filter(Boolean).join(' \u00b7 ') || '\u2014'}
+                          {[t.school_name, t.contact_name, t.contact_phone].filter(Boolean).join(' · ') || '—'}
                         </div>
                       </div>
                       <Badge tone={t.status === 'short' ? 'danger' : t.status === 'check' ? 'warning' : 'success'}>
@@ -342,7 +342,7 @@ export default function Lists() {
                   {teams.teams.length === 0 && <p className="py-6 text-center text-sm text-slate-400">No teams registered yet.</p>}
                 </div>
               </div>
-            ) : <p className="py-6 text-center text-sm text-slate-400">Loading teams\u2026</p>
+            ) : <p className="py-6 text-center text-sm text-slate-400">Loading teams…</p>
           ) : finalList && (
             <div>
               <p className="text-sm text-slate-600 mb-3">

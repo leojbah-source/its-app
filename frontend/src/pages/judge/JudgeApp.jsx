@@ -103,9 +103,9 @@ function whenLine(e) {
   if (!e) return '';
   const parts = [];
   if (e.event_date) parts.push(new Date(e.event_date + 'T00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }));
-  if (e.start_time) parts.push(e.end_time ? `${e.start_time}\u2013${e.end_time}` : e.start_time);
+  if (e.start_time) parts.push(e.end_time ? `${e.start_time}–${e.end_time}` : e.start_time);
   if (e.venue) parts.push(e.venue);
-  return parts.join(' \u00b7 ');
+  return parts.join(' · ');
 }
 
 function EventsList({ events, onOpen }) {
@@ -375,7 +375,7 @@ function ScoreGrid({ token, current, groupId, onBack, setFlash, reloadGroups }) 
           <b>⚠ Minimum time not met.</b> Chest {sheet.participants.filter((p) => p.under_minimum).map((p) => `#${p.chest_number}`).join(', ')} performed under the required minimum{sheet.event?.min_time_seconds ? ` of ${mmss(sheet.event.min_time_seconds)}` : ''}. They do not meet the timing criteria — no need to score them.
         </div>
       )}
-      {sheet.participants.length === 0 ? <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 shadow-sm">Chest numbers haven\u2019t been assigned for this group yet, so scoring can\u2019t start. This screen updates on its own \u2014 the participants will appear here as soon as the organiser assigns their chest numbers.</p> : (
+      {sheet.participants.length === 0 ? <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 shadow-sm">Chest numbers haven’t been assigned for this group yet, so scoring can’t start. This screen updates on its own — the participants will appear here as soon as the organiser assigns their chest numbers.</p> : (
         <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">

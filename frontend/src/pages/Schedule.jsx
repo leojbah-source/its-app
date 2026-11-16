@@ -285,7 +285,7 @@ export default function Schedule() {
     setFlash('');
     try {
       const r = await scheduleApi.publishPublic(token);
-      setFlash(`Published ${r.published} event row(s) to parents \u2014 the participants' page now shows the updated schedule.`);
+      setFlash(`Published ${r.published} event row(s) to parents — the participants' page now shows the updated schedule.`);
       load();
     } catch (e) { setFlash(e.message || 'Could not publish to parents.'); }
   }

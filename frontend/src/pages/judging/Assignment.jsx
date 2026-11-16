@@ -274,7 +274,7 @@ export default function Assignment() {
         onCancel={() => setModalRow(null)} onConfirm={saveAssign}>
         <div className="relative mb-2">
           <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={candQuery} onChange={(e) => setCandQuery(e.target.value)} placeholder="Search judge by name\u2026"
+          <input value={candQuery} onChange={(e) => setCandQuery(e.target.value)} placeholder="Search judge by name…"
             className="w-full rounded-md border border-slate-200 py-1.5 pl-8 pr-2 text-sm outline-none focus:border-navy-400" />
         </div>
         <div className="max-h-72 overflow-y-auto rounded-md border border-slate-200 divide-y divide-slate-100">
@@ -284,7 +284,7 @@ export default function Assignment() {
             </p>
           )}
           {candidates.length > 0 && shownCandidates.length === 0 && (
-            <p className="px-3 py-4 text-xs text-slate-400">No judge matches \u201c{candQuery}\u201d.</p>
+            <p className="px-3 py-4 text-xs text-slate-400">No judge matches “{candQuery}”.</p>
           )}
           {shownCandidates.map((c) => (
             <label key={c.id} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 cursor-pointer">
@@ -397,11 +397,11 @@ function ByEvent({ rows, query, setQuery }) {
     <div className="p-4">
       <div className="relative mb-3 max-w-sm">
         <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search an event\u2026"
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search an event…"
           className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-navy-400" />
       </div>
       {rows.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">No judges assigned to any event yet.</p>
-        : list.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">No event matches \u201c{query}\u201d.</p>
+        : list.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">No event matches “{query}”.</p>
         : (
           <div className="divide-y divide-slate-100">
             {list.map((ev) => (
@@ -416,8 +416,8 @@ function ByEvent({ rows, query, setQuery }) {
                   {ev.judges.map((j) => (
                     <span key={j.judge_id}
                       className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${j.came ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-100 text-slate-500'}`}
-                      title={j.came ? `Took part \u00b7 groups ${j.age_groups || '\u2014'}` : `Assigned, no activity recorded \u00b7 groups ${j.age_groups || '\u2014'}`}>
-                      {j.came ? '\u2713' : '\u25cb'} {j.full_name}
+                      title={j.came ? `Took part · groups ${j.age_groups || '—'}` : `Assigned, no activity recorded · groups ${j.age_groups || '—'}`}>
+                      {j.came ? '✓' : '○'} {j.full_name}
                       {j.age_groups && <span className="text-[10px] opacity-70">({j.age_groups})</span>}
                     </span>
                   ))}
@@ -426,7 +426,7 @@ function ByEvent({ rows, query, setQuery }) {
             ))}
           </div>
         )}
-      <p className="mt-3 text-[11px] text-slate-400">\u2713 came = agreed the weightages, entered scores, finished scoring, or agreed the result. \u25cb = assigned but no activity recorded yet.</p>
+      <p className="mt-3 text-[11px] text-slate-400">✓ came = agreed the weightages, entered scores, finished scoring, or agreed the result. ○ = assigned but no activity recorded yet.</p>
     </div>
   );
 }
