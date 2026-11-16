@@ -111,6 +111,7 @@ export const pwaApi = {
 // Awards (Chairman/SuperAdmin). yearId may be 'active'.
 export const awardsApi = {
   standings: (token, yearId = 'active') => request(`/api/admin/awards/${yearId}/standings`, { token }),
+  trophyCount: (token, yearId = 'active') => request(`/api/admin/awards/${yearId}/trophy-count`, { token }),
   exportCsv: (token, yearId = 'active') => request(`/api/admin/awards/${yearId}/export`, { token }),
   teacherEntries: (token, yearId, teacher) =>
     request(`/api/admin/awards/${yearId}/teacher-entries?teacher=${encodeURIComponent(teacher)}`, { token }),

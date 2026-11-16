@@ -27,10 +27,17 @@ export default function Awards() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [flash, setFlash] = useState('');
+  const [trophy, setTrophy] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setFlash('');
-    try { setData(await awardsApi.standings(token, 'active')); }
+    try {
+      const [st, tc] = await Promise.all([
+        awardsApi.standings(token, 'active'),
+        awardsApi.trophyCount(token, 'active').catch(() => null),
+      ]);
+      setData(st); setTrophy(tc);
+    }
     catch (e) { setFlash(e.message); }
     finally { setLoading(false); }
   }, [token]);
@@ -97,6 +104,7 @@ export default function Awards() {
         : !data ? null
         : (
           <div className="space-y-5">
+            <TrophyCount trophy={trophy} />
             <Card className="p-0 overflow-hidden">
               <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2 text-sm font-semibold text-navy-800"><School size={15} /> School awards (total points)</div>
               {data.school_awards.length === 0 ? <p className="px-4 py-6 text-center text-sm text-slate-400">No finalised results yet.</p>
@@ -294,5 +302,94 @@ export default function Awards() {
           </div>
         )}
     </AdminLayout>
+  );
+}
+
+function Tile({ label, value, tone = 'navy' }) {
+  const tones = {
+    navy: 'bg-navy-50 text-navy-800 border-navy-100',
+    gold: 'bg-gold-50 text-gold-800 border-gold-200',
+    slate: 'bg-slate-50 text-slate-700 border-slate-200',
+  };
+  return (
+    <div className={`rounded-xl border px-4 py-3 ${tones[tone] || tones.navy}`}>
+      <div className="text-2xl font-bold leading-none">{value}</div>
+      <div className="mt-1 text-[11px] font-medium uppercase tracking-wide opacity-70">{label}</div>
+    </div>
+  );
+}
+
+function TrophyCount({ trophy }) {
+  if (!trophy) return null;
+  const ind = trophy.individual || {};
+  const pj = ind.projected || { first: 0, second: 0, third: 0, total: 0 };
+  const dec = ind.decided_published || {};
+  const team = trophy.team || {};
+  const pending = (ind.cells_total || 0) - (ind.cells_published || 0);
+  return (
+    <Card title="Trophy count" description="Individual places are the projected maximum from current entries; teams count one trophy per member (substitutes included).">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <Tile label="Individual 1st" value={pj.first} />
+        <Tile label="Individual 2nd" value={pj.second} />
+        <Tile label="Individual 3rd" value={pj.third} />
+        <Tile label="Individual total" value={pj.total} tone="slate" />
+        <Tile label="Team (per member)" value={team.trophies ?? 0} tone="gold" />
+        <Tile label="Grand total" value={trophy.grand_total ?? 0} tone="gold" />
+      </div>
+
+      <div className="mt-3 space-y-1 text-xs text-slate-500">
+        <p>A cell with 2 entrants counts a 1st + 2nd only; 1 entrant counts a 1st only. Across <b>{ind.cells_total ?? 0}</b> individual event/age-group cells{pending > 0 ? <> \u2014 <b>{pending}</b> not yet published, so these figures may still change.</> : <> \u2014 all published.</>}</p>
+        <p>Decided so far (published): 1st <b>{dec.first ?? 0}</b> \u00b7 2nd <b>{dec.second ?? 0}</b> \u00b7 3rd <b>{dec.third ?? 0}</b>
+          {(dec.additional_3rd || dec.consolation) ? <> \u00b7 extra prizes: additional 3rd <b>{dec.additional_3rd || 0}</b>, consolation <b>{dec.consolation || 0}</b></> : null}</p>
+        <p>Teams: <b>{team.trophies ?? 0}</b> trophies across <b>{team.team_count ?? 0}</b> team(s) in <b>{(team.events || []).length}</b> team event(s).</p>
+      </div>
+
+      <details className="mt-3">
+        <summary className="cursor-pointer text-sm font-medium text-navy-700">Show detail</summary>
+        <div className="mt-3 grid gap-4 lg:grid-cols-2">
+          <div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Individual events</p>
+            <div className="max-h-80 overflow-auto rounded-lg border border-slate-200">
+              <table className="min-w-full text-xs">
+                <thead className="sticky top-0 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr><th className="px-2 py-1.5">Event</th><th className="px-2 py-1.5">Group</th><th className="px-2 py-1.5 text-right">Entrants</th><th className="px-2 py-1.5 text-right">Trophies</th></tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(ind.cells || []).map((r, i) => (
+                    <tr key={i} className={r.published ? '' : 'bg-amber-50/40'}>
+                      <td className="px-2 py-1.5"><span className="font-mono text-[10px] text-navy-600">{r.event_code}</span> {r.event_name}</td>
+                      <td className="px-2 py-1.5 text-slate-500">{r.age_group_code}</td>
+                      <td className="px-2 py-1.5 text-right">{r.entrants}</td>
+                      <td className="px-2 py-1.5 text-right font-semibold">{r.trophies}</td>
+                    </tr>
+                  ))}
+                  {(ind.cells || []).length === 0 && <tr><td colSpan={4} className="px-2 py-4 text-center text-slate-400">No individual entries.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Team events (one trophy per member)</p>
+            <div className="max-h-80 overflow-auto rounded-lg border border-slate-200">
+              <table className="min-w-full text-xs">
+                <thead className="sticky top-0 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr><th className="px-2 py-1.5">Event</th><th className="px-2 py-1.5 text-right">Teams</th><th className="px-2 py-1.5 text-right">Members (trophies)</th></tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(team.events || []).map((r, i) => (
+                    <tr key={i}>
+                      <td className="px-2 py-1.5"><span className="font-mono text-[10px] text-navy-600">{r.event_code}</span> {r.event_name}</td>
+                      <td className="px-2 py-1.5 text-right">{r.team_count}</td>
+                      <td className="px-2 py-1.5 text-right font-semibold">{r.member_count}</td>
+                    </tr>
+                  ))}
+                  {(team.events || []).length === 0 && <tr><td colSpan={3} className="px-2 py-4 text-center text-slate-400">No team entries.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </details>
+    </Card>
   );
 }

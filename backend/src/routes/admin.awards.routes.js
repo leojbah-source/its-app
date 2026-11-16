@@ -172,4 +172,108 @@ router.get('/:year_id/export', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /api/admin/awards/:year_id/trophy-count  (year_id may be 'active')
+// Trophies to procure.
+//  Individual (projected maximum): for each individual event x age-group cell
+//  that is going ahead (event not cancelled, cell not consolidation-cancelled),
+//  project 1st/2nd/3rd capped by the number of entrants — a cell with 2 entrants
+//  counts a 1st + 2nd only, a cell with 1 counts a 1st only. Active entrants =
+//  status registered/attended. Also reports what is already DECIDED (published).
+//  Teams: one trophy per team member (substitutes included) across every team
+//  in non-cancelled team events.
+router.get('/:year_id/trophy-count', async (req, res, next) => {
+  try {
+    const yearId = await resolveYearId(req.params.year_id);
+    if (!yearId) return res.status(400).json({ error: 'No active year' });
+
+    // Individual cells + entrant counts (projected max).
+    const { rows: cells } = await pool.query(
+      `SELECT r.event_id, r.age_group_id, COUNT(*)::int AS n,
+              e.event_code, e.event_name, c.name AS category_name, c.sort_order AS cat_sort,
+              ag.code AS age_group_code, ag.label AS age_group_label, ag.sort_order AS ag_sort,
+              EXISTS (SELECT 1 FROM event_results er JOIN registrations r2 ON r2.id = er.registration_id
+                       WHERE r2.event_id = r.event_id AND r2.age_group_id = r.age_group_id
+                         AND er.is_published = TRUE) AS published
+         FROM registrations r
+         JOIN events e ON e.id = r.event_id
+         LEFT JOIN categories c ON c.id = e.category_id
+         LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+        WHERE r.year_id = $1 AND e.event_kind = 'individual' AND e.is_cancelled = FALSE
+          AND r.participant_id IS NOT NULL
+          AND r.status IN ('registered','attended')
+          AND NOT EXISTS (SELECT 1 FROM event_consolidations x
+                           WHERE x.kind = 'cancel' AND x.reverted_at IS NULL
+                             AND x.source_event_ids[1] = r.event_id AND x.age_group_id = r.age_group_id)
+        GROUP BY r.event_id, r.age_group_id, e.event_code, e.event_name, c.name, c.sort_order,
+                 ag.code, ag.label, ag.sort_order
+        ORDER BY cat_sort NULLS LAST, event_code, ag_sort NULLS LAST`, [yearId]);
+
+    let first = 0, second = 0, third = 0, cellsPublished = 0;
+    const cellRows = cells.map((r) => {
+      if (r.n >= 1) first += 1;
+      if (r.n >= 2) second += 1;
+      if (r.n >= 3) third += 1;
+      if (r.published) cellsPublished += 1;
+      return {
+        event_code: r.event_code, event_name: r.event_name,
+        category_name: r.category_name, age_group_code: r.age_group_code,
+        age_group_label: r.age_group_label, entrants: r.n,
+        trophies: Math.min(3, r.n), published: !!r.published };
+    });
+
+    // Already DECIDED (published) individual places — catches ties (e.g. two 2nds).
+    const { rows: decided } = await pool.query(
+      `SELECT er.prize_place, COUNT(*)::int AS n
+         FROM event_results er
+         JOIN registrations r ON r.id = er.registration_id
+         JOIN events e ON e.id = er.event_id
+        WHERE r.year_id = $1 AND e.event_kind = 'individual' AND er.is_published = TRUE
+          AND COALESCE(er.is_disqualified, FALSE) = FALSE AND er.prize_place IN (1,2,3)
+        GROUP BY er.prize_place`, [yearId]);
+    const dmap = { 1: 0, 2: 0, 3: 0 };
+    for (const d of decided) dmap[d.prize_place] = d.n;
+    const { rows: extras } = await pool.query(
+      `SELECT er.extra_prize_type, COUNT(*)::int AS n
+         FROM event_results er
+         JOIN registrations r ON r.id = er.registration_id
+         JOIN events e ON e.id = er.event_id
+        WHERE r.year_id = $1 AND e.event_kind = 'individual' AND er.is_published = TRUE
+          AND er.extra_prize_type IS NOT NULL
+        GROUP BY er.extra_prize_type`, [yearId]);
+    const extraMap = { additional_3rd: 0, consolation: 0 };
+    for (const x of extras) extraMap[x.extra_prize_type] = x.n;
+
+    // Teams — one trophy per member (incl. substitutes) across all team events.
+    const { rows: teamEvents } = await pool.query(
+      `SELECT e.id AS event_id, e.event_code, e.event_name,
+              COUNT(DISTINCT t.id)::int AS team_count,
+              COUNT(tm.id)::int AS member_count
+         FROM teams t
+         JOIN events e ON e.id = t.event_id
+         LEFT JOIN team_members tm ON tm.team_id = t.id
+        WHERE t.year_id = $1 AND e.event_kind = 'team' AND e.is_cancelled = FALSE
+        GROUP BY e.id, e.event_code, e.event_name
+        ORDER BY e.event_code`, [yearId]);
+    const teamMembersTotal = teamEvents.reduce((a, r) => a + (r.member_count || 0), 0);
+    const teamCountTotal = teamEvents.reduce((a, r) => a + (r.team_count || 0), 0);
+
+    const individualProjectedTotal = first + second + third;
+    res.json({
+      year_id: yearId,
+      individual: {
+        projected: { first, second, third, total: individualProjectedTotal },
+        cells_total: cells.length,
+        cells_published: cellsPublished,
+        decided_published: { first: dmap[1], second: dmap[2], third: dmap[3],
+          additional_3rd: extraMap.additional_3rd, consolation: extraMap.consolation },
+        cells: cellRows,
+      },
+      team: {
+        trophies: teamMembersTotal, team_count: teamCountTotal, events: teamEvents,
+      },
+      grand_total: individualProjectedTotal + teamMembersTotal,
+    });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
