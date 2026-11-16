@@ -112,6 +112,11 @@ export const pwaApi = {
 export const awardsApi = {
   standings: (token, yearId = 'active') => request(`/api/admin/awards/${yearId}/standings`, { token }),
   trophyCount: (token, yearId = 'active') => request(`/api/admin/awards/${yearId}/trophy-count`, { token }),
+  trophyCountXlsx: async (token, yearId = 'active') => {
+    const res = await fetch(`${API_BASE}/api/admin/awards/${yearId}/trophy-count-xlsx`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
+    return res.blob();
+  },
   exportCsv: (token, yearId = 'active') => request(`/api/admin/awards/${yearId}/export`, { token }),
   teacherEntries: (token, yearId, teacher) =>
     request(`/api/admin/awards/${yearId}/teacher-entries?teacher=${encodeURIComponent(teacher)}`, { token }),

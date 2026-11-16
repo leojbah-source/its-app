@@ -66,6 +66,20 @@ export default function Awards() {
     } catch (e) { setFlash(e.message); }
   }
 
+  const [dlTrophy, setDlTrophy] = useState(false);
+  async function downloadTrophyXlsx() {
+    setDlTrophy(true); setFlash('');
+    try {
+      const blob = await awardsApi.trophyCountXlsx(token, 'active');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'trophy-order.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) { setFlash(e.message || 'Could not generate the trophy order.'); }
+    finally { setDlTrophy(false); }
+  }
+
   const num = (v) => Number(v || 0).toFixed(1);
 
   // Teacher drill-down (view only): expand a teacher to see their finalised entries.
@@ -96,6 +110,7 @@ export default function Awards() {
         <Button variant="outline" icon={RefreshCw} onClick={load}>Refresh</Button>
         <Button variant="outline" icon={Award} onClick={() => navigate('/admin/awards/certificates')}>Certificates</Button>
         <Button variant="outline" icon={Download} onClick={exportCsv}>Export CSV</Button>
+        <Button variant="outline" icon={Trophy} onClick={downloadTrophyXlsx} loading={dlTrophy}>Trophy order (Excel)</Button>
       </div>
 
       {flash && <div className="mb-3 rounded-md border border-navy-200 bg-navy-50 px-3 py-2 text-sm text-navy-700">{flash}</div>}
@@ -327,21 +342,22 @@ function TrophyCount({ trophy }) {
   const team = trophy.team || {};
   const pending = (ind.cells_total || 0) - (ind.cells_published || 0);
   return (
-    <Card title="Trophy count" description="Individual places are the projected maximum from current entries; team trophies go to every member of the winning teams \u2014 top 3 teams per contest, or fewer if fewer than 3 teams.">
+    <Card title="Trophy count" description="Individual places are the projected maximum from current entries; team trophies go to every member of the winning teams — top 3 teams per contest, or fewer if fewer than 3 teams.">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Tile label="Individual 1st" value={pj.first} />
         <Tile label="Individual 2nd" value={pj.second} />
         <Tile label="Individual 3rd" value={pj.third} />
         <Tile label="Individual total" value={pj.total} tone="slate" />
-        <Tile label="Team (winners\u2019 members)" value={team.trophies ?? 0} tone="gold" />
+        <Tile label="Team (winners’ members)" value={team.trophies ?? 0} tone="gold" />
         <Tile label="Grand total" value={trophy.grand_total ?? 0} tone="gold" />
       </div>
 
       <div className="mt-3 space-y-1 text-xs text-slate-500">
-        <p>A cell with 2 entrants counts a 1st + 2nd only; 1 entrant counts a 1st only. Across <b>{ind.cells_total ?? 0}</b> individual event/age-group cells{pending > 0 ? <> \u2014 <b>{pending}</b> not yet published, so these figures may still change.</> : <> \u2014 all published.</>}</p>
-        <p>Decided so far (published): 1st <b>{dec.first ?? 0}</b> \u00b7 2nd <b>{dec.second ?? 0}</b> \u00b7 3rd <b>{dec.third ?? 0}</b>
-          {(dec.additional_3rd || dec.consolation) ? <> \u00b7 extra prizes: additional 3rd <b>{dec.additional_3rd || 0}</b>, consolation <b>{dec.consolation || 0}</b></> : null}</p>
+        <p>A cell with 2 entrants counts a 1st + 2nd only; 1 entrant counts a 1st only. Across <b>{ind.cells_total ?? 0}</b> individual event/age-group cells{pending > 0 ? <> — <b>{pending}</b> not yet published, so these figures may still change.</> : <> — all published.</>}</p>
+        <p>Decided so far (published): 1st <b>{dec.first ?? 0}</b> · 2nd <b>{dec.second ?? 0}</b> · 3rd <b>{dec.third ?? 0}</b>
+          {(dec.additional_3rd || dec.consolation) ? <> · extra prizes: additional 3rd <b>{dec.additional_3rd || 0}</b>, consolation <b>{dec.consolation || 0}</b></> : null}</p>
         <p>Teams: <b>{team.trophies ?? 0}</b> trophies for the winning teams (<b>{team.winning_teams ?? 0}</b> winning of <b>{team.total_teams ?? 0}</b> teams). Top 3 teams per contest win (fewer if fewer than 3 teams); every member of a winning team gets a trophy. Decided so far: <b>{team.decided?.trophies ?? 0}</b>.</p>
+        <p>Team trophies by place (members of the winning teams): 1st <b>{team.projected?.first ?? 0}</b> · 2nd <b>{team.projected?.second ?? 0}</b> · 3rd <b>{team.projected?.third ?? 0}</b>.</p>
       </div>
 
       <details className="mt-3">
@@ -373,19 +389,22 @@ function TrophyCount({ trophy }) {
             <div className="max-h-80 overflow-auto rounded-lg border border-slate-200">
               <table className="min-w-full text-xs">
                 <thead className="sticky top-0 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
-                  <tr><th className="px-2 py-1.5">Event</th><th className="px-2 py-1.5">Group</th><th className="px-2 py-1.5 text-right">Teams</th><th className="px-2 py-1.5 text-right">Winning</th><th className="px-2 py-1.5 text-right">Trophies</th></tr>
+                  <tr><th className="px-2 py-1.5">Event</th><th className="px-2 py-1.5">Group</th><th className="px-2 py-1.5 text-right">Teams</th><th className="px-2 py-1.5 text-right">Winning</th><th className="px-2 py-1.5 text-right">1st</th><th className="px-2 py-1.5 text-right">2nd</th><th className="px-2 py-1.5 text-right">3rd</th><th className="px-2 py-1.5 text-right">Trophies</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {(team.cells || []).map((r, i) => (
                     <tr key={i}>
                       <td className="px-2 py-1.5"><span className="font-mono text-[10px] text-navy-600">{r.event_code}</span> {r.event_name}</td>
-                      <td className="px-2 py-1.5 text-slate-500">{r.age_group_code || '\u2014'}</td>
+                      <td className="px-2 py-1.5 text-slate-500">{r.age_group_code || '—'}</td>
                       <td className="px-2 py-1.5 text-right">{r.teams}</td>
                       <td className="px-2 py-1.5 text-right">{r.winning_teams}</td>
+                      <td className="px-2 py-1.5 text-right">{r.first}</td>
+                      <td className="px-2 py-1.5 text-right">{r.second}</td>
+                      <td className="px-2 py-1.5 text-right">{r.third}</td>
                       <td className="px-2 py-1.5 text-right font-semibold">{r.trophies}</td>
                     </tr>
                   ))}
-                  {(team.cells || []).length === 0 && <tr><td colSpan={5} className="px-2 py-4 text-center text-slate-400">No team entries.</td></tr>}
+                  {(team.cells || []).length === 0 && <tr><td colSpan={8} className="px-2 py-4 text-center text-slate-400">No team entries.</td></tr>}
                 </tbody>
               </table>
             </div>

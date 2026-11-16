@@ -181,11 +181,7 @@ router.get('/:year_id/export', async (req, res, next) => {
 //  status registered/attended. Also reports what is already DECIDED (published).
 //  Teams: one trophy per team member (substitutes included) across every team
 //  in non-cancelled team events.
-router.get('/:year_id/trophy-count', async (req, res, next) => {
-  try {
-    const yearId = await resolveYearId(req.params.year_id);
-    if (!yearId) return res.status(400).json({ error: 'No active year' });
-
+async function computeTrophyCount(yearId) {
     // Individual cells + entrant counts (projected max).
     const { rows: cells } = await pool.query(
       `SELECT r.event_id, r.age_group_id, COUNT(*)::int AS n,
@@ -267,15 +263,21 @@ router.get('/:year_id/trophy-count', async (req, res, next) => {
       teamCells.get(key).sizes.push(r.member_count || 0);
     }
     let teamTrophies = 0, teamWinningTeams = 0, teamTotalTeams = 0;
+    let teamFirst = 0, teamSecond = 0, teamThird = 0;
     const teamCellRows = [];
     for (const cell of teamCells.values()) {
       const sizes = cell.sizes.slice().sort((a, b) => b - a);
       const winners = Math.min(sizes.length, 3);
-      const trophies = sizes.slice(0, winners).reduce((a, b) => a + b, 0);
+      // Projection assigns 1st to the largest team, 2nd to the next, 3rd to the next.
+      const p1 = winners >= 1 ? (sizes[0] || 0) : 0;
+      const p2 = winners >= 2 ? (sizes[1] || 0) : 0;
+      const p3 = winners >= 3 ? (sizes[2] || 0) : 0;
+      const trophies = p1 + p2 + p3;
+      teamFirst += p1; teamSecond += p2; teamThird += p3;
       teamTrophies += trophies; teamWinningTeams += winners; teamTotalTeams += sizes.length;
       teamCellRows.push({ event_code: cell.event_code, event_name: cell.event_name,
         age_group_code: cell.age_group_code, teams: sizes.length,
-        winning_teams: winners, trophies });
+        winning_teams: winners, first: p1, second: p2, third: p3, trophies });
     }
     // Decided (published) team trophies: members of teams actually placed 1-3.
     const { rows: tdec } = await pool.query(
@@ -290,7 +292,7 @@ router.get('/:year_id/trophy-count', async (req, res, next) => {
     const teamDecided = tdec[0] || { trophies: 0, winning_teams: 0 };
 
     const individualProjectedTotal = first + second + third;
-    res.json({
+    return {
       year_id: yearId,
       individual: {
         projected: { first, second, third, total: individualProjectedTotal },
@@ -301,6 +303,7 @@ router.get('/:year_id/trophy-count', async (req, res, next) => {
         cells: cellRows,
       },
       team: {
+        projected: { first: teamFirst, second: teamSecond, third: teamThird, total: teamTrophies },
         trophies: teamTrophies,
         winning_teams: teamWinningTeams,
         total_teams: teamTotalTeams,
@@ -308,7 +311,106 @@ router.get('/:year_id/trophy-count', async (req, res, next) => {
         cells: teamCellRows,
       },
       grand_total: individualProjectedTotal + teamTrophies,
+    };
+}
+
+router.get('/:year_id/trophy-count', async (req, res, next) => {
+  try {
+    const yearId = await resolveYearId(req.params.year_id);
+    if (!yearId) return res.status(400).json({ error: 'No active year' });
+    res.json(await computeTrophyCount(yearId));
+  } catch (err) { next(err); }
+});
+
+// GET /api/admin/awards/:year_id/trophy-count-xlsx — shop order workbook.
+router.get('/:year_id/trophy-count-xlsx', async (req, res, next) => {
+  try {
+    const yearId = await resolveYearId(req.params.year_id);
+    if (!yearId) return res.status(400).json({ error: 'No active year' });
+    const { rows: yc } = await pool.query(
+      `SELECT event_year_label FROM year_config WHERE id = $1`, [yearId]);
+    const yearLabel = yc[0] && yc[0].event_year_label ? yc[0].event_year_label : 'ITS';
+    const d = await computeTrophyCount(yearId);
+    const ip = d.individual.projected, tp = d.team.projected;
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'KCA ITS'; wb.created = new Date();
+
+    // Sheet 1 — Shop Order (what to send the trophy shop).
+    const ws = wb.addWorksheet('Shop Order');
+    ws.mergeCells('A1:C1');
+    ws.getCell('A1').value = `Trophy order \u2014 ${yearLabel}`;
+    ws.getCell('A1').font = { bold: true, size: 14 };
+    ws.addRow([]);
+    const head = ws.addRow(['Trophy type', 'Place', 'Quantity']);
+    head.font = { bold: true };
+    head.eachCell((c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFEFEF' } }; });
+    const rows = [
+      ['Individual', '1st place', ip.first],
+      ['Individual', '2nd place', ip.second],
+      ['Individual', '3rd place', ip.third],
+      ['Individual', 'Subtotal', ip.total],
+      ['Team', '1st place', tp.first],
+      ['Team', '2nd place', tp.second],
+      ['Team', '3rd place', tp.third],
+      ['Team', 'Subtotal', tp.total],
+    ];
+    rows.forEach((r) => {
+      const row = ws.addRow(r);
+      if (r[1] === 'Subtotal') row.font = { bold: true, italic: true };
     });
+    const grand = ws.addRow(['TOTAL (all trophies)', '', d.grand_total]);
+    grand.font = { bold: true };
+    ws.columns = [{ width: 24 }, { width: 14 }, { width: 12 }];
+    ws.addRow([]);
+    const note = ws.addRow(['Note: Individual and Team trophies are different types. Figures are the projected maximum from current entries. Team places go to EVERY member of a winning team; per contest the top 3 teams win (fewer if fewer than 3 teams).']);
+    ws.mergeCells(note.number, 1, note.number, 3);
+    note.getCell(1).alignment = { wrapText: true };
+    note.getCell(1).font = { italic: true, color: { argb: 'FF666666' } };
+    ws.getRow(note.number).height = 46;
+
+    // Sheet 2 — Individual detail.
+    const wi = wb.addWorksheet('Individual detail');
+    wi.columns = [
+      { header: 'Event', key: 'ev', width: 34 },
+      { header: 'Group', key: 'ag', width: 10 },
+      { header: 'Entrants', key: 'n', width: 10 },
+      { header: '1st', key: 'p1', width: 6 },
+      { header: '2nd', key: 'p2', width: 6 },
+      { header: '3rd', key: 'p3', width: 6 },
+      { header: 'Trophies', key: 't', width: 10 },
+    ];
+    d.individual.cells.forEach((r) => wi.addRow({
+      ev: `${r.event_code} ${r.event_name}`, ag: r.age_group_code,
+      n: r.entrants, p1: r.entrants >= 1 ? 1 : 0, p2: r.entrants >= 2 ? 1 : 0,
+      p3: r.entrants >= 3 ? 1 : 0, t: r.trophies }));
+    wi.getRow(1).font = { bold: true };
+    wi.views = [{ state: 'frozen', ySplit: 1 }];
+
+    // Sheet 3 — Team detail (members per winning place).
+    const wt = wb.addWorksheet('Team detail');
+    wt.columns = [
+      { header: 'Event', key: 'ev', width: 36 },
+      { header: 'Group', key: 'ag', width: 10 },
+      { header: 'Teams', key: 'teams', width: 8 },
+      { header: 'Winning', key: 'win', width: 9 },
+      { header: '1st (members)', key: 'p1', width: 14 },
+      { header: '2nd (members)', key: 'p2', width: 14 },
+      { header: '3rd (members)', key: 'p3', width: 14 },
+      { header: 'Trophies', key: 't', width: 10 },
+    ];
+    d.team.cells.forEach((r) => wt.addRow({
+      ev: `${r.event_code} ${r.event_name}`, ag: r.age_group_code || '',
+      teams: r.teams, win: r.winning_teams, p1: r.first, p2: r.second, p3: r.third, t: r.trophies }));
+    wt.getRow(1).font = { bold: true };
+    wt.views = [{ state: 'frozen', ySplit: 1 }];
+
+    const buf = await wb.xlsx.writeBuffer();
+    const label = String(yearLabel).replace(/[^A-Za-z0-9]+/g, '-');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="trophy-order-${label}.xlsx"`);
+    res.send(Buffer.from(buf));
   } catch (err) { next(err); }
 });
 
