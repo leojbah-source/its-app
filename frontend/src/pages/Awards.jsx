@@ -327,13 +327,13 @@ function TrophyCount({ trophy }) {
   const team = trophy.team || {};
   const pending = (ind.cells_total || 0) - (ind.cells_published || 0);
   return (
-    <Card title="Trophy count" description="Individual places are the projected maximum from current entries; teams count one trophy per member (substitutes included).">
+    <Card title="Trophy count" description="Individual places are the projected maximum from current entries; team trophies go to every member of the winning teams \u2014 top 3 teams per contest, or fewer if fewer than 3 teams.">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Tile label="Individual 1st" value={pj.first} />
         <Tile label="Individual 2nd" value={pj.second} />
         <Tile label="Individual 3rd" value={pj.third} />
         <Tile label="Individual total" value={pj.total} tone="slate" />
-        <Tile label="Team (per member)" value={team.trophies ?? 0} tone="gold" />
+        <Tile label="Team (winners\u2019 members)" value={team.trophies ?? 0} tone="gold" />
         <Tile label="Grand total" value={trophy.grand_total ?? 0} tone="gold" />
       </div>
 
@@ -341,7 +341,7 @@ function TrophyCount({ trophy }) {
         <p>A cell with 2 entrants counts a 1st + 2nd only; 1 entrant counts a 1st only. Across <b>{ind.cells_total ?? 0}</b> individual event/age-group cells{pending > 0 ? <> \u2014 <b>{pending}</b> not yet published, so these figures may still change.</> : <> \u2014 all published.</>}</p>
         <p>Decided so far (published): 1st <b>{dec.first ?? 0}</b> \u00b7 2nd <b>{dec.second ?? 0}</b> \u00b7 3rd <b>{dec.third ?? 0}</b>
           {(dec.additional_3rd || dec.consolation) ? <> \u00b7 extra prizes: additional 3rd <b>{dec.additional_3rd || 0}</b>, consolation <b>{dec.consolation || 0}</b></> : null}</p>
-        <p>Teams: <b>{team.trophies ?? 0}</b> trophies across <b>{team.team_count ?? 0}</b> team(s) in <b>{(team.events || []).length}</b> team event(s).</p>
+        <p>Teams: <b>{team.trophies ?? 0}</b> trophies for the winning teams (<b>{team.winning_teams ?? 0}</b> winning of <b>{team.total_teams ?? 0}</b> teams). Top 3 teams per contest win (fewer if fewer than 3 teams); every member of a winning team gets a trophy. Decided so far: <b>{team.decided?.trophies ?? 0}</b>.</p>
       </div>
 
       <details className="mt-3">
@@ -373,17 +373,19 @@ function TrophyCount({ trophy }) {
             <div className="max-h-80 overflow-auto rounded-lg border border-slate-200">
               <table className="min-w-full text-xs">
                 <thead className="sticky top-0 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
-                  <tr><th className="px-2 py-1.5">Event</th><th className="px-2 py-1.5 text-right">Teams</th><th className="px-2 py-1.5 text-right">Members (trophies)</th></tr>
+                  <tr><th className="px-2 py-1.5">Event</th><th className="px-2 py-1.5">Group</th><th className="px-2 py-1.5 text-right">Teams</th><th className="px-2 py-1.5 text-right">Winning</th><th className="px-2 py-1.5 text-right">Trophies</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {(team.events || []).map((r, i) => (
+                  {(team.cells || []).map((r, i) => (
                     <tr key={i}>
                       <td className="px-2 py-1.5"><span className="font-mono text-[10px] text-navy-600">{r.event_code}</span> {r.event_name}</td>
-                      <td className="px-2 py-1.5 text-right">{r.team_count}</td>
-                      <td className="px-2 py-1.5 text-right font-semibold">{r.member_count}</td>
+                      <td className="px-2 py-1.5 text-slate-500">{r.age_group_code || '\u2014'}</td>
+                      <td className="px-2 py-1.5 text-right">{r.teams}</td>
+                      <td className="px-2 py-1.5 text-right">{r.winning_teams}</td>
+                      <td className="px-2 py-1.5 text-right font-semibold">{r.trophies}</td>
                     </tr>
                   ))}
-                  {(team.events || []).length === 0 && <tr><td colSpan={3} className="px-2 py-4 text-center text-slate-400">No team entries.</td></tr>}
+                  {(team.cells || []).length === 0 && <tr><td colSpan={5} className="px-2 py-4 text-center text-slate-400">No team entries.</td></tr>}
                 </tbody>
               </table>
             </div>

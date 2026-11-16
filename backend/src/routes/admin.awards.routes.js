@@ -243,19 +243,51 @@ router.get('/:year_id/trophy-count', async (req, res, next) => {
     const extraMap = { additional_3rd: 0, consolation: 0 };
     for (const x of extras) extraMap[x.extra_prize_type] = x.n;
 
-    // Teams — one trophy per member (incl. substitutes) across all team events.
-    const { rows: teamEvents } = await pool.query(
-      `SELECT e.id AS event_id, e.event_code, e.event_name,
-              COUNT(DISTINCT t.id)::int AS team_count,
-              COUNT(tm.id)::int AS member_count
+    // Teams — per (event x age group) contest, the top min(teams,3) teams win
+    // (1 team -> 1st only; 2 -> 1st,2nd; 3+ -> top 3). Every member of a winning
+    // team (substitutes included) gets a trophy. Projection takes the LARGEST
+    // teams in each cell as the upper bound; 'decided' uses published placings.
+    const { rows: teamRows } = await pool.query(
+      `SELECT t.event_id, t.age_group_id, e.event_code, e.event_name,
+              ag.code AS age_group_code, ag.sort_order AS ag_sort,
+              t.id AS team_id, COUNT(tm.id)::int AS member_count
          FROM teams t
          JOIN events e ON e.id = t.event_id
+         LEFT JOIN age_groups ag ON ag.id = t.age_group_id
          LEFT JOIN team_members tm ON tm.team_id = t.id
         WHERE t.year_id = $1 AND e.event_kind = 'team' AND e.is_cancelled = FALSE
-        GROUP BY e.id, e.event_code, e.event_name
-        ORDER BY e.event_code`, [yearId]);
-    const teamMembersTotal = teamEvents.reduce((a, r) => a + (r.member_count || 0), 0);
-    const teamCountTotal = teamEvents.reduce((a, r) => a + (r.team_count || 0), 0);
+        GROUP BY t.event_id, t.age_group_id, e.event_code, e.event_name, ag.code, ag.sort_order, t.id
+        ORDER BY e.event_code, ag_sort NULLS LAST`, [yearId]);
+    const teamCells = new Map();
+    for (const r of teamRows) {
+      const key = `${r.event_id}:${r.age_group_id}`;
+      if (!teamCells.has(key)) teamCells.set(key, {
+        event_code: r.event_code, event_name: r.event_name,
+        age_group_code: r.age_group_code, sizes: [] });
+      teamCells.get(key).sizes.push(r.member_count || 0);
+    }
+    let teamTrophies = 0, teamWinningTeams = 0, teamTotalTeams = 0;
+    const teamCellRows = [];
+    for (const cell of teamCells.values()) {
+      const sizes = cell.sizes.slice().sort((a, b) => b - a);
+      const winners = Math.min(sizes.length, 3);
+      const trophies = sizes.slice(0, winners).reduce((a, b) => a + b, 0);
+      teamTrophies += trophies; teamWinningTeams += winners; teamTotalTeams += sizes.length;
+      teamCellRows.push({ event_code: cell.event_code, event_name: cell.event_name,
+        age_group_code: cell.age_group_code, teams: sizes.length,
+        winning_teams: winners, trophies });
+    }
+    // Decided (published) team trophies: members of teams actually placed 1-3.
+    const { rows: tdec } = await pool.query(
+      `SELECT COALESCE(SUM(mc.n), 0)::int AS trophies, COUNT(*)::int AS winning_teams
+         FROM event_results er
+         JOIN registrations r ON r.id = er.registration_id
+         JOIN events e ON e.id = er.event_id
+         JOIN teams t ON t.id = r.team_id
+         JOIN LATERAL (SELECT COUNT(*)::int AS n FROM team_members tm WHERE tm.team_id = t.id) mc ON TRUE
+        WHERE r.year_id = $1 AND e.event_kind = 'team' AND er.is_published = TRUE
+          AND COALESCE(er.is_disqualified, FALSE) = FALSE AND er.prize_place IN (1,2,3)`, [yearId]);
+    const teamDecided = tdec[0] || { trophies: 0, winning_teams: 0 };
 
     const individualProjectedTotal = first + second + third;
     res.json({
@@ -269,9 +301,13 @@ router.get('/:year_id/trophy-count', async (req, res, next) => {
         cells: cellRows,
       },
       team: {
-        trophies: teamMembersTotal, team_count: teamCountTotal, events: teamEvents,
+        trophies: teamTrophies,
+        winning_teams: teamWinningTeams,
+        total_teams: teamTotalTeams,
+        decided: { trophies: teamDecided.trophies, winning_teams: teamDecided.winning_teams },
+        cells: teamCellRows,
       },
-      grand_total: individualProjectedTotal + teamMembersTotal,
+      grand_total: individualProjectedTotal + teamTrophies,
     });
   } catch (err) { next(err); }
 });
