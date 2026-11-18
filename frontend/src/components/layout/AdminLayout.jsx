@@ -25,7 +25,7 @@ export default function AdminLayout({ title, subtitle, actions, children }) {
     <div className="flex h-screen bg-slate-50">
       {!collapsed && <Sidebar />}
       <div className="flex h-full flex-1 flex-col overflow-hidden">
-        <header className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-200 bg-white px-4 py-3 sm:px-6 sm:py-4">
           <div className="flex min-w-0 items-center gap-3">
             <button
               onClick={toggleNav}
@@ -40,7 +40,7 @@ export default function AdminLayout({ title, subtitle, actions, children }) {
               {subtitle && <p className="mt-0.5 truncate text-sm text-slate-500" title={subtitle}>{subtitle}</p>}
             </div>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-x-2 gap-y-2 sm:gap-x-3">
             {actions}
             <div className="mx-1 h-8 w-px bg-slate-200" />
             <div className="text-right">
@@ -53,7 +53,7 @@ export default function AdminLayout({ title, subtitle, actions, children }) {
               title="Change password"
             >
               <KeyRound size={16} />
-              Change password
+              <span className="hidden sm:inline">Change password</span>
             </button>
             <button
               onClick={logout}
@@ -61,7 +61,7 @@ export default function AdminLayout({ title, subtitle, actions, children }) {
               title="Sign out"
             >
               <LogOut size={16} />
-              Sign out
+              <span className="hidden sm:inline">Sign out</span>
             </button>
           </div>
         </header>
