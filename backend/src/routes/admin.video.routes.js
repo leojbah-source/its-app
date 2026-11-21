@@ -27,15 +27,16 @@ async function activeYearId() {
   return rows[0]?.id || null;
 }
 async function eventVideoEligible(eventId) {
-  // Video recording applies only to dance events (category NATYA) and all team events.
+  // Video recording applies to dance events (category NATYA), all team events, and Fashion Show.
   const { rows } = await pool.query(
-    `SELECT e.event_kind, c.code AS category_code, c.name AS category_name
+    `SELECT e.event_kind, e.event_name, c.code AS category_code, c.name AS category_name
      FROM events e LEFT JOIN categories c ON c.id = e.category_id WHERE e.id = $1`, [eventId]);
   if (!rows[0]) return false;
   const r = rows[0];
   return r.event_kind === 'team'
     || /natya/i.test(r.category_code || '')
-    || /dance/i.test(r.category_name || '');
+    || /dance/i.test(r.category_name || '')
+    || /fashion/i.test(r.event_name || '');
 }
 async function currentFee() {
   const { rows } = await pool.query(`SELECT COALESCE(video_fee, 5.000) AS fee FROM year_config WHERE is_active = TRUE LIMIT 1`);
@@ -61,7 +62,7 @@ router.post('/:event_id/request', requireRole(...markRoles), async (req, res, ne
     if (reg[0].status === 'absent')
       return res.status(409).json({ error: 'This participant is marked absent — mark them present before adding a video request.' });
     if (!(await eventVideoEligible(reg[0].event_id)))
-      return res.status(409).json({ error: 'Video recording applies only to dance and team events.' });
+      return res.status(409).json({ error: 'Video recording applies only to dance, team and Fashion Show events.' });
 
     const fee = await currentFee();
     const { rows } = await pool.query(

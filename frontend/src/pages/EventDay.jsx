@@ -205,11 +205,12 @@ export default function EventDay() {
 
   const selectedEvent = eventsOnDate.find((e) => String(e.event_id) === String(eventId));
   const selectedGroup = groups.find((g) => String(g.age_group_id) === String(groupId));
-  // Video recording is offered only for dance events (category NATYA) and all team events.
+  // Video recording is offered for dance events (category NATYA), all team events, and Fashion Show.
   const videoEligible = !!selectedEvent && (
     selectedEvent.event_kind === 'team'
     || /natya/i.test(selectedEvent.category_code || '')
     || /dance/i.test(selectedEvent.category_name || '')
+    || /fashion/i.test(selectedEvent.name || '')
   );
   const selectedGroupCode = selectedGroup?.code;
   const locked = !!selectedGroup?.locked;
