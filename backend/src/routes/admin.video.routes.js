@@ -42,6 +42,13 @@ async function currentFee() {
   const { rows } = await pool.query(`SELECT COALESCE(video_fee, 5.000) AS fee FROM year_config WHERE is_active = TRUE LIMIT 1`);
   return rows[0] ? Number(rows[0].fee) : 5.000;
 }
+// Per-event video fee. Fashion Show runs ~3 minutes, so its fee is BHD 3 rather
+// than the standard year fee (BHD 5) used for dance/team events.
+async function eventVideoFee(eventId) {
+  const { rows } = await pool.query(`SELECT event_name FROM events WHERE id = $1`, [eventId]);
+  if (rows[0] && /fashion/i.test(rows[0].event_name || '')) return 3.000;
+  return currentFee();
+}
 
 // ── POST /api/admin/video/:event_id/request ──────────────────────────────────
 // body: { registration_id, payment_method }  → opt a registration in (or update
@@ -64,7 +71,7 @@ router.post('/:event_id/request', requireRole(...markRoles), async (req, res, ne
     if (!(await eventVideoEligible(reg[0].event_id)))
       return res.status(409).json({ error: 'Video recording applies only to dance, team and Fashion Show events.' });
 
-    const fee = await currentFee();
+    const fee = await eventVideoFee(reg[0].event_id);
     const { rows } = await pool.query(
       `INSERT INTO video_requests
          (year_id, registration_id, event_id, age_group_id, amount, payment_method, collected_by, collected_at, updated_at)

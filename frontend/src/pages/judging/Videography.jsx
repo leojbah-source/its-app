@@ -186,7 +186,6 @@ export default function Videography() {
                           <td className="px-3 py-2 text-slate-500">{r.age_group_label || r.age_group || '—'}</td>
                           <td className="px-3 py-2">
                             <Badge tone={r.payment_method === 'benefitpay' ? 'navy' : 'slate'}>{r.payment_method === 'benefitpay' ? 'BenefitPay' : 'Cash'}</Badge>
-                            <span className="ml-2 text-xs text-slate-400">{money(r.amount)}</span>
                           </td>
                           <td className="px-3 py-2 text-right">
                             <Button size="sm" variant={r.recorded ? 'primary' : 'outline'} icon={r.recorded ? Check : Circle}
