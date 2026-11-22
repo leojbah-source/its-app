@@ -105,6 +105,24 @@ router.put('/request/:registration_id', requireRole(...markRoles), async (req, r
   } catch (err) { next(err); }
 });
 
+// ── PUT /api/admin/video/request/:registration_id/amount — adjust the fee ────
+// Lets a coordinator change the video fee (e.g. a sibling/family discount) so
+// the recorded amount matches what was actually collected. Feeds Finance.
+router.put('/request/:registration_id/amount', requireRole(...markRoles), async (req, res, next) => {
+  try {
+    const amount = Number(req.body.amount);
+    if (!Number.isFinite(amount) || amount < 0)
+      return res.status(400).json({ error: 'amount must be a number of 0 or more' });
+    const { rows } = await pool.query(
+      `UPDATE video_requests SET amount = $1, updated_at = now()
+        WHERE registration_id = $2 RETURNING *`, [amount.toFixed(3), req.params.registration_id]);
+    if (!rows[0]) return res.status(404).json({ error: 'No video request for this registration' });
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'VIDEO_AMOUNT', entity: 'video_requests', entityId: rows[0].id, details: { amount } });
+    res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
 // ── DELETE /api/admin/video/request/:registration_id — opt out / undo tick ───
 router.delete('/request/:registration_id', requireRole(...markRoles), async (req, res, next) => {
   try {

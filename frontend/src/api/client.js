@@ -654,6 +654,8 @@ export const videoApi = {
     request(`/api/admin/video/${eventId}/request`, { method: 'POST', token, body: { registration_id, payment_method } }),
   setMethod: (token, registration_id, payment_method) =>
     request(`/api/admin/video/request/${registration_id}`, { method: 'PUT', token, body: { payment_method } }),
+  setAmount: (token, registration_id, amount) =>
+    request(`/api/admin/video/request/${registration_id}/amount`, { method: 'PUT', token, body: { amount } }),
   remove: (token, registration_id) =>
     request(`/api/admin/video/request/${registration_id}`, { method: 'DELETE', token }),
   // Videographer (Media): tick recorded / done.

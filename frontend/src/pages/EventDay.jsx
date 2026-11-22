@@ -274,6 +274,16 @@ export default function EventDay() {
     try { await videoApi.remove(token, reg.registration_id); }
     catch (err) { setFlash(err.message); loadRoster(); }
   }
+  // Adjust the video fee for a registration (e.g. a family/sibling discount).
+  async function saveAmount(reg, raw) {
+    const amt = Number(raw);
+    if (!Number.isFinite(amt) || amt < 0) { loadRoster(); return; }
+    try {
+      const r = await videoApi.setAmount(token, reg.registration_id, Number(amt.toFixed(3)));
+      setRoster((prev) => prev.map((x) => (x.registration_id === reg.registration_id
+        ? { ...x, video_amount: r.amount } : x)));
+    } catch (err) { setFlash(err.message); loadRoster(); }
+  }
   async function assign(mode) {
     setBusy(true); setFlash('');
     try {
@@ -489,6 +499,14 @@ export default function EventDay() {
                                         <option value="benefitpay">BenefitPay</option>
                                       </select>
                                     ) : <Badge tone="navy">{r.video_method === 'benefitpay' ? 'BenefitPay' : 'Cash'}</Badge>}
+                                    {canMark ? (
+                                      <input type="number" min={0} step={0.5}
+                                        value={r.video_amount ?? ''}
+                                        onChange={(e) => setRoster((prev) => prev.map((x) => (x.registration_id === r.registration_id ? { ...x, video_amount: e.target.value } : x)))}
+                                        onBlur={(e) => saveAmount(r, e.target.value)}
+                                        title="Video fee (BD) — change for a discount"
+                                        className="w-14 rounded border border-slate-300 px-1 py-1 text-xs text-right focus:outline-none focus:ring-1 focus:ring-navy-300" />
+                                    ) : <span className="text-xs text-slate-500">BD {Number(r.video_amount || 0).toFixed(3)}</span>}
                                     {r.video_recorded && <Badge tone="success">recorded</Badge>}
                                     {canMark && !locked && (
                                       <button onClick={() => removeVideo(r)} className="text-slate-400 hover:text-red-500" title="Remove video request"><X size={14} /></button>

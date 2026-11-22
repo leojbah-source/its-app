@@ -179,7 +179,19 @@ export default function Videography() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {visible.map((r) => (
+                      {(() => {
+                        let lastG = null; const out = [];
+                        visible.forEach((r) => {
+                          const g = r.age_group_label || r.age_group || '—';
+                          if (g !== lastG) {
+                            lastG = g;
+                            out.push(
+                              <tr key={`grp-${g}`} className="bg-slate-100">
+                                <td colSpan={5} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-navy-700">{g}</td>
+                              </tr>
+                            );
+                          }
+                          out.push(
                         <tr key={r.registration_id} className={r.recorded ? 'bg-emerald-50/40' : 'hover:bg-slate-50'}>
                           <td className="px-3 py-2">{r.chest_number != null ? <span className="font-mono font-semibold text-navy-800">{r.chest_number}</span> : <span className="text-slate-300">—</span>}</td>
                           <td className="px-3 py-2 font-medium text-slate-800">{r.name}</td>
@@ -194,7 +206,10 @@ export default function Videography() {
                             </Button>
                           </td>
                         </tr>
-                      ))}
+                          );
+                        });
+                        return out;
+                      })()}
                     </tbody>
                   </table>
                 </div>
