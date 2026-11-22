@@ -21,6 +21,7 @@ export default function Finance() {
   const [expenses, setExpenses] = useState([]);
   const [heads, setHeads] = useState([]);
   const [videoFin, setVideoFin] = useState(null);
+  const [dlVideo, setDlVideo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [flash, setFlash] = useState('');
 
@@ -78,6 +79,18 @@ export default function Finance() {
       URL.revokeObjectURL(url);
     } catch (e) { setFlash(e.message); }
   }
+  async function downloadVideoXlsx() {
+    setDlVideo(true);
+    try {
+      const blob = await videoApi.collectionsXlsx(token, yearId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'video-collections.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) { setFlash(e.message || 'Could not generate the Excel.'); }
+    finally { setDlVideo(false); }
+  }
   async function delIncome(id) { try { await financeApi.deleteIncome(token, id); loadAll(yearId); } catch (e) { setFlash(e.message); } }
   async function delExpense(id) { try { await financeApi.deleteExpense(token, id); loadAll(yearId); } catch (e) { setFlash(e.message); } }
 
@@ -128,7 +141,10 @@ export default function Finance() {
 
       {videoFin && videoFin.count > 0 && (
         <Card className="mb-4">
-          <h2 className="mb-2 text-sm font-semibold text-navy-800">Video recording collections</h2>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-navy-800">Video recording collections</h2>
+            <Button variant="outline" size="sm" icon={Download} loading={dlVideo} onClick={downloadVideoXlsx}>Excel (with amounts)</Button>
+          </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
               <div className="text-xs text-slate-500">Cash</div>

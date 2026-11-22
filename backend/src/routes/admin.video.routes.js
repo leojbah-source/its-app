@@ -192,7 +192,8 @@ router.get('/requests', requireRole(...viewRoles), async (req, res, next) => {
       [yearId, eventId, ageGroupId, recordedFilter]);
 
     if (req.query.format === 'csv') {
-      const cols = ['event_date', 'event_code', 'event_name', 'age_group', 'chest_number', 'name', 'payment_method', 'amount', 'recorded', 'collected_by_name', 'recorded_by_name'];
+      // No amount here — this CSV is for the videographer. Amounts are in the Finance Excel.
+      const cols = ['event_date', 'event_code', 'event_name', 'age_group', 'chest_number', 'name', 'payment_method', 'recorded', 'collected_by_name', 'recorded_by_name'];
       const header = cols.join(',');
       const body = rows.map((r) => cols.map((c) => `"${String(r[c] ?? '').replace(/"/g, '""')}"`).join(','));
       res.setHeader('Content-Type', 'text/csv');
@@ -237,6 +238,81 @@ router.get('/finance-summary', requireRole(...viewRoles), async (req, res, next)
         cash: Number(r.cash), benefitpay: Number(r.benefitpay),
       })),
     });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/admin/video/collections-xlsx?year_id= — Finance detail (amounts) ─
+router.get('/collections-xlsx', requireRole(...viewRoles), async (req, res, next) => {
+  try {
+    const yearId = toInt(req.query.year_id) || (await activeYearId());
+    if (!yearId) return res.status(400).json({ error: 'No active year' });
+    const { rows: yc } = await pool.query(`SELECT event_year_label FROM year_config WHERE id = $1`, [yearId]);
+    const yearLabel = yc[0] && yc[0].event_year_label ? yc[0].event_year_label : 'ITS';
+
+    const { rows } = await pool.query(
+      `SELECT to_char(vr.collected_at AT TIME ZONE 'Asia/Bahrain', 'YYYY-MM-DD HH24:MI') AS collected_at,
+              e.event_code, e.event_name, ag.code AS age_group, ag.sort_order AS ag_sort,
+              ca.chest_number, COALESCE(p.full_name, t.team_name) AS name,
+              vr.payment_method, vr.amount, vr.recorded,
+              cu.full_name AS collected_by, ru.full_name AS recorded_by
+         FROM video_requests vr
+         JOIN registrations r ON r.id = vr.registration_id
+         LEFT JOIN participants p ON p.id = r.participant_id
+         LEFT JOIN teams t ON t.id = r.team_id
+         LEFT JOIN events e ON e.id = vr.event_id
+         LEFT JOIN age_groups ag ON ag.id = vr.age_group_id
+         LEFT JOIN chest_assignments ca ON ca.registration_id = vr.registration_id
+         LEFT JOIN users cu ON cu.id = vr.collected_by
+         LEFT JOIN users ru ON ru.id = vr.recorded_by
+        WHERE vr.year_id = $1
+        ORDER BY e.event_code, ag.sort_order NULLS LAST, ca.chest_number NULLS LAST, name`, [yearId]);
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook(); wb.creator = 'KCA ITS'; wb.created = new Date();
+    const ws = wb.addWorksheet('Collections');
+    ws.columns = [
+      { header: 'Event', key: 'event', width: 30 },
+      { header: 'Age Group', key: 'ag', width: 11 },
+      { header: 'Chest', key: 'chest', width: 8 },
+      { header: 'Participant', key: 'name', width: 26 },
+      { header: 'Method', key: 'method', width: 12 },
+      { header: 'Amount (BD)', key: 'amount', width: 12 },
+      { header: 'Recorded', key: 'recorded', width: 10 },
+      { header: 'Collected by', key: 'collected_by', width: 20 },
+      { header: 'Collected at', key: 'collected_at', width: 18 },
+      { header: 'Recorded by', key: 'recorded_by', width: 20 },
+    ];
+    ws.getColumn('amount').numFmt = '0.000';
+    let total = 0, cash = 0, bp = 0;
+    rows.forEach((r) => {
+      const amt = Number(r.amount || 0); total += amt;
+      if (r.payment_method === 'benefitpay') bp += amt; else cash += amt;
+      ws.addRow({
+        event: `${r.event_code || ''} ${r.event_name || ''}`.trim(), ag: r.age_group || '',
+        chest: r.chest_number ?? '', name: String(r.name || '').toUpperCase(),
+        method: r.payment_method === 'benefitpay' ? 'BenefitPay' : 'Cash', amount: amt,
+        recorded: r.recorded ? 'Yes' : 'No', collected_by: r.collected_by || '',
+        collected_at: r.collected_at || '', recorded_by: r.recorded_by || '',
+      });
+    });
+    ws.getRow(1).font = { bold: true };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    ws.autoFilter = { from: 'A1', to: 'J1' };
+    const r3 = (n) => Math.round(n * 1000) / 1000;
+    const totRow = ws.addRow({ name: 'TOTAL', amount: r3(total) }); totRow.font = { bold: true };
+
+    const sm = wb.addWorksheet('Summary');
+    sm.columns = [{ header: 'Item', key: 'k', width: 22 }, { header: 'Value', key: 'v', width: 14 }];
+    sm.getColumn('v').numFmt = '0.000';
+    [['Total videos', rows.length], ['Cash (BD)', r3(cash)], ['BenefitPay (BD)', r3(bp)], ['Total (BD)', r3(cash + bp)]]
+      .forEach(([k, v]) => sm.addRow({ k, v }));
+    sm.getRow(1).font = { bold: true };
+
+    const buf = await wb.xlsx.writeBuffer();
+    const label = String(yearLabel).replace(/[^A-Za-z0-9]+/g, '-');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="video-collections-${label}.xlsx"`);
+    res.send(Buffer.from(buf));
   } catch (err) { next(err); }
 });
 

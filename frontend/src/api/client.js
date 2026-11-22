@@ -665,6 +665,11 @@ export const videoApi = {
   requests: (token, params = {}) => request(`/api/admin/video/requests${qs(params)}`, { token }),
   requestsCsv: (token, params = {}) => request(`/api/admin/video/requests${qs({ ...params, format: 'csv' })}`, { token }),
   financeSummary: (token, yearId) => request(`/api/admin/video/finance-summary${qs({ year_id: yearId })}`, { token }),
+  collectionsXlsx: async (token, yearId) => {
+    const res = await fetch(`${API_BASE}/api/admin/video/collections-xlsx${qs({ year_id: yearId })}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error || 'Download failed', res.status, d); }
+    return res.blob();
+  },
 };
 
 export const schoolsApi = {

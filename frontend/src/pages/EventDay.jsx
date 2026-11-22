@@ -492,7 +492,7 @@ export default function EventDay() {
                                     : <span className="text-xs text-slate-300">—</span>
                                 ) : r.video_wants ? (
                                   <div className="flex items-center gap-1.5">
-                                    {canMark && !locked ? (
+                                    {canMark ? (
                                       <select value={r.video_method || 'cash'} onChange={(e) => setVideo(r, e.target.value)}
                                         className="rounded border border-slate-300 px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-navy-300">
                                         <option value="cash">Cash</option>
@@ -508,12 +508,12 @@ export default function EventDay() {
                                         className="w-14 rounded border border-slate-300 px-1 py-1 text-xs text-right focus:outline-none focus:ring-1 focus:ring-navy-300" />
                                     ) : <span className="text-xs text-slate-500">BD {Number(r.video_amount || 0).toFixed(3)}</span>}
                                     {r.video_recorded && <Badge tone="success">recorded</Badge>}
-                                    {canMark && !locked && (
+                                    {canMark && (
                                       <button onClick={() => removeVideo(r)} className="text-slate-400 hover:text-red-500" title="Remove video request"><X size={14} /></button>
                                     )}
                                   </div>
                                 ) : (
-                                  canMark && !locked
+                                  canMark
                                     ? <Button size="sm" variant="outline" icon={Video} onClick={() => setVideo(r, 'cash')}>Video</Button>
                                     : <span className="text-xs text-slate-300">—</span>
                                 )}
