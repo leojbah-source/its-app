@@ -174,6 +174,7 @@ router.get('/requests', requireRole(...viewRoles), async (req, res, next) => {
               ca.chest_number,
               cu.full_name AS collected_by_name,
               ru.full_name AS recorded_by_name,
+              pu.phone AS mobile, pu.whatsapp_number AS whatsapp, pu.email AS email,
               (SELECT to_char(MIN(s.event_date), 'YYYY-MM-DD') FROM schedule s WHERE s.event_id = vr.event_id) AS event_date
        FROM video_requests vr
        JOIN registrations r ON r.id = vr.registration_id
@@ -184,6 +185,7 @@ router.get('/requests', requireRole(...viewRoles), async (req, res, next) => {
        LEFT JOIN chest_assignments ca ON ca.registration_id = vr.registration_id
        LEFT JOIN users cu ON cu.id = vr.collected_by
        LEFT JOIN users ru ON ru.id = vr.recorded_by
+       LEFT JOIN users pu ON pu.id = COALESCE(p.created_by, t.created_by)
        WHERE vr.year_id = $1
          AND ($2::int IS NULL OR vr.event_id = $2)
          AND ($3::int IS NULL OR vr.age_group_id = $3)
@@ -193,7 +195,7 @@ router.get('/requests', requireRole(...viewRoles), async (req, res, next) => {
 
     if (req.query.format === 'csv') {
       // No amount here — this CSV is for the videographer. Amounts are in the Finance Excel.
-      const cols = ['event_date', 'event_code', 'event_name', 'age_group', 'chest_number', 'name', 'payment_method', 'recorded', 'collected_by_name', 'recorded_by_name'];
+      const cols = ['event_date', 'event_code', 'event_name', 'age_group', 'chest_number', 'name', 'mobile', 'whatsapp', 'email', 'payment_method', 'recorded', 'collected_by_name', 'recorded_by_name'];
       const header = cols.join(',');
       const body = rows.map((r) => cols.map((c) => `"${String(r[c] ?? '').replace(/"/g, '""')}"`).join(','));
       res.setHeader('Content-Type', 'text/csv');
