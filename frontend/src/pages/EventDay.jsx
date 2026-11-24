@@ -197,6 +197,7 @@ export default function EventDay() {
     const map = new Map();
     for (const r of schedule) {
       if (String(r.event_date).slice(0, 10) !== date) continue;
+      if (r.event_kind === 'team') continue;  // team events are handled on Team Event Day
       if (!map.has(r.event_id)) map.set(r.event_id, { event_id: r.event_id, code: r.event_code, name: r.event_name, event_kind: r.event_kind, category_name: r.category_name, category_code: r.category_code, sessions: [] });
       map.get(r.event_id).sessions.push({ venue: r.venue, start: (r.start_time || '').slice(0, 5), end: (r.end_time || '').slice(0, 5), age_groups: r.age_groups });
     }
