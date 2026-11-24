@@ -4,7 +4,7 @@
 // attendance; assign chest numbers (restart at 1 per group) with a dramatized
 // on-screen draw. Chest numbers LOCK once judging starts (a score exists).
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { RefreshCw, Hash, Trash2, Check, X, Lock, Sparkles, Video, ArrowDownUp, Timer as TimerIcon, Play, Square } from 'lucide-react';
+import { RefreshCw, Hash, Trash2, Check, X, Lock, Sparkles, Video, ArrowDownUp, Timer as TimerIcon, Play, Square, Clock, Shuffle, Printer, Download } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -163,6 +163,103 @@ function GroupTimerPanel({ token, eventId, groupId }) {
   );
 }
 
+function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  if (!plan) return null;
+  const { slots = [], unallocated = [], total_entries = 0, total_capacity = 0, chests_assigned } = plan;
+  const sortByName = (a, b) => String(a.name).localeCompare(String(b.name));
+  const hasPlaced = slots.some((sl) => sl.participants.length);
+  async function draw() {
+    if (chests_assigned) { setErr('Chest numbers are already drawn for this group — clear them first to re-draw slots.'); return; }
+    if (!window.confirm('Randomly draw participants into time-slots? This replaces any current slot placement for this group.')) return;
+    setBusy(true); setErr('');
+    try { await chestApi.allocateSlots(token, eventId, groupId); onChanged && onChanged(); }
+    catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  }
+  async function downloadXlsx() {
+    setErr('');
+    try {
+      const blob = await chestApi.slotPlanXlsx(token, eventId, groupId);
+      const url = URL.createObjectURL(blob); const a = document.createElement('a');
+      a.href = url; a.download = `slots-${plan.event_code || 'event'}-${plan.age_group_code || 'grp'}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    } catch (e) { setErr(e.message); }
+  }
+  function printList() {
+    const w = window.open('', '_blank'); if (!w) return;
+    const esc = (x) => String(x == null ? '' : x).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const block = (title, cls, ppl) => {
+      const rows = ppl.length
+        ? [...ppl].sort(sortByName).map((p, i) => `<tr><td>${i + 1}</td><td>${esc(String(p.name).toUpperCase())}</td></tr>`).join('')
+        : '<tr><td></td><td class=muted>— none —</td></tr>';
+      return `<h3 class="${cls}">${title}</h3><table>${rows}</table>`;
+    };
+    const slotHtml = slots.map((sl) => {
+      const range = sl.chest_no_start ? ` (chests ${sl.chest_no_start}–${sl.chest_no_start + sl.capacity - 1})` : '';
+      const t = `${esc(sl.slot_label)}${sl.reporting_time ? ' · report ' + esc(sl.reporting_time) : ''}${range}`;
+      return block(t, 'slot', sl.participants);
+    }).join('');
+    const un = unallocated.length ? block(`Not yet placed (${unallocated.length})`, 'warn', unallocated) : '';
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Time-slots</title><style>body{font-family:system-ui,Arial,sans-serif;margin:24px;color:#111}h1{font-size:18px;margin:0 0 2px}h2{font-size:13px;font-weight:400;color:#555;margin:0 0 16px}h3{font-size:14px;margin:18px 0 4px;background:#eee;padding:5px 8px;border-radius:4px}h3.warn{background:#fde8e8;color:#a00}table{border-collapse:collapse;width:100%;margin-bottom:6px}td{border-bottom:1px solid #e3e3e3;padding:3px 8px;font-size:13px}td:first-child{width:34px;color:#888}.muted{color:#aaa}@media print{h3{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body><h1>${esc(plan.event_code)} ${esc(plan.event_name)} — ${esc(plan.age_group_label || plan.age_group_code || '')}</h1><h2>Time-slot plan · ${total_entries} participants</h2>${slotHtml}${un}<script>window.onload=function(){setTimeout(function(){window.print();},150);};<\/script></body></html>`);
+    w.document.close();
+  }
+  return (
+    <Card className="mb-4 p-0 overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-navy-50/60 px-4 py-2">
+        <span className="flex items-center gap-2 text-sm font-semibold text-navy-800">
+          <Clock size={15} /> Time-slot plan
+          <span className="text-xs font-normal text-slate-500">{total_entries} participants · {total_capacity} places</span>
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {canMark && !locked && (
+            <Button variant="primary" size="sm" icon={Shuffle} loading={busy} onClick={draw} disabled={chests_assigned}
+              title={chests_assigned ? 'Clear chest numbers first to re-draw slots' : 'Randomly place participants into slots'}>
+              {hasPlaced ? 'Re-draw slots' : 'Draw slots'}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" icon={Printer} onClick={printList}>Print</Button>
+          <Button variant="outline" size="sm" icon={Download} onClick={downloadXlsx}>Excel</Button>
+        </div>
+      </div>
+      {err && <p className="px-4 py-1.5 text-xs text-red-600">{err}</p>}
+      {slots.length === 0 ? (
+        <p className="px-4 py-4 text-xs text-slate-500">No time-slots configured. Add them in Events → this event → Slots.</p>
+      ) : (
+        <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
+          {slots.map((sl) => (
+            <div key={sl.id} className="rounded-lg border border-slate-200">
+              <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-3 py-1.5">
+                <span className="text-xs font-semibold text-navy-700">{sl.slot_label}{sl.reporting_time ? ` · ${sl.reporting_time}` : ''}</span>
+                <span className="text-[10px] text-slate-400">{sl.participants.length}/{sl.capacity}{sl.chest_no_start ? ` · #${sl.chest_no_start}-${sl.chest_no_start + sl.capacity - 1}` : ''}</span>
+              </div>
+              {sl.participants.length === 0 ? <p className="px-3 py-2 text-[11px] text-slate-300">— empty —</p> : (
+                <ol className="divide-y divide-slate-100">
+                  {[...sl.participants].sort(sortByName).map((p) => (
+                    <li key={p.registration_id} className={`flex items-center justify-between px-3 py-1 text-xs ${p.status === 'absent' ? 'text-red-400 line-through' : 'text-slate-700'}`}>
+                      <span>{p.name}</span>
+                      {p.chest_number != null && <span className="font-mono font-semibold text-navy-700">{p.chest_number}</span>}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          ))}
+          {unallocated.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/40 sm:col-span-2 lg:col-span-3">
+              <div className="border-b border-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700">Not yet placed ({unallocated.length}) — add more slots or capacity, then re-draw</div>
+              <ul className="flex flex-wrap gap-x-4 gap-y-1 px-3 py-2 text-xs text-amber-800">
+                {[...unallocated].sort(sortByName).map((p) => <li key={p.registration_id}>{p.name}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function EventDay() {
   const { token, user } = useAuth();
   const canMark = MARK_ROLES.includes(user?.role);
@@ -181,6 +278,7 @@ export default function EventDay() {
   const [draw, setDraw] = useState(null);
   const [manualEdit, setManualEdit] = useState(null);
   const [sortBy, setSortBy] = useState('chest'); // 'chest' | 'name'
+  const [slotPlan, setSlotPlan] = useState(null);
 
   useEffect(() => { scheduleApi.list(token).then(setSchedule).catch(() => {}); }, [token]);
 
@@ -215,6 +313,7 @@ export default function EventDay() {
   );
   const selectedGroupCode = selectedGroup?.code;
   const locked = !!selectedGroup?.locked;
+  const timeSlotMode = !!slotPlan?.time_slot_mode;
   const groupSession = useMemo(() => {
     if (!selectedEvent || !selectedGroupCode) return null;
     return selectedEvent.sessions.find((s) => (s.age_groups || '').split(', ').includes(selectedGroupCode)) || selectedEvent.sessions[0] || null;
@@ -252,6 +351,13 @@ export default function EventDay() {
     finally { setLoading(false); }
   }, [token, eventId, groupId]);
   useEffect(() => { loadRoster(); }, [loadRoster]);
+
+  const loadSlotPlan = useCallback(async () => {
+    if (!eventId || !groupId) { setSlotPlan(null); return; }
+    try { setSlotPlan(await chestApi.slotPlan(token, eventId, groupId)); }
+    catch { setSlotPlan(null); }
+  }, [token, eventId, groupId]);
+  useEffect(() => { loadSlotPlan(); }, [loadSlotPlan]);
 
   async function mark(reg, present) {
     setRoster((prev) => prev.map((x) => (x.registration_id === reg.registration_id ? { ...x, status: present ? 'attended' : 'absent' } : x)));
@@ -294,7 +400,7 @@ export default function EventDay() {
       const items = r.map((a) => ({ chest: a.chest_number, name: byReg.get(a.registration_id) || `#${a.registration_id}` }))
         .sort((a, b) => a.chest - b.chest);
       if (items.length) setDraw(items);
-      loadRoster(); reloadGroups();
+      loadRoster(); reloadGroups(); loadSlotPlan();
     } catch (err) { setFlash(err.message); }
     finally { setBusy(false); }
   }
@@ -403,6 +509,11 @@ export default function EventDay() {
       {eventId && groupId && (
         <>
           <GroupTimerPanel token={token} eventId={eventId} groupId={groupId} />
+          {timeSlotMode && (
+            <SlotPlanPanel plan={slotPlan} token={token} eventId={eventId} groupId={groupId}
+              locked={locked} canMark={canMark}
+              onChanged={() => { loadSlotPlan(); loadRoster(); reloadGroups(); }} />
+          )}
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <Badge tone="navy">{counts.total} entries</Badge>
             <Badge tone="success">{counts.attended} present</Badge>
@@ -412,18 +523,19 @@ export default function EventDay() {
             {locked && <Badge tone="danger"><span className="inline-flex items-center gap-1"><Lock size={11} /> Locked — judging started</span></Badge>}
             <div className="flex-1" />
             {canMark && !locked && (
-              <>
+              timeSlotMode ? (
+                <Button variant="primary" icon={Hash} loading={busy} disabled={counts.unmarked > 0 || counts.awaiting === 0}
+                  onClick={() => assign('timeslot')}
+                  title={counts.unmarked > 0 ? 'Mark all participants present/absent first' : 'Draw chest numbers per time-slot (slot 1 → 1-5, slot 2 → 6-10, …)'}>
+                  Assign chests by slot ({counts.awaiting})
+                </Button>
+              ) : (
                 <Button variant="primary" icon={Hash} loading={busy} disabled={counts.unmarked > 0 || counts.awaiting === 0}
                   onClick={() => assign('auto')}
                   title={counts.unmarked > 0 ? 'Mark all participants present/absent first' : 'Random chest numbers for attendees in this group'}>
                   Assign chests ({counts.awaiting})
                 </Button>
-                <Button variant="outline" icon={Hash} loading={busy} disabled={counts.unmarked > 0 || counts.awaiting === 0}
-                  onClick={() => assign('timeslot')}
-                  title={counts.unmarked > 0 ? 'Mark all participants present/absent first' : 'Lot draw per time-slot, within this group'}>
-                  By time-slot
-                </Button>
-              </>
+              )
             )}
             {canManual && !locked && counts.withChest > 0 && <Button variant="ghost" icon={Trash2} onClick={clearChests}>Clear chests</Button>}
             <Button variant="outline" icon={RefreshCw} onClick={loadRoster}>Refresh</Button>

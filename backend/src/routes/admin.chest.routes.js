@@ -25,6 +25,57 @@ async function eventYearId(eventId) {
   const { rows } = await pool.query(`SELECT year_id FROM events WHERE id = $1`, [eventId]);
   return rows[0]?.year_id || null;
 }
+
+async function eventTimeSlotMode(eventId) {
+  const { rows } = await pool.query(`SELECT time_slot_mode FROM events WHERE id = $1`, [eventId]);
+  return !!rows[0]?.time_slot_mode;
+}
+async function eventSlots(eventId) {
+  const { rows } = await pool.query(
+    `SELECT id, slot_label, reporting_time, participant_capacity AS capacity, chest_no_start, sort_order
+       FROM event_time_slots WHERE event_id = $1 ORDER BY sort_order, id`, [eventId]);
+  return rows;
+}
+// Snapshot of how participants sit across an event's time-slots, for one age group.
+async function buildSlotPlan(eventId, ag) {
+  const { rows: ev } = await pool.query(
+    `SELECT e.event_code, e.event_name, e.time_slot_mode,
+            ag.code AS age_group_code, ag.label AS age_group_label
+       FROM events e JOIN age_groups ag ON ag.id = $2 WHERE e.id = $1`, [eventId, ag]);
+  const meta = ev[0] || {};
+  const slots = await eventSlots(eventId);
+  const { rows: regs } = await pool.query(
+    `SELECT r.id AS registration_id, r.status, r.time_slot_id,
+            COALESCE(p.full_name, t.team_name) AS name, ca.chest_number
+       FROM registrations r
+       LEFT JOIN participants p ON p.id = r.participant_id
+       LEFT JOIN teams t ON t.id = r.team_id
+       LEFT JOIN chest_assignments ca ON ca.registration_id = r.id
+      WHERE r.event_id = $1 AND r.age_group_id = $2 AND r.status NOT IN ('withdrawn','swapped')
+      ORDER BY name`, [eventId, ag]);
+  const bySlot = new Map(slots.map((sl) => [sl.id, []]));
+  const unallocated = [];
+  for (const r of regs) {
+    const row = { registration_id: r.registration_id, name: r.name, status: r.status, chest_number: r.chest_number };
+    if (r.time_slot_id && bySlot.has(r.time_slot_id)) bySlot.get(r.time_slot_id).push(row);
+    else unallocated.push(row);
+  }
+  const outSlots = slots.map((sl) => ({
+    id: sl.id, slot_label: sl.slot_label,
+    reporting_time: sl.reporting_time ? String(sl.reporting_time).slice(0, 5) : null,
+    capacity: sl.capacity, chest_no_start: sl.chest_no_start,
+    participants: bySlot.get(sl.id) || [],
+  }));
+  return {
+    event_code: meta.event_code, event_name: meta.event_name,
+    time_slot_mode: !!meta.time_slot_mode,
+    age_group_code: meta.age_group_code, age_group_label: meta.age_group_label,
+    slots: outSlots, unallocated,
+    total_entries: regs.length,
+    total_capacity: slots.reduce((a, sl) => a + (sl.capacity || 0), 0),
+    chests_assigned: regs.some((r) => r.chest_number != null),
+  };
+}
 // Chest numbers lock once judging has started — i.e. any score exists for a
 // registration in this (event, age group). Prevents reshuffling mid-contest.
 async function groupLocked(eventId, ageGroupId) {
@@ -343,7 +394,117 @@ router.post('/:event_id/assign-auto', requireRole(...markRoles), async (req, res
   } catch (err) { next(err); }
 });
 
-// ── POST /api/admin/chest/:event_id/assign-timeslot — lot draw per slot, one group ─
+// ── GET /api/admin/chest/:event_id/slot-plan?age_group_id= — slot layout ──────
+// How participants sit across the event's time-slots for this group (who is in
+// which slot, with reporting times and chest ranges). Drives the planning view.
+router.get('/:event_id/slot-plan', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const ag = grp(req.query.age_group_id);
+    if (!ag) return res.status(400).json({ error: 'age_group_id is required' });
+    res.json(await buildSlotPlan(req.params.event_id, ag));
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/chest/:event_id/allocate-slots — classify into slots ──────
+// Random draw that places each participant in the group into a time-slot, filling
+// slots in order up to their capacity. Planning step done BEFORE the day so parents
+// can be told their slot/reporting time. Never touches chest numbers. Blocked once
+// chests are drawn or judging has started. Only for time-slot-mode events.
+router.post('/:event_id/allocate-slots', requireRole(...markRoles), async (req, res, next) => {
+  const client = await pool.connect();
+  let released = false;
+  try {
+    const ag = grp(req.body.age_group_id);
+    if (!ag) return res.status(400).json({ error: 'age_group_id is required' });
+    if (!(await eventTimeSlotMode(req.params.event_id)))
+      return res.status(400).json({ error: 'This event is not in time-slot mode.' });
+    if (await groupLocked(req.params.event_id, ag))
+      return res.status(409).json({ error: 'Slots are locked — judging has started for this group.' });
+    const slots = await eventSlots(req.params.event_id);
+    if (!slots.length) return res.status(400).json({ error: 'No time slots configured for this event.' });
+    const { rows: hasChest } = await pool.query(
+      `SELECT EXISTS(SELECT 1 FROM chest_assignments WHERE event_id = $1 AND age_group_id = $2) AS x`,
+      [req.params.event_id, ag]);
+    if (hasChest[0].x) return res.status(409).json({ error: 'Clear chest numbers for this group before re-drawing slots.' });
+    const { rows: regs } = await pool.query(
+      `SELECT id FROM registrations WHERE event_id = $1 AND age_group_id = $2 AND status NOT IN ('withdrawn','swapped')`,
+      [req.params.event_id, ag]);
+    const order = shuffle(regs.map((r) => r.id));
+    const totalCap = slots.reduce((a, sl) => a + (Number(sl.capacity) || 0), 0);
+    await client.query('BEGIN');
+    await client.query(`UPDATE registrations SET time_slot_id = NULL WHERE event_id = $1 AND age_group_id = $2`,
+      [req.params.event_id, ag]);
+    let idx = 0;
+    for (const sl of slots) {
+      const take = order.slice(idx, idx + (Number(sl.capacity) || 0));
+      idx += (Number(sl.capacity) || 0);
+      if (take.length) await client.query(
+        `UPDATE registrations SET time_slot_id = $3 WHERE id = ANY($4::int[]) AND event_id = $1 AND age_group_id = $2`,
+        [req.params.event_id, ag, sl.id, take]);
+    }
+    await client.query('COMMIT');
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'ALLOCATE_SLOTS', entity: 'registrations', entityId: req.params.event_id,
+      details: { age_group_id: ag, allocated: Math.min(order.length, totalCap), unallocated: Math.max(0, order.length - totalCap) } });
+    client.release(); released = true;
+    res.json(await buildSlotPlan(req.params.event_id, ag));
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+    next(err);
+  } finally { if (!released) client.release(); }
+});
+
+// ── GET /api/admin/chest/:event_id/slot-plan-xlsx?age_group_id= — parent list ─
+router.get('/:event_id/slot-plan-xlsx', requireRole(...staffRoles), async (req, res, next) => {
+  try {
+    const ag = grp(req.query.age_group_id);
+    if (!ag) return res.status(400).json({ error: 'age_group_id is required' });
+    const plan = await buildSlotPlan(req.params.event_id, ag);
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'KCA ITS'; wb.created = new Date();
+    const ws = wb.addWorksheet('Time-slots');
+    ws.getColumn(1).width = 16; ws.getColumn(2).width = 4; ws.getColumn(3).width = 5;
+    ws.getColumn(4).width = 36; ws.getColumn(5).width = 8;
+    ws.mergeCells('A1:E1');
+    ws.getCell('A1').value = `${plan.event_code || ''} ${plan.event_name || ''} — ${plan.age_group_label || plan.age_group_code || ''}  ·  Time-slot plan`;
+    ws.getCell('A1').font = { bold: true, size: 13 };
+    let rn = 3;
+    const section = (txt) => { const r = ws.getRow(rn++); const c = r.getCell(1); c.value = txt; c.font = { bold: true }; for (let k = 1; k <= 5; k++) r.getCell(k).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFEFEF' } }; };
+    for (const sl of plan.slots) {
+      const range = sl.chest_no_start ? ` · chests ${sl.chest_no_start}-${sl.chest_no_start + sl.capacity - 1}` : '';
+      section(`${sl.slot_label}${sl.reporting_time ? ' · report ' + sl.reporting_time : ''} · ${sl.participants.length}/${sl.capacity}${range}`);
+      const hr = ws.getRow(rn++); ['', '', '#', 'Participant', 'Chest'].forEach((t, k) => { hr.getCell(k + 1).value = t; hr.getCell(k + 1).font = { italic: true, color: { argb: 'FF888888' } }; });
+      [...sl.participants].sort((a, b) => String(a.name).localeCompare(b.name)).forEach((p, k) => {
+        const r = ws.getRow(rn++);
+        r.getCell(3).value = k + 1;
+        r.getCell(4).value = String(p.name || '').toUpperCase();
+        r.getCell(5).value = p.chest_number != null ? Number(p.chest_number) : '';
+        if (p.status === 'absent') { r.getCell(4).font = { strike: true, color: { argb: 'FFAA0000' } }; }
+      });
+      rn++;
+    }
+    if (plan.unallocated.length) {
+      section(`Not yet placed (${plan.unallocated.length}) — add slots or capacity`);
+      [...plan.unallocated].sort((a, b) => String(a.name).localeCompare(b.name)).forEach((p, k) => {
+        const r = ws.getRow(rn++); r.getCell(3).value = k + 1; r.getCell(4).value = String(p.name || '').toUpperCase();
+      });
+    }
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'EXPORT_SLOT_PLAN_XLSX', entity: 'event_time_slots', entityId: req.params.event_id, details: { age_group_id: ag } });
+    const buf = await wb.xlsx.writeBuffer();
+    const fn = `slots-${(plan.event_code || 'event')}-${(plan.age_group_code || 'grp')}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${fn}"`);
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/chest/:event_id/assign-timeslot — chest draw per slot ─────
+// On the day: lot-draw chest numbers for ATTENDED participants, slot by slot, using
+// each slot's chest_no_start as the base (slot 1 → 1..5, slot 2 → 6..10, …). Absent
+// children leave a gap in their slot's range. Requires participants to already be
+// placed in slots (see allocate-slots) — otherwise there is nothing to number.
 router.post('/:event_id/assign-timeslot', requireRole(...markRoles), async (req, res, next) => {
   try {
     const ag = grp(req.body.age_group_id);
@@ -354,28 +515,41 @@ router.post('/:event_id/assign-timeslot', requireRole(...markRoles), async (req,
       return res.status(409).json({ error: 'Chest numbers are locked — judging has started for this group.' });
     if (await groupUnmarked(req.params.event_id, ag) > 0)
       return res.status(409).json({ error: 'Mark every participant present or absent before assigning chest numbers.' });
-    const { rows: slots } = await pool.query(
-      `SELECT id FROM event_time_slots WHERE event_id = $1 ORDER BY sort_order, id`, [req.params.event_id]);
+    const slots = await eventSlots(req.params.event_id);
     if (!slots.length) return res.status(400).json({ error: 'No time slots configured for this event' });
-
-    const { rows: mx } = await pool.query(
-      `SELECT COALESCE(MAX(chest_number), 0) AS max_no FROM chest_assignments WHERE event_id = $1 AND age_group_id = $2`,
+    const { rows: unplaced } = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM registrations
+        WHERE event_id = $1 AND age_group_id = $2 AND status = 'attended' AND time_slot_id IS NULL`,
       [req.params.event_id, ag]);
-    let next_no = Number(mx[0].max_no) + 1;
+    if (unplaced[0].c > 0)
+      return res.status(409).json({ error: `${unplaced[0].c} present participant(s) are not placed in a slot. Use “Draw slots” first, then assign chest numbers.` });
+
+    const { rows: existing } = await pool.query(
+      `SELECT chest_number FROM chest_assignments WHERE event_id = $1 AND age_group_id = $2`,
+      [req.params.event_id, ag]);
+    const taken = new Set(existing.map((r) => Number(r.chest_number)));
+    let overflow = (taken.size ? Math.max(...taken) : 0) + 1;
     const assigned = [];
     for (const slot of slots) {
+      const base = Number(slot.chest_no_start) || overflow;
+      const cap = Number(slot.capacity) || 0;
+      const free = [];
+      for (let n = base; n < base + cap; n++) if (!taken.has(n)) free.push(n);
       const { rows: pending } = await pool.query(
         `SELECT r.id AS registration_id FROM registrations r
-         WHERE r.event_id = $1 AND r.age_group_id = $2 AND r.status = 'attended' AND r.time_slot_id = $3
-           AND r.id NOT IN (SELECT registration_id FROM chest_assignments WHERE event_id = $1 AND age_group_id = $2)`,
+          WHERE r.event_id = $1 AND r.age_group_id = $2 AND r.status = 'attended' AND r.time_slot_id = $3
+            AND r.id NOT IN (SELECT registration_id FROM chest_assignments WHERE event_id = $1 AND age_group_id = $2)`,
         [req.params.event_id, ag, slot.id]);
       for (const reg of shuffle(pending)) {
+        let chest = free.shift();
+        if (chest == null) { while (taken.has(overflow)) overflow++; chest = overflow; }
+        taken.add(chest); if (chest >= overflow) overflow = chest + 1;
         const { rows } = await pool.query(
           `INSERT INTO chest_assignments
              (year_id, event_id, age_group_id, time_slot_id, registration_id, chest_number, allocation_mode, allocated_by)
            VALUES ($1,$2,$3,$4,$5,$6,'timeslot',$7) RETURNING registration_id, chest_number`,
-          [yearId, req.params.event_id, ag, slot.id, reg.registration_id, next_no, req.user.id]);
-        assigned.push(rows[0]); next_no++;
+          [yearId, req.params.event_id, ag, slot.id, reg.registration_id, chest, req.user.id]);
+        assigned.push(rows[0]);
       }
     }
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
@@ -384,7 +558,7 @@ router.post('/:event_id/assign-timeslot', requireRole(...markRoles), async (req,
   } catch (err) { next(err); }
 });
 
-// ── PUT /api/admin/chest/manual/:reg_id — Chairman/SuperAdmin only (rule #4) ──
+
 router.put('/manual/:reg_id', requireRole('Chairman', 'SuperAdmin'), async (req, res, next) => {
   try {
     const { event_id, chest_number } = req.body;
