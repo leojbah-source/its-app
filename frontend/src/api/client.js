@@ -118,8 +118,12 @@ export const awardsApi = {
     return res.blob();
   },
   exportCsv: (token, yearId = 'active') => request(`/api/admin/awards/${yearId}/export`, { token }),
-  teacherEntries: (token, yearId, teacher) =>
-    request(`/api/admin/awards/${yearId}/teacher-entries?teacher=${encodeURIComponent(teacher)}`, { token }),
+  teacherEntries: (token, yearId, teacher, category) =>
+    request(`/api/admin/awards/${yearId}/teacher-entries${qs({ teacher, category })}`, { token }),
+  teachers: (token, yearId, category) =>
+    request(`/api/admin/awards/${yearId}/teachers${qs({ category })}`, { token }),
+  renameTeacher: (token, yearId, { category, from, to }) =>
+    request(`/api/admin/awards/${yearId}/teachers/rename`, { method: 'POST', token, body: { category, from, to } }),
 };
 
 // Branded print-outs (data only; the page renders + prints).

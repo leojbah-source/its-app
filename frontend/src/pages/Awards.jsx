@@ -4,7 +4,7 @@
 // results. Read-only view + CSV export.
 import { useEffect, useState, useCallback, useMemo, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Download, Trophy, School, GraduationCap, Award, ChevronRight } from 'lucide-react';
+import { RefreshCw, Download, Trophy, School, GraduationCap, Award, ChevronRight, X } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -82,22 +82,7 @@ export default function Awards() {
 
   const num = (v) => Number(v || 0).toFixed(1);
 
-  // Teacher drill-down (view only): expand a teacher to see their finalised entries.
-  const [openT, setOpenT] = useState(null);
-  const [tEntries, setTEntries] = useState({});
-  const [tBusy, setTBusy] = useState(null);
-  async function toggleTeacher(name) {
-    if (openT === name) { setOpenT(null); return; }
-    setOpenT(name);
-    if (!tEntries[name]) {
-      setTBusy(name);
-      try {
-        const r = await awardsApi.teacherEntries(token, 'active', name);
-        setTEntries((m) => ({ ...m, [name]: r.entries || [] }));
-      } catch (e) { setFlash(e.message); }
-      finally { setTBusy(null); }
-    }
-  }
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const placeLabel = (n) => (n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : n ? String(n) : '—');
   const ageSections = useMemo(() => toSections(data?.age_group_toppers, 'age_group_id', 'age_group_label'), [data]);
   const catSections = useMemo(() => toSections(data?.category_toppers, 'category_id', 'category_name'), [data]);
@@ -179,82 +164,14 @@ export default function Awards() {
             </Card>
 
             <Card className="p-0 overflow-hidden">
-              <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2 text-sm font-semibold text-navy-800"><GraduationCap size={15} /> Teacher Awards (Best Teacher)</div>
-              {(data.teacher_awards || []).length === 0 ? <p className="px-4 py-6 text-center text-sm text-slate-400">No teacher-linked finalised results yet.</p>
-                : (
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-white text-xs uppercase tracking-wide text-slate-500">
-                      <tr>
-                        <th className="px-3 py-2 text-left">#</th>
-                        <th className="px-3 py-2 text-left">Teacher</th>
-                        <th className="px-2 py-2 text-center">Entries</th>
-                        <th className="px-2 py-2 text-center">Total points</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {data.teacher_awards.map((t, i) => (
-                        <Fragment key={t.teacher_name}>
-                          <tr onClick={() => toggleTeacher(t.teacher_name)}
-                            className={`cursor-pointer hover:bg-slate-50 ${i === 0 ? 'bg-gold-50/40' : ''} ${openT === t.teacher_name ? 'bg-slate-50' : ''}`}
-                            title="Click to view this teacher's entries">
-                            <td className="px-3 py-2">{i === 0 ? '🏆' : i + 1}</td>
-                            <td className="px-3 py-2 font-medium text-slate-800">
-                              <span className="inline-flex items-center gap-1">
-                                <ChevronRight size={13} className={`text-slate-400 transition-transform ${openT === t.teacher_name ? 'rotate-90' : ''}`} />
-                                {t.teacher_name}
-                              </span>
-                            </td>
-                            <td className="px-2 py-2 text-center text-navy-600 font-medium">{t.entries}</td>
-                            <td className="px-2 py-2 text-center font-semibold text-navy-800">{num(t.total_points)}</td>
-                          </tr>
-                          {openT === t.teacher_name && (
-                            <tr>
-                              <td colSpan={4} className="bg-slate-50 px-4 py-3">
-                                {tBusy === t.teacher_name ? (
-                                  <p className="text-xs text-slate-400">Loading entries…</p>
-                                ) : (tEntries[t.teacher_name] || []).length === 0 ? (
-                                  <p className="text-xs text-slate-400">No finalised entries found for this teacher.</p>
-                                ) : (
-                                  <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                                    <table className="min-w-full text-xs">
-                                      <thead className="text-[11px] uppercase tracking-wide text-slate-400">
-                                        <tr>
-                                          <th className="px-2 py-1.5 text-left">Participant / Team</th>
-                                          <th className="px-2 py-1.5 text-left">Event</th>
-                                          <th className="px-2 py-1.5 text-left">Group</th>
-                                          <th className="px-2 py-1.5 text-left">Role</th>
-                                          <th className="px-2 py-1.5 text-center">Prize</th>
-                                          <th className="px-2 py-1.5 text-center">Grade</th>
-                                          <th className="px-2 py-1.5 text-center">Points</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody className="divide-y divide-slate-100">
-                                        {tEntries[t.teacher_name].map((e, j) => (
-                                          <tr key={j} className={e.prize_place ? 'bg-amber-50/40' : ''}>
-                                            <td className="px-2 py-1.5 font-medium text-slate-700">
-                                              {e.entry_name || '—'}{e.is_team ? ' (team)' : ''}
-                                              {e.school ? <span className="block text-[10px] font-normal text-slate-400">{e.school}</span> : null}
-                                            </td>
-                                            <td className="px-2 py-1.5 text-slate-600"><span className="font-mono text-slate-400">{e.event_code}</span> {e.event_name}</td>
-                                            <td className="px-2 py-1.5 text-slate-600">{e.age_group_label || e.age_group_code || '—'}</td>
-                                            <td className="px-2 py-1.5 text-slate-500">{e.taught_as || '—'}</td>
-                                            <td className="px-2 py-1.5 text-center font-medium text-slate-700">{placeLabel(e.prize_place)}</td>
-                                            <td className="px-2 py-1.5 text-center text-slate-600">{e.grade || '—'}</td>
-                                            <td className="px-2 py-1.5 text-center font-semibold text-navy-800">{num(e.total_points)}</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2">
+                <span className="flex items-center gap-2 text-sm font-semibold text-navy-800"><GraduationCap size={15} /> Teacher Awards</span>
+                <Button variant="outline" size="sm" onClick={() => setCleanupOpen(true)}>Clean up teacher names</Button>
+              </div>
+              <div className="grid gap-4 p-4 lg:grid-cols-2">
+                <TeacherAwards token={token} category="dance" title="Best Dance Teacher" rows={data.dance_teacher_awards || []} />
+                <TeacherAwards token={token} category="music" title="Best Music Teacher" rows={data.music_teacher_awards || []} />
+              </div>
             </Card>
 
             {(data.age_group_toppers || []).length > 0 && (
@@ -316,6 +233,7 @@ export default function Awards() {
             </p>
           </div>
         )}
+      {cleanupOpen && <TeacherCleanup token={token} onClose={() => { setCleanupOpen(false); load(); }} />}
     </AdminLayout>
   );
 }
@@ -414,3 +332,156 @@ function TrophyCount({ trophy }) {
     </Card>
   );
 }
+
+
+function TeacherAwards({ token, category, title, rows }) {
+  const [openKey, setOpenKey] = useState(null);
+  const [entries, setEntries] = useState({});
+  const [busy, setBusy] = useState(null);
+  const num = (v) => Number(v || 0).toFixed(1);
+  const placeLabel = (n) => (n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : n ? String(n) : 'â');
+  async function toggle(name) {
+    if (openKey === name) { setOpenKey(null); return; }
+    setOpenKey(name);
+    if (!entries[name]) {
+      setBusy(name);
+      try { const r = await awardsApi.teacherEntries(token, 'active', name, category); setEntries((m) => ({ ...m, [name]: r.entries || [] })); }
+      catch { /* ignore */ }
+      finally { setBusy(null); }
+    }
+  }
+  return (
+    <div className="rounded-lg border border-slate-200">
+      <div className="border-b border-slate-100 bg-slate-50/60 px-3 py-1.5 text-xs font-semibold text-navy-700">{title}</div>
+      {rows.length === 0 ? <p className="px-3 py-5 text-center text-xs text-slate-400">No finalised entries yet.</p> : (
+        <table className="min-w-full text-sm">
+          <thead className="text-[11px] uppercase tracking-wide text-slate-400">
+            <tr><th className="px-3 py-2 text-left">#</th><th className="px-3 py-2 text-left">Teacher</th><th className="px-2 py-2 text-center">Entries</th><th className="px-2 py-2 text-center">Points</th></tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((t, i) => (
+              <Fragment key={t.tkey || t.teacher_name}>
+                <tr onClick={() => toggle(t.teacher_name)} className={`cursor-pointer hover:bg-slate-50 ${i === 0 ? 'bg-gold-50/40' : ''}`} title="Click to view entries">
+                  <td className="px-3 py-2">{i === 0 ? '🏆' : i + 1}</td>
+                  <td className="px-3 py-2 font-medium text-slate-800"><span className="inline-flex items-center gap-1"><ChevronRight size={13} className={`text-slate-400 transition-transform ${openKey === t.teacher_name ? 'rotate-90' : ''}`} />{t.teacher_name}</span></td>
+                  <td className="px-2 py-2 text-center font-medium text-navy-600">{t.entries}</td>
+                  <td className="px-2 py-2 text-center font-semibold text-navy-800">{num(t.total_points)}</td>
+                </tr>
+                {openKey === t.teacher_name && (
+                  <tr><td colSpan={4} className="bg-slate-50 px-3 py-2">
+                    {busy === t.teacher_name ? <p className="text-xs text-slate-400">Loadingâ¦</p>
+                      : (entries[t.teacher_name] || []).length === 0 ? <p className="text-xs text-slate-400">No finalised entries.</p>
+                      : (
+                        <div className="overflow-x-auto rounded border border-slate-200 bg-white">
+                          <table className="min-w-full text-xs">
+                            <thead className="text-[10px] uppercase tracking-wide text-slate-400"><tr>
+                              <th className="px-2 py-1 text-left">Participant</th><th className="px-2 py-1 text-left">Event</th><th className="px-2 py-1 text-left">Group</th><th className="px-2 py-1 text-center">Prize</th><th className="px-2 py-1 text-center">Grade</th><th className="px-2 py-1 text-center">Points</th>
+                            </tr></thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {entries[t.teacher_name].map((e, j) => (
+                                <tr key={j} className={e.prize_place ? 'bg-amber-50/40' : ''}>
+                                  <td className="px-2 py-1 font-medium text-slate-700">{e.entry_name || 'â'}{e.is_team ? ' (team)' : ''}{e.school ? <span className="block text-[10px] font-normal text-slate-400">{e.school}</span> : null}</td>
+                                  <td className="px-2 py-1 text-slate-600"><span className="font-mono text-slate-400">{e.event_code}</span> {e.event_name}</td>
+                                  <td className="px-2 py-1 text-slate-600">{e.age_group_label || e.age_group_code || 'â'}</td>
+                                  <td className="px-2 py-1 text-center">{placeLabel(e.prize_place)}</td>
+                                  <td className="px-2 py-1 text-center text-slate-600">{e.grade || 'â'}</td>
+                                  <td className="px-2 py-1 text-center font-semibold text-navy-800">{num(e.total_points)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                  </td></tr>
+                )}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function TeacherCleanup({ token, onClose }) {
+  const [category, setCategory] = useState('dance');
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [editKey, setEditKey] = useState(null);
+  const [editVal, setEditVal] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const num = (v) => Number(v || 0).toFixed(1);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { const r = await awardsApi.teachers(token, 'active', category); setList(r.teachers || []); }
+    catch (e) { setMsg(e.message); }
+    finally { setLoading(false); }
+  }, [token, category]);
+  useEffect(() => { load(); }, [load]);
+  async function save(from) {
+    const to = editVal.trim();
+    if (!to) { setEditKey(null); return; }
+    setBusy(true); setMsg('');
+    try {
+      const r = await awardsApi.renameTeacher(token, 'active', { category, from, to });
+      setMsg(`Updated ${r.updated} entr${r.updated === 1 ? 'y' : 'ies'}: â${from}â â â${to}â.`);
+      setEditKey(null); setEditVal(''); load();
+    } catch (e) { setMsg(e.message); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+          <h3 className="text-base font-semibold text-navy-900">Clean up teacher names</h3>
+          <button onClick={onClose} className="rounded-md p-1 text-slate-400 hover:bg-slate-100"><X size={18} /></button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 px-5 pt-3">
+          <div className="flex overflow-hidden rounded-md border border-slate-300 text-sm">
+            <button onClick={() => setCategory('dance')} className={`px-3 py-1.5 ${category === 'dance' ? 'bg-navy-700 text-white' : 'bg-white text-slate-600'}`}>Dance teachers</button>
+            <button onClick={() => setCategory('music')} className={`px-3 py-1.5 ${category === 'music' ? 'bg-navy-700 text-white' : 'bg-white text-slate-600'}`}>Music teachers</button>
+          </div>
+          <p className="text-xs text-slate-500">To merge two, rename one to the other's exact spelling.</p>
+        </div>
+        {msg && <p className="mx-5 mt-2 rounded bg-slate-50 px-3 py-1.5 text-xs text-slate-600">{msg}</p>}
+        <div className="flex-1 overflow-y-auto p-5">
+          {loading ? <p className="text-sm text-slate-400">Loadingâ¦</p>
+            : list.length === 0 ? <p className="text-sm text-slate-400">No teachers in this category.</p>
+            : (
+              <table className="min-w-full text-sm">
+                <thead className="text-[11px] uppercase tracking-wide text-slate-400"><tr>
+                  <th className="px-2 py-1.5 text-left">Teacher</th><th className="px-2 py-1.5 text-center">Entries</th><th className="px-2 py-1.5 text-center">Points</th><th className="px-2 py-1.5"></th>
+                </tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {list.map((t) => (
+                    <tr key={t.tkey}>
+                      <td className="px-2 py-1.5">
+                        {editKey === t.tkey ? (
+                          <input autoFocus value={editVal} onChange={(e) => setEditVal(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') save(t.teacher_name); if (e.key === 'Escape') setEditKey(null); }}
+                            className="w-full rounded border border-navy-300 px-2 py-1 text-sm" />
+                        ) : <span className="font-medium text-slate-800">{t.teacher_name}{t.spellings > 1 ? <span className="ml-1 text-[10px] text-amber-600">({t.spellings} spellings)</span> : null}</span>}
+                      </td>
+                      <td className="px-2 py-1.5 text-center text-slate-500">{t.entries}</td>
+                      <td className="px-2 py-1.5 text-center text-slate-500">{num(t.total_points)}</td>
+                      <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                        {editKey === t.tkey ? (
+                          <>
+                            <button disabled={busy} onClick={() => save(t.teacher_name)} className="rounded bg-navy-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50">Save</button>
+                            <button onClick={() => setEditKey(null)} className="ml-1 rounded border border-slate-300 px-2 py-1 text-xs">Cancel</button>
+                          </>
+                        ) : <button onClick={() => { setEditKey(t.tkey); setEditVal(t.teacher_name); }} className="text-xs text-navy-600 hover:underline">Rename / merge</button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+        </div>
+        <div className="border-t border-slate-100 px-5 py-3 text-right"><button onClick={onClose} className="rounded-md border border-slate-300 px-4 py-1.5 text-sm">Done</button></div>
+      </div>
+    </div>
+  );
+}
+

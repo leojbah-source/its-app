@@ -8,6 +8,7 @@
 const express = require('express');
 const pool = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 router.use(authenticate, requireRole('Chairman', 'SuperAdmin'));
@@ -18,23 +19,36 @@ async function resolveYearId(param) {
   return rows[0]?.id || null;
 }
 
-// Teacher Awards (rule #17): sum each named teacher's students' finalised total
-// points across dance_teacher + music_teacher. 'NOT_APPLICABLE'/blank excluded.
-const teacherSql = `
-  SELECT teacher AS teacher_name, ROUND(SUM(pts)::numeric, 2) AS total_points, COUNT(*) AS entries
-  FROM (
-    SELECT TRIM(reg.dance_teacher) AS teacher, er.total_points AS pts
-    FROM event_results er JOIN registrations reg ON reg.id = er.registration_id
-    WHERE reg.year_id = $1 AND er.is_finalised = TRUE
-      AND reg.dance_teacher IS NOT NULL AND reg.dance_teacher <> 'NOT_APPLICABLE' AND TRIM(reg.dance_teacher) <> ''
-    UNION ALL
-    SELECT TRIM(reg.music_teacher), er.total_points
-    FROM event_results er JOIN registrations reg ON reg.id = er.registration_id
-    WHERE reg.year_id = $1 AND er.is_finalised = TRUE
-      AND reg.music_teacher IS NOT NULL AND reg.music_teacher <> 'NOT_APPLICABLE' AND TRIM(reg.music_teacher) <> ''
-  ) t
-  GROUP BY teacher
-  ORDER BY total_points DESC NULLS LAST, teacher`;
+// Teacher Awards (rule #17), Dance and Music awarded SEPARATELY. A normalised
+// key (case-insensitive, trimmed, single-spaced) groups spelling variants so a
+// teacher isn't split across rows; the display name is the most common spelling.
+// Genuinely different spellings are merged by staff with the clean-up tool.
+const tkey = (field) => `lower(btrim(regexp_replace(reg.${field}, '\\s+', ' ', 'g')))`;
+
+// Best Teacher for ONE category (field = dance_teacher | music_teacher).
+const teacherAwardSql = (field) => `
+  SELECT mode() WITHIN GROUP (ORDER BY btrim(regexp_replace(reg.${field}, '\\s+', ' ', 'g'))) AS teacher_name,
+         ${tkey(field)} AS tkey,
+         ROUND(SUM(er.total_points)::numeric, 2) AS total_points,
+         COUNT(*)::int AS entries
+  FROM event_results er JOIN registrations reg ON reg.id = er.registration_id
+  WHERE reg.year_id = $1 AND er.is_finalised = TRUE
+    AND reg.${field} IS NOT NULL AND reg.${field} <> 'NOT_APPLICABLE' AND btrim(reg.${field}) <> ''
+  GROUP BY ${tkey(field)}
+  ORDER BY total_points DESC NULLS LAST, teacher_name`;
+
+// All teachers in a category (finalised or not) — drives the clean-up tool.
+const teacherListSql = (field) => `
+  SELECT mode() WITHIN GROUP (ORDER BY btrim(regexp_replace(reg.${field}, '\\s+', ' ', 'g'))) AS teacher_name,
+         ${tkey(field)} AS tkey,
+         COUNT(*)::int AS entries,
+         COUNT(DISTINCT btrim(reg.${field}))::int AS spellings,
+         ROUND(COALESCE(SUM(er.total_points) FILTER (WHERE er.is_finalised), 0)::numeric, 2) AS total_points
+  FROM registrations reg
+  LEFT JOIN event_results er ON er.registration_id = reg.id
+  WHERE reg.year_id = $1 AND reg.${field} IS NOT NULL AND reg.${field} <> 'NOT_APPLICABLE' AND btrim(reg.${field}) <> ''
+  GROUP BY ${tkey(field)}
+  ORDER BY teacher_name`;
 
 // Top participants by TOTAL finalised points, within each age group (top 5,
 // ties shown). Individual participants only (team entries excluded).
@@ -96,12 +110,14 @@ router.get('/:year_id/standings', async (req, res, next) => {
        FROM v_group_championship WHERE year_id = $1
        ORDER BY age_group_label, total_points DESC NULLS LAST`, [yearId]);
 
-    const { rows: teacherAwards } = await pool.query(teacherSql, [yearId]);
+    const { rows: danceTeacherAwards } = await pool.query(teacherAwardSql('dance_teacher'), [yearId]);
+    const { rows: musicTeacherAwards } = await pool.query(teacherAwardSql('music_teacher'), [yearId]);
     const { rows: ageGroupToppers } = await pool.query(ageGroupToppersSql, [yearId]);
     const { rows: categoryToppers } = await pool.query(categoryToppersSql, [yearId]);
 
     res.json({ year_id: yearId, school_awards: schoolAwards, group_championship: groupChampionship,
-      teacher_awards: teacherAwards, age_group_toppers: ageGroupToppers, category_toppers: categoryToppers });
+      dance_teacher_awards: danceTeacherAwards, music_teacher_awards: musicTeacherAwards,
+      age_group_toppers: ageGroupToppers, category_toppers: categoryToppers });
   } catch (err) { next(err); }
 });
 
@@ -115,6 +131,10 @@ router.get('/:year_id/teacher-entries', async (req, res, next) => {
     if (!yearId) return res.status(400).json({ error: 'No active year' });
     const teacher = String(req.query.teacher || '').trim();
     if (!teacher) return res.status(400).json({ error: 'teacher query parameter is required' });
+    const category = req.query.category === 'music' ? 'music' : 'dance';
+    const field = category === 'music' ? 'music_teacher' : 'dance_teacher';
+    // Match by normalised key so every spelling/case variant of this teacher is
+    // included; ordered by participant name.
     const { rows } = await pool.query(
       `SELECT COALESCE(p.full_name, tm.team_name) AS entry_name,
               (reg.team_id IS NOT NULL) AS is_team,
@@ -122,8 +142,7 @@ router.get('/:year_id/teacher-entries', async (req, res, next) => {
               e.event_code, e.event_name, c.name AS category_name,
               ag.code AS age_group_code, ag.label AS age_group_label,
               er.prize_place, er.grade, er.total_points,
-              CASE WHEN TRIM(COALESCE(reg.dance_teacher, '')) = $2 THEN 'Dance'
-                   WHEN TRIM(COALESCE(reg.music_teacher, '')) = $2 THEN 'Music' END AS taught_as
+              '${category === 'music' ? 'Music' : 'Dance'}' AS taught_as
          FROM event_results er
          JOIN registrations reg ON reg.id = er.registration_id
          JOIN events e ON e.id = reg.event_id
@@ -133,11 +152,48 @@ router.get('/:year_id/teacher-entries', async (req, res, next) => {
          LEFT JOIN teams tm ON tm.id = reg.team_id
          LEFT JOIN schools sch ON sch.id = COALESCE(p.school_id, tm.school_id)
         WHERE reg.year_id = $1 AND er.is_finalised = TRUE
-          AND ( (reg.dance_teacher <> 'NOT_APPLICABLE' AND TRIM(COALESCE(reg.dance_teacher, '')) = $2)
-             OR (reg.music_teacher <> 'NOT_APPLICABLE' AND TRIM(COALESCE(reg.music_teacher, '')) = $2) )
-        ORDER BY e.event_code, ag.sort_order NULLS LAST, entry_name`,
+          AND reg.${field} <> 'NOT_APPLICABLE'
+          AND lower(btrim(regexp_replace(COALESCE(reg.${field}, ''), '\s+', ' ', 'g')))
+            = lower(btrim(regexp_replace($2, '\s+', ' ', 'g')))
+        ORDER BY entry_name`,
       [yearId, teacher]);
-    res.json({ teacher, entries: rows });
+    res.json({ teacher, category, entries: rows });
+  } catch (err) { next(err); }
+});
+
+// GET /api/admin/awards/:year_id/teachers?category=dance|music — distinct
+// teachers (sorted by name) with entry counts and points, for the clean-up tool.
+router.get('/:year_id/teachers', async (req, res, next) => {
+  try {
+    const yearId = await resolveYearId(req.params.year_id);
+    if (!yearId) return res.status(400).json({ error: 'No active year' });
+    const field = req.query.category === 'music' ? 'music_teacher' : 'dance_teacher';
+    const { rows } = await pool.query(teacherListSql(field), [yearId]);
+    res.json({ category: field === 'music_teacher' ? 'music' : 'dance', teachers: rows });
+  } catch (err) { next(err); }
+});
+
+// POST /api/admin/awards/:year_id/teachers/rename { category, from, to }
+// Merge/rename a teacher: set every registration whose <category>_teacher matches
+// `from` (case/space-insensitive) to `to`. Merges if `to` already exists.
+router.post('/:year_id/teachers/rename', async (req, res, next) => {
+  try {
+    const yearId = await resolveYearId(req.params.year_id);
+    if (!yearId) return res.status(400).json({ error: 'No active year' });
+    const field = req.body.category === 'music' ? 'music_teacher' : 'dance_teacher';
+    const from = String(req.body.from || '').trim();
+    const to = String(req.body.to || '').trim();
+    if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
+    const { rows } = await pool.query(
+      `UPDATE registrations SET ${field} = $3, updated_at = now()
+        WHERE year_id = $1 AND ${field} IS NOT NULL AND ${field} <> 'NOT_APPLICABLE'
+          AND lower(btrim(regexp_replace(${field}, '\s+', ' ', 'g')))
+            = lower(btrim(regexp_replace($2, '\s+', ' ', 'g')))
+        RETURNING id`, [yearId, from, to]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'RENAME_TEACHER', entity: 'registrations',
+      details: { category: field, from, to, updated: rows.length } });
+    res.json({ updated: rows.length, from, to });
   } catch (err) { next(err); }
 });
 
@@ -161,11 +217,16 @@ router.get('/:year_id/export', async (req, res, next) => {
     lines.push('GROUP CHAMPIONSHIP (rule #15)');
     lines.push('age_group,school,total_points');
     groups.forEach((r) => lines.push([r.age_group_label, r.school_name, r.total_points].map(q).join(',')));
-    const { rows: teachers } = await pool.query(teacherSql, [yearId]);
+    const { rows: danceT } = await pool.query(teacherAwardSql('dance_teacher'), [yearId]);
+    const { rows: musicT } = await pool.query(teacherAwardSql('music_teacher'), [yearId]);
     lines.push('');
-    lines.push('TEACHER AWARDS (rule #17)');
+    lines.push('BEST DANCE TEACHER (rule #17)');
     lines.push('teacher,entries,total_points');
-    teachers.forEach((r) => lines.push([r.teacher_name, r.entries, r.total_points].map(q).join(',')));
+    danceT.forEach((r) => lines.push([r.teacher_name, r.entries, r.total_points].map(q).join(',')));
+    lines.push('');
+    lines.push('BEST MUSIC TEACHER (rule #17)');
+    lines.push('teacher,entries,total_points');
+    musicT.forEach((r) => lines.push([r.teacher_name, r.entries, r.total_points].map(q).join(',')));
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="awards_${yearId}.csv"`);
     res.send(lines.join('\n'));
