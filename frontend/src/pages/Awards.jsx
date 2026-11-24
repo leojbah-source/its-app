@@ -339,7 +339,7 @@ function TeacherAwards({ token, category, title, rows }) {
   const [entries, setEntries] = useState({});
   const [busy, setBusy] = useState(null);
   const num = (v) => Number(v || 0).toFixed(1);
-  const placeLabel = (n) => (n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : n ? String(n) : 'â');
+  const placeLabel = (n) => (n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : n ? String(n) : '—');
   async function toggle(name) {
     if (openKey === name) { setOpenKey(null); return; }
     setOpenKey(name);
@@ -369,7 +369,7 @@ function TeacherAwards({ token, category, title, rows }) {
                 </tr>
                 {openKey === t.teacher_name && (
                   <tr><td colSpan={4} className="bg-slate-50 px-3 py-2">
-                    {busy === t.teacher_name ? <p className="text-xs text-slate-400">Loadingâ¦</p>
+                    {busy === t.teacher_name ? <p className="text-xs text-slate-400">Loading…</p>
                       : (entries[t.teacher_name] || []).length === 0 ? <p className="text-xs text-slate-400">No finalised entries.</p>
                       : (
                         <div className="overflow-x-auto rounded border border-slate-200 bg-white">
@@ -380,11 +380,11 @@ function TeacherAwards({ token, category, title, rows }) {
                             <tbody className="divide-y divide-slate-100">
                               {entries[t.teacher_name].map((e, j) => (
                                 <tr key={j} className={e.prize_place ? 'bg-amber-50/40' : ''}>
-                                  <td className="px-2 py-1 font-medium text-slate-700">{e.entry_name || 'â'}{e.is_team ? ' (team)' : ''}{e.school ? <span className="block text-[10px] font-normal text-slate-400">{e.school}</span> : null}</td>
+                                  <td className="px-2 py-1 font-medium text-slate-700">{e.entry_name || '—'}{e.is_team ? ' (team)' : ''}{e.school ? <span className="block text-[10px] font-normal text-slate-400">{e.school}</span> : null}</td>
                                   <td className="px-2 py-1 text-slate-600"><span className="font-mono text-slate-400">{e.event_code}</span> {e.event_name}</td>
-                                  <td className="px-2 py-1 text-slate-600">{e.age_group_label || e.age_group_code || 'â'}</td>
+                                  <td className="px-2 py-1 text-slate-600">{e.age_group_label || e.age_group_code || '—'}</td>
                                   <td className="px-2 py-1 text-center">{placeLabel(e.prize_place)}</td>
-                                  <td className="px-2 py-1 text-center text-slate-600">{e.grade || 'â'}</td>
+                                  <td className="px-2 py-1 text-center text-slate-600">{e.grade || '—'}</td>
                                   <td className="px-2 py-1 text-center font-semibold text-navy-800">{num(e.total_points)}</td>
                                 </tr>
                               ))}
@@ -425,7 +425,7 @@ function TeacherCleanup({ token, onClose }) {
     setBusy(true); setMsg('');
     try {
       const r = await awardsApi.renameTeacher(token, 'active', { category, from, to });
-      setMsg(`Updated ${r.updated} entr${r.updated === 1 ? 'y' : 'ies'}: â${from}â â â${to}â.`);
+      setMsg(`Updated ${r.updated} entr${r.updated === 1 ? 'y' : 'ies'}: “${from}” → “${to}”.`);
       setEditKey(null); setEditVal(''); load();
     } catch (e) { setMsg(e.message); }
     finally { setBusy(false); }
@@ -446,7 +446,7 @@ function TeacherCleanup({ token, onClose }) {
         </div>
         {msg && <p className="mx-5 mt-2 rounded bg-slate-50 px-3 py-1.5 text-xs text-slate-600">{msg}</p>}
         <div className="flex-1 overflow-y-auto p-5">
-          {loading ? <p className="text-sm text-slate-400">Loadingâ¦</p>
+          {loading ? <p className="text-sm text-slate-400">Loading…</p>
             : list.length === 0 ? <p className="text-sm text-slate-400">No teachers in this category.</p>
             : (
               <table className="min-w-full text-sm">
@@ -484,4 +484,3 @@ function TeacherCleanup({ token, onClose }) {
     </div>
   );
 }
-
