@@ -454,6 +454,27 @@ router.post('/:event_id/allocate-slots', requireRole(...markRoles), async (req, 
   } finally { if (!released) client.release(); }
 });
 
+// ── POST /api/admin/chest/:event_id/clear-slots — un-allocate this group ────
+// Reverts a group to regular (non-slot) chest numbering by clearing its slot
+// placement. Only before chests are drawn. Lets an event keep time-slot mode for
+// one age group while other groups are numbered normally.
+router.post('/:event_id/clear-slots', requireRole(...markRoles), async (req, res, next) => {
+  try {
+    const ag = grp(req.body.age_group_id);
+    if (!ag) return res.status(400).json({ error: 'age_group_id is required' });
+    const { rows: hasChest } = await pool.query(
+      `SELECT EXISTS(SELECT 1 FROM chest_assignments WHERE event_id = $1 AND age_group_id = $2) AS x`,
+      [req.params.event_id, ag]);
+    if (hasChest[0].x) return res.status(409).json({ error: 'Clear chest numbers for this group first.' });
+    const { rowCount } = await pool.query(
+      `UPDATE registrations SET time_slot_id = NULL WHERE event_id = $1 AND age_group_id = $2 AND time_slot_id IS NOT NULL`,
+      [req.params.event_id, ag]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'CLEAR_SLOT_ALLOCATION', entity: 'registrations', entityId: req.params.event_id, details: { age_group_id: ag, cleared: rowCount } });
+    res.json({ cleared: rowCount });
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/admin/chest/:event_id/slot-plan-xlsx?age_group_id= — parent list ─
 router.get('/:event_id/slot-plan-xlsx', requireRole(...staffRoles), async (req, res, next) => {
   try {

@@ -192,6 +192,13 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
     catch (e) { setErr(e.message); }
     finally { setBusy(false); }
   }
+  async function clearSlots() {
+    if (!window.confirm('Remove the slot placement for this group? It will then use regular chest numbering (not time-slots).')) return;
+    setBusy(true); setErr('');
+    try { await chestApi.clearSlots(token, eventId, groupId); onChanged && onChanged(); }
+    catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  }
   async function markOne(regId, present) {
     setErr('');
     try { await chestApi.markAttendance(token, eventId, regId, present); onChanged && onChanged(); }
@@ -250,6 +257,12 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
               {hasPlaced ? 'Re-draw slots' : 'Draw slots'}
             </Button>
           )}
+          {canMark && !locked && hasPlaced && !chests_assigned && (
+            <Button variant="ghost" size="sm" icon={Trash2} onClick={clearSlots}
+              title="Remove slot placement and number this group normally">
+              Clear slots
+            </Button>
+          )}
           <Button variant="outline" size="sm" icon={Printer} onClick={printList}>Print</Button>
           <Button variant="outline" size="sm" icon={Download} onClick={downloadXlsx}>Excel</Button>
         </div>
@@ -257,9 +270,13 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
       {err && <p className="px-4 py-1.5 text-xs text-red-600">{err}</p>}
       {slots.length === 0 ? (
         <p className="px-4 py-4 text-xs text-slate-500">No time-slots configured. Add them in Events → this event → Slots.</p>
+      ) : !hasPlaced ? (
+        <p className="px-4 py-3 text-[11px] leading-snug text-slate-500">
+          This event has time-slots configured. Use <span className="font-medium text-slate-600">Draw slots</span> only for a group that runs in timed batches (for example a large group split across reporting times). Other groups don't need it — just assign chest numbers normally below.
+        </p>
       ) : (
         <>
-          {canMark && !locked && hasPlaced && (
+          {canMark && !locked && (
             <p className="px-4 pt-3 text-[11px] leading-snug text-slate-500">
               At each slot's reporting time: mark the children in that slot present (P) or absent (A), then press <span className="font-medium text-slate-600">Assign chests</span> for that slot. Slots open one at a time, in order — the next slot unlocks only once the current slot's chests are drawn. Numbers run continuously across slots; absentees are skipped and the next slot carries on from the last number given.
             </p>
@@ -386,6 +403,11 @@ export default function EventDay() {
   const selectedGroupCode = selectedGroup?.code;
   const locked = !!selectedGroup?.locked;
   const timeSlotMode = !!slotPlan?.time_slot_mode;
+  // Time-slot behaviour is PER GROUP: a group only uses slots once it's been drawn
+  // into them. So one age group of an event can run on slots while others are
+  // numbered normally.
+  const groupAllocated = (slotPlan?.slots || []).some((sl) => (sl.participants || []).length > 0);
+  const groupUsesSlots = timeSlotMode && groupAllocated;
   const groupSession = useMemo(() => {
     if (!selectedEvent || !selectedGroupCode) return null;
     return selectedEvent.sessions.find((s) => (s.age_groups || '').split(', ').includes(selectedGroupCode)) || selectedEvent.sessions[0] || null;
@@ -595,7 +617,7 @@ export default function EventDay() {
             {videoEligible && counts.video > 0 && <Badge tone="navy">{counts.video} video</Badge>}
             {locked && <Badge tone="danger"><span className="inline-flex items-center gap-1"><Lock size={11} /> Locked — judging started</span></Badge>}
             <div className="flex-1" />
-            {canMark && !locked && !timeSlotMode && (
+            {canMark && !locked && !groupUsesSlots && (
               <Button variant="primary" icon={Hash} loading={busy} disabled={counts.unmarked > 0 || counts.awaiting === 0}
                 onClick={() => assign('auto')}
                 title={counts.unmarked > 0 ? 'Mark all participants present/absent first' : 'Random chest numbers for attendees in this group'}>
@@ -606,7 +628,7 @@ export default function EventDay() {
             <Button variant="outline" icon={RefreshCw} onClick={() => { loadRoster(); loadSlotPlan(); }}>Refresh</Button>
           </div>
 
-          {!locked && !timeSlotMode && counts.unmarked > 0 && (
+          {!locked && !groupUsesSlots && counts.unmarked > 0 && (
             <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
               {counts.unmarked} participant(s) not yet marked — mark everyone present or absent to enable chest assignment.
             </div>
