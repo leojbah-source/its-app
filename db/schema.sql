@@ -442,7 +442,7 @@ CREATE TABLE event_results (
     grade                       CHAR(1) CHECK (grade IN ('A','B','C')),
     extra_prize_type            TEXT CHECK (extra_prize_type IS NULL OR extra_prize_type IN ('additional_3rd','consolation')),
     extra_prize_approved_by     INT REFERENCES users(id),
-    rank_points                 NUMERIC(6,2) NOT NULL DEFAULT 0,   -- 0 for any extra/consolation prize (rule #14)
+    rank_points                 NUMERIC(6,2) NOT NULL DEFAULT 0,   -- additional_3rd earns 3rd-place pts; consolation earns 0
     grade_points                NUMERIC(6,2) NOT NULL DEFAULT 0,
     participation_bonus_pts     NUMERIC(6,2) NOT NULL DEFAULT 0,
     total_points                NUMERIC(6,2) GENERATED ALWAYS AS (rank_points + grade_points + participation_bonus_pts) STORED,
@@ -461,7 +461,7 @@ CREATE TABLE event_results (
     CHECK (extra_prize_type IS NULL OR extra_prize_approved_by IS NOT NULL)
 );
 COMMENT ON TABLE event_results IS 'total_points (= rank_points + grade_points + participation_bonus_pts) is a generated column, guaranteeing the school-award formula (rule #16) is always consistent. The CHECK on is_published/is_finalised enforces the two-stage publication workflow (rule #13): Finalise+Print for signatures, then Chairman publishes to the PWA.';
-COMMENT ON COLUMN event_results.extra_prize_type IS 'Chairman-only "4th place" extra/consolation prize, addable only before Stage 2 publication (rule #14) -- enforced by trg_event_results_extra_prize_window. Carries no rank_points.';
+COMMENT ON COLUMN event_results.extra_prize_type IS 'Chairman-only extra prize, addable only before Stage 2 publication (rule #14) -- enforced by trg_event_results_extra_prize_window. An additional_3rd is a full 3rd place and earns 3rd-place rank points; a consolation carries no rank points.';
 
 CREATE INDEX idx_event_results_registration ON event_results(registration_id);
 

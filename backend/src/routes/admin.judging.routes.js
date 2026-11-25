@@ -399,8 +399,9 @@ router.post('/results/:event_id/:age_group_id/divergence', requireRole(...viewRo
 });
 
 // ── POST /api/admin/results/:event_id/:age_group_id/extra-prize (rule #14) ───
-// Chairman-only "4th place" additional/consolation prize, addable only BEFORE
-// Stage 2 publication and carrying NO rank points. Pass extra_prize_type = null
+// Chairman-only extra prize, addable only BEFORE Stage 2 publication. An
+// 'additional_3rd' is a full 3rd place and earns 3rd-place rank points; a
+// 'consolation' carries no rank points. Pass extra_prize_type = null
 // to remove it. The DB trigger fn_check_extra_prize_window enforces the window;
 // the CHECK constraint requires extra_prize_approved_by whenever a type is set.
 const EXTRA_TYPES = ['additional_3rd', 'consolation'];
@@ -427,16 +428,25 @@ router.post('/results/:event_id/:age_group_id/extra-prize', requireRole(...viewR
       return res.status(409).json({ error: 'This chest already holds a main prize place — an extra prize is for non-winners.' });
     }
 
-    // ensure a row exists (compute usually created it), then set the type + approver
+    // An Additional 3rd is a full 3rd place: store its place (3) and 3rd-place rank
+    // points right here, so the stored/published figure is correct even if the group
+    // is published without an intervening recompute. (Consolation and removal leave
+    // place/points untouched -- a later recompute settles those.)
+    const cfg = await activeCfg();
+    const thirdPts = Number(cfg && cfg.rank_pts_third) || 0;
+    const isA3 = extra_prize_type === 'additional_3rd';
     await pool.query(
-      `INSERT INTO event_results (registration_id, event_id, extra_prize_type, extra_prize_approved_by, rank_points)
-       VALUES ($1,$2,$3,$4,0)
+      `INSERT INTO event_results (registration_id, event_id, extra_prize_type, extra_prize_approved_by, rank_points, prize_place)
+       VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (registration_id) DO UPDATE SET
          extra_prize_type = EXCLUDED.extra_prize_type,
          extra_prize_approved_by = CASE WHEN EXCLUDED.extra_prize_type IS NULL THEN NULL ELSE EXCLUDED.extra_prize_approved_by END,
+         rank_points = CASE WHEN EXCLUDED.extra_prize_type = 'additional_3rd' THEN EXCLUDED.rank_points ELSE event_results.rank_points END,
+         prize_place = CASE WHEN EXCLUDED.extra_prize_type = 'additional_3rd' THEN 3 ELSE event_results.prize_place END,
          updated_at = NOW()
        WHERE event_results.is_published = FALSE`,
-      [registration_id, reg[0].event_id, extra_prize_type, extra_prize_type === null ? null : req.user.id]);
+      [registration_id, reg[0].event_id, extra_prize_type, extra_prize_type === null ? null : req.user.id,
+       isA3 ? thirdPts : 0, isA3 ? 3 : null]);
 
     await logAudit({ actorId: req.user.id, actorRole: req.user.role,
       action: extra_prize_type ? 'AWARD_EXTRA_PRIZE' : 'REMOVE_EXTRA_PRIZE',
