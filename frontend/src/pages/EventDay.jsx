@@ -163,8 +163,9 @@ function GroupTimerPanel({ token, eventId, groupId }) {
   );
 }
 
-function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChanged }) {
+function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChanged, onAssigned }) {
   const [busy, setBusy] = useState(false);
+  const [slotBusy, setSlotBusy] = useState(null);
   const [err, setErr] = useState('');
   if (!plan) return null;
   const { slots = [], unallocated = [], total_entries = 0, total_capacity = 0, chests_assigned } = plan;
@@ -178,6 +179,23 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
     catch (e) { setErr(e.message); }
     finally { setBusy(false); }
   }
+  async function markOne(regId, present) {
+    setErr('');
+    try { await chestApi.markAttendance(token, eventId, regId, present); onChanged && onChanged(); }
+    catch (e) { setErr(e.message); }
+  }
+  async function assignSlot(sl) {
+    setSlotBusy(sl.id); setErr('');
+    try {
+      const assigned = await chestApi.assignSlot(token, eventId, groupId, sl.id);
+      const nameByReg = new Map((sl.participants || []).map((p) => [p.registration_id, p.name]));
+      const items = (assigned || []).map((a) => ({ chest: a.chest_number, name: nameByReg.get(a.registration_id) || `#${a.registration_id}` }))
+        .sort((a, b) => a.chest - b.chest);
+      if (items.length && onAssigned) onAssigned(items);
+      onChanged && onChanged();
+    } catch (e) { setErr(e.message); }
+    finally { setSlotBusy(null); }
+  }
   async function downloadXlsx() {
     setErr('');
     try {
@@ -190,19 +208,19 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
   function printList() {
     const w = window.open('', '_blank'); if (!w) return;
     const esc = (x) => String(x == null ? '' : x).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-    const block = (title, cls, ppl) => {
+    const block = (title, ppl) => {
       const rows = ppl.length
-        ? [...ppl].sort(sortByName).map((p, i) => `<tr><td>${i + 1}</td><td>${esc(String(p.name).toUpperCase())}</td></tr>`).join('')
-        : '<tr><td></td><td class=muted>— none —</td></tr>';
-      return `<h3 class="${cls}">${title}</h3><table>${rows}</table>`;
+        ? [...ppl].sort(sortByName).map((p) => `<tr><td>${esc(String(p.name).toUpperCase())}</td></tr>`).join('')
+        : '<tr><td class=muted>— none —</td></tr>';
+      return `<h3>${title}</h3><table>${rows}</table>`;
     };
     const slotHtml = slots.map((sl) => {
-      const range = sl.chest_no_start ? ` (chests ${sl.chest_no_start}–${sl.chest_no_start + sl.capacity - 1})` : '';
-      const t = `${esc(sl.slot_label)}${sl.reporting_time ? ' · report ' + esc(sl.reporting_time) : ''}${range}`;
-      return block(t, 'slot', sl.participants);
+      const t = `${esc(sl.slot_label)}${sl.reporting_time ? ' · report ' + esc(sl.reporting_time) : ''}`;
+      return block(t, sl.participants);
     }).join('');
-    const un = unallocated.length ? block(`Not yet placed (${unallocated.length})`, 'warn', unallocated) : '';
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Time-slots</title><style>body{font-family:system-ui,Arial,sans-serif;margin:24px;color:#111}h1{font-size:18px;margin:0 0 2px}h2{font-size:13px;font-weight:400;color:#555;margin:0 0 16px}h3{font-size:14px;margin:18px 0 4px;background:#eee;padding:5px 8px;border-radius:4px}h3.warn{background:#fde8e8;color:#a00}table{border-collapse:collapse;width:100%;margin-bottom:6px}td{border-bottom:1px solid #e3e3e3;padding:3px 8px;font-size:13px}td:first-child{width:34px;color:#888}.muted{color:#aaa}@media print{h3{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body><h1>${esc(plan.event_code)} ${esc(plan.event_name)} — ${esc(plan.age_group_label || plan.age_group_code || '')}</h1><h2>Time-slot plan · ${total_entries} participants</h2>${slotHtml}${un}<script>window.onload=function(){setTimeout(function(){window.print();},150);};<\/script></body></html>`);
+    const un = unallocated.length ? block(`Not yet assigned a slot (${unallocated.length})`, unallocated) : '';
+    const note = "Chest numbers are not pre-assigned. At each slot's reporting time, chest numbers will be drawn by lot for the children present. Please report on time — anyone not present at their slot's reporting time will be marked absent and will not receive a chest number.";
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Time-slots</title><style>body{font-family:system-ui,Arial,sans-serif;margin:24px;color:#111}h1{font-size:18px;margin:0 0 2px}h2{font-size:13px;font-weight:400;color:#555;margin:0 0 10px}.note{font-size:12px;color:#444;background:#fff8e1;border:1px solid #ffe3a3;border-radius:6px;padding:8px 10px;margin:0 0 16px}h3{font-size:14px;margin:18px 0 4px;background:#eee;padding:5px 8px;border-radius:4px}table{border-collapse:collapse;width:100%;margin-bottom:6px}td{border-bottom:1px solid #e3e3e3;padding:4px 8px;font-size:13px}.muted{color:#aaa}@media print{.note,h3{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body><h1>${esc(plan.event_code)} ${esc(plan.event_name)} — ${esc(plan.age_group_label || plan.age_group_code || '')}</h1><h2>Time-slot plan · ${total_entries} participants</h2><p class="note">${esc(note)}</p>${slotHtml}${un}<script>window.onload=function(){setTimeout(function(){window.print();},150);};<\/script></body></html>`);
     w.document.close();
   }
   return (
@@ -214,7 +232,7 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
         </span>
         <div className="flex flex-wrap items-center gap-2">
           {canMark && !locked && (
-            <Button variant="primary" size="sm" icon={Shuffle} loading={busy} onClick={draw} disabled={chests_assigned}
+            <Button variant="outline" size="sm" icon={Shuffle} loading={busy} onClick={draw} disabled={chests_assigned}
               title={chests_assigned ? 'Clear chest numbers first to re-draw slots' : 'Randomly place participants into slots'}>
               {hasPlaced ? 'Re-draw slots' : 'Draw slots'}
             </Button>
@@ -227,38 +245,73 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
       {slots.length === 0 ? (
         <p className="px-4 py-4 text-xs text-slate-500">No time-slots configured. Add them in Events → this event → Slots.</p>
       ) : (
-        <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-          {slots.map((sl) => (
-            <div key={sl.id} className="rounded-lg border border-slate-200">
-              <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-3 py-1.5">
-                <span className="text-xs font-semibold text-navy-700">{sl.slot_label}{sl.reporting_time ? ` · ${sl.reporting_time}` : ''}</span>
-                <span className="text-[10px] text-slate-400">{sl.participants.length}/{sl.capacity}{sl.chest_no_start ? ` · #${sl.chest_no_start}-${sl.chest_no_start + sl.capacity - 1}` : ''}</span>
-              </div>
-              {sl.participants.length === 0 ? <p className="px-3 py-2 text-[11px] text-slate-300">— empty —</p> : (
-                <ol className="divide-y divide-slate-100">
-                  {[...sl.participants].sort(sortByName).map((p) => (
-                    <li key={p.registration_id} className={`flex items-center justify-between px-3 py-1 text-xs ${p.status === 'absent' ? 'text-red-400 line-through' : 'text-slate-700'}`}>
-                      <span>{p.name}</span>
-                      {p.chest_number != null && <span className="font-mono font-semibold text-navy-700">{p.chest_number}</span>}
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </div>
-          ))}
-          {unallocated.length > 0 && (
-            <div className={`rounded-lg border sm:col-span-2 lg:col-span-3 ${hasPlaced ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 bg-slate-50'}`}>
-              <div className={`border-b px-3 py-1.5 text-xs font-semibold ${hasPlaced ? 'border-amber-100 text-amber-700' : 'border-slate-100 text-slate-600'}`}>
-                {hasPlaced
-                  ? `${unallocated.length} couldn't be placed — slots are full (${total_capacity} places for ${total_entries}). Add a slot or capacity, then re-draw.`
-                  : `Not drawn yet — click 'Draw slots' to place these ${unallocated.length} participants into the time-slots.`}
-              </div>
-              <ul className="flex flex-wrap gap-x-4 gap-y-1 px-3 py-2 text-xs text-slate-600">
-                {[...unallocated].sort(sortByName).map((p) => <li key={p.registration_id}>{p.name}</li>)}
-              </ul>
-            </div>
+        <>
+          {canMark && !locked && hasPlaced && (
+            <p className="px-4 pt-3 text-[11px] leading-snug text-slate-500">
+              At each slot's reporting time: mark the children in that slot present (P) or absent (A), then press <span className="font-medium text-slate-600">Assign chests</span> for that slot. Chest numbers run continuously across slots — absentees are skipped and the next slot carries on from the last number given.
+            </p>
           )}
-        </div>
+          <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
+            {slots.map((sl) => {
+              const ppl = [...sl.participants].sort(sortByName);
+              const unmarked = ppl.filter((p) => p.status === 'registered').length;
+              const presentUnassigned = ppl.filter((p) => p.status === 'attended' && p.chest_number == null).length;
+              const assignedCount = ppl.filter((p) => p.chest_number != null).length;
+              return (
+                <div key={sl.id} className="rounded-lg border border-slate-200">
+                  <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/60 px-3 py-1.5">
+                    <span className="text-xs font-semibold text-navy-700">{sl.slot_label}{sl.reporting_time ? ` · ${sl.reporting_time}` : ''}</span>
+                    {canMark && !locked ? (
+                      <Button size="sm" variant={unmarked === 0 && presentUnassigned > 0 ? 'primary' : 'outline'} icon={Hash}
+                        loading={slotBusy === sl.id} disabled={unmarked > 0 || presentUnassigned === 0}
+                        onClick={() => assignSlot(sl)}
+                        title={unmarked > 0 ? `Mark present/absent for all ${unmarked} remaining in this slot first`
+                          : presentUnassigned === 0 ? 'Everyone present in this slot already has a chest' : 'Draw chest numbers for the present children in this slot'}>
+                        Assign chests
+                      </Button>
+                    ) : <span className="text-[10px] text-slate-400">{assignedCount}/{ppl.length} chested</span>}
+                  </div>
+                  {ppl.length === 0 ? <p className="px-3 py-2 text-[11px] text-slate-300">— empty —</p> : (
+                    <ul className="divide-y divide-slate-100">
+                      {ppl.map((p) => {
+                        const absent = p.status === 'absent';
+                        return (
+                          <li key={p.registration_id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
+                            <span className={`truncate ${absent ? 'text-red-400 line-through' : 'text-slate-700'}`}>{p.name}</span>
+                            {p.chest_number != null ? (
+                              <span className="shrink-0 font-mono font-semibold text-navy-700">#{p.chest_number}</span>
+                            ) : canMark && !locked ? (
+                              <span className="flex shrink-0 gap-1">
+                                <button onClick={() => markOne(p.registration_id, true)} title="Present"
+                                  className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${p.status === 'attended' ? 'bg-navy-600 text-white' : 'border border-slate-300 text-slate-500 hover:bg-slate-100'}`}>P</button>
+                                <button onClick={() => markOne(p.registration_id, false)} title="Absent"
+                                  className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${absent ? 'bg-red-500 text-white' : 'border border-slate-300 text-slate-500 hover:bg-slate-100'}`}>A</button>
+                              </span>
+                            ) : (
+                              <span className="shrink-0 text-[10px] text-slate-400">{absent ? 'absent' : p.status === 'attended' ? 'present' : 'to mark'}</span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+            {unallocated.length > 0 && (
+              <div className={`rounded-lg border sm:col-span-2 lg:col-span-3 ${hasPlaced ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 bg-slate-50'}`}>
+                <div className={`border-b px-3 py-1.5 text-xs font-semibold ${hasPlaced ? 'border-amber-100 text-amber-700' : 'border-slate-100 text-slate-600'}`}>
+                  {hasPlaced
+                    ? `${unallocated.length} couldn't be placed — slots are full (${total_capacity} places for ${total_entries}). Add a slot or capacity, then re-draw.`
+                    : `Not drawn yet — click 'Draw slots' to place these ${unallocated.length} participants into the time-slots.`}
+                </div>
+                <ul className="flex flex-wrap gap-x-4 gap-y-1 px-3 py-2 text-xs text-slate-600">
+                  {[...unallocated].sort(sortByName).map((p) => <li key={p.registration_id}>{p.name}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+        </>
       )}
     </Card>
   );
@@ -516,6 +569,7 @@ export default function EventDay() {
           {timeSlotMode && (
             <SlotPlanPanel plan={slotPlan} token={token} eventId={eventId} groupId={groupId}
               locked={locked} canMark={canMark}
+              onAssigned={(items) => { if (items && items.length) setDraw(items); }}
               onChanged={() => { loadSlotPlan(); loadRoster(); reloadGroups(); }} />
           )}
           <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -526,26 +580,18 @@ export default function EventDay() {
             {videoEligible && counts.video > 0 && <Badge tone="navy">{counts.video} video</Badge>}
             {locked && <Badge tone="danger"><span className="inline-flex items-center gap-1"><Lock size={11} /> Locked — judging started</span></Badge>}
             <div className="flex-1" />
-            {canMark && !locked && (
-              timeSlotMode ? (
-                <Button variant="primary" icon={Hash} loading={busy} disabled={counts.unmarked > 0 || counts.awaiting === 0}
-                  onClick={() => assign('timeslot')}
-                  title={counts.unmarked > 0 ? 'Mark all participants present/absent first' : 'Draw chest numbers per time-slot (slot 1 → 1-5, slot 2 → 6-10, …)'}>
-                  Assign chests by slot ({counts.awaiting})
-                </Button>
-              ) : (
-                <Button variant="primary" icon={Hash} loading={busy} disabled={counts.unmarked > 0 || counts.awaiting === 0}
-                  onClick={() => assign('auto')}
-                  title={counts.unmarked > 0 ? 'Mark all participants present/absent first' : 'Random chest numbers for attendees in this group'}>
-                  Assign chests ({counts.awaiting})
-                </Button>
-              )
+            {canMark && !locked && !timeSlotMode && (
+              <Button variant="primary" icon={Hash} loading={busy} disabled={counts.unmarked > 0 || counts.awaiting === 0}
+                onClick={() => assign('auto')}
+                title={counts.unmarked > 0 ? 'Mark all participants present/absent first' : 'Random chest numbers for attendees in this group'}>
+                Assign chests ({counts.awaiting})
+              </Button>
             )}
             {canManual && !locked && counts.withChest > 0 && <Button variant="ghost" icon={Trash2} onClick={clearChests}>Clear chests</Button>}
             <Button variant="outline" icon={RefreshCw} onClick={loadRoster}>Refresh</Button>
           </div>
 
-          {!locked && counts.unmarked > 0 && (
+          {!locked && !timeSlotMode && counts.unmarked > 0 && (
             <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
               {counts.unmarked} participant(s) not yet marked — mark everyone present or absent to enable chest assignment.
             </div>

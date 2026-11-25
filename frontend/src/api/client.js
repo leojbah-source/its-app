@@ -646,6 +646,8 @@ export const chestApi = {
     request(`/api/admin/chest/${eventId}/assign-auto`, { method: 'POST', token, body: { age_group_id } }),
   assignTimeslot: (token, eventId, age_group_id) =>
     request(`/api/admin/chest/${eventId}/assign-timeslot`, { method: 'POST', token, body: { age_group_id } }),
+  assignSlot: (token, eventId, age_group_id, time_slot_id) =>
+    request(`/api/admin/chest/${eventId}/assign-slot`, { method: 'POST', token, body: { age_group_id, time_slot_id } }),
   slotPlan: (token, eventId, age_group_id) =>
     request(`/api/admin/chest/${eventId}/slot-plan${qs({ age_group_id })}`, { token }),
   allocateSlots: (token, eventId, age_group_id) =>
