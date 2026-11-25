@@ -247,9 +247,13 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
             </div>
           ))}
           {unallocated.length > 0 && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50/40 sm:col-span-2 lg:col-span-3">
-              <div className="border-b border-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700">Not yet placed ({unallocated.length}) — add more slots or capacity, then re-draw</div>
-              <ul className="flex flex-wrap gap-x-4 gap-y-1 px-3 py-2 text-xs text-amber-800">
+            <div className={`rounded-lg border sm:col-span-2 lg:col-span-3 ${hasPlaced ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 bg-slate-50'}`}>
+              <div className={`border-b px-3 py-1.5 text-xs font-semibold ${hasPlaced ? 'border-amber-100 text-amber-700' : 'border-slate-100 text-slate-600'}`}>
+                {hasPlaced
+                  ? `${unallocated.length} couldn't be placed — slots are full (${total_capacity} places for ${total_entries}). Add a slot or capacity, then re-draw.`
+                  : `Not drawn yet — click 'Draw slots' to place these ${unallocated.length} participants into the time-slots.`}
+              </div>
+              <ul className="flex flex-wrap gap-x-4 gap-y-1 px-3 py-2 text-xs text-slate-600">
                 {[...unallocated].sort(sortByName).map((p) => <li key={p.registration_id}>{p.name}</li>)}
               </ul>
             </div>
