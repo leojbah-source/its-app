@@ -171,6 +171,19 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
   const { slots = [], unallocated = [], total_entries = 0, total_capacity = 0, chests_assigned } = plan;
   const sortByName = (a, b) => String(a.name).localeCompare(String(b.name));
   const hasPlaced = slots.some((sl) => sl.participants.length);
+  // Each slot opens only after every earlier slot is drawn (marked + chests given),
+  // so a stray click can't assign out of order and break the continuous numbering.
+  let prevAllDone = true;
+  const slotRows = slots.map((sl) => {
+    const ppl = [...sl.participants].sort(sortByName);
+    const unmarked = ppl.filter((p) => p.status === 'registered').length;
+    const presentUnassigned = ppl.filter((p) => p.status === 'attended' && p.chest_number == null).length;
+    const assignedCount = ppl.filter((p) => p.chest_number != null).length;
+    const done = unmarked === 0 && presentUnassigned === 0;
+    const unlocked = prevAllDone;
+    prevAllDone = prevAllDone && done;
+    return { sl, ppl, unmarked, presentUnassigned, assignedCount, unlocked };
+  });
   async function draw() {
     if (chests_assigned) { setErr('Chest numbers are already drawn for this group — clear them first to re-draw slots.'); return; }
     if (!window.confirm('Randomly draw participants into time-slots? This replaces any current slot placement for this group.')) return;
@@ -248,24 +261,26 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
         <>
           {canMark && !locked && hasPlaced && (
             <p className="px-4 pt-3 text-[11px] leading-snug text-slate-500">
-              At each slot's reporting time: mark the children in that slot present (P) or absent (A), then press <span className="font-medium text-slate-600">Assign chests</span> for that slot. Chest numbers run continuously across slots — absentees are skipped and the next slot carries on from the last number given.
+              At each slot's reporting time: mark the children in that slot present (P) or absent (A), then press <span className="font-medium text-slate-600">Assign chests</span> for that slot. Slots open one at a time, in order — the next slot unlocks only once the current slot's chests are drawn. Numbers run continuously across slots; absentees are skipped and the next slot carries on from the last number given.
             </p>
           )}
-          <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-            {slots.map((sl) => {
-              const ppl = [...sl.participants].sort(sortByName);
-              const unmarked = ppl.filter((p) => p.status === 'registered').length;
-              const presentUnassigned = ppl.filter((p) => p.status === 'attended' && p.chest_number == null).length;
-              const assignedCount = ppl.filter((p) => p.chest_number != null).length;
+          <div className="space-y-3 p-4">
+            {slotRows.map(({ sl, ppl, unmarked, presentUnassigned, assignedCount, unlocked }, i) => {
+              const prevLabel = i > 0 ? slots[i - 1].slot_label : null;
+              const interactive = canMark && !locked && unlocked;
               return (
-                <div key={sl.id} className="rounded-lg border border-slate-200">
+                <div key={sl.id} className={`rounded-lg border ${unlocked ? 'border-slate-200' : 'border-slate-200 bg-slate-50/40 opacity-60'}`}>
                   <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/60 px-3 py-1.5">
-                    <span className="text-xs font-semibold text-navy-700">{sl.slot_label}{sl.reporting_time ? ` · ${sl.reporting_time}` : ''}</span>
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-navy-700">
+                      {sl.slot_label}{sl.reporting_time ? ` · ${sl.reporting_time}` : ''}
+                      {!unlocked && <span className="inline-flex items-center gap-1 text-[10px] font-normal text-slate-400"><Lock size={10} /> opens after {prevLabel}</span>}
+                    </span>
                     {canMark && !locked ? (
-                      <Button size="sm" variant={unmarked === 0 && presentUnassigned > 0 ? 'primary' : 'outline'} icon={Hash}
-                        loading={slotBusy === sl.id} disabled={unmarked > 0 || presentUnassigned === 0}
+                      <Button size="sm" variant={unlocked && unmarked === 0 && presentUnassigned > 0 ? 'primary' : 'outline'} icon={Hash}
+                        loading={slotBusy === sl.id} disabled={!unlocked || unmarked > 0 || presentUnassigned === 0}
                         onClick={() => assignSlot(sl)}
-                        title={unmarked > 0 ? `Mark present/absent for all ${unmarked} remaining in this slot first`
+                        title={!unlocked ? `Draw ${prevLabel} first`
+                          : unmarked > 0 ? `Mark present/absent for all ${unmarked} remaining in this slot first`
                           : presentUnassigned === 0 ? 'Everyone present in this slot already has a chest' : 'Draw chest numbers for the present children in this slot'}>
                         Assign chests
                       </Button>
@@ -276,19 +291,19 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
                       {ppl.map((p) => {
                         const absent = p.status === 'absent';
                         return (
-                          <li key={p.registration_id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
+                          <li key={p.registration_id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm">
                             <span className={`truncate ${absent ? 'text-red-400 line-through' : 'text-slate-700'}`}>{p.name}</span>
                             {p.chest_number != null ? (
                               <span className="shrink-0 font-mono font-semibold text-navy-700">#{p.chest_number}</span>
-                            ) : canMark && !locked ? (
+                            ) : interactive ? (
                               <span className="flex shrink-0 gap-1">
                                 <button onClick={() => markOne(p.registration_id, true)} title="Present"
-                                  className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${p.status === 'attended' ? 'bg-navy-600 text-white' : 'border border-slate-300 text-slate-500 hover:bg-slate-100'}`}>P</button>
+                                  className={`rounded px-2 py-0.5 text-[11px] font-semibold ${p.status === 'attended' ? 'bg-navy-600 text-white' : 'border border-slate-300 text-slate-500 hover:bg-slate-100'}`}>P</button>
                                 <button onClick={() => markOne(p.registration_id, false)} title="Absent"
-                                  className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${absent ? 'bg-red-500 text-white' : 'border border-slate-300 text-slate-500 hover:bg-slate-100'}`}>A</button>
+                                  className={`rounded px-2 py-0.5 text-[11px] font-semibold ${absent ? 'bg-red-500 text-white' : 'border border-slate-300 text-slate-500 hover:bg-slate-100'}`}>A</button>
                               </span>
                             ) : (
-                              <span className="shrink-0 text-[10px] text-slate-400">{absent ? 'absent' : p.status === 'attended' ? 'present' : 'to mark'}</span>
+                              <span className="shrink-0 text-[11px] text-slate-400">{absent ? 'absent' : p.status === 'attended' ? 'present' : 'to mark'}</span>
                             )}
                           </li>
                         );
@@ -299,7 +314,7 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
               );
             })}
             {unallocated.length > 0 && (
-              <div className={`rounded-lg border sm:col-span-2 lg:col-span-3 ${hasPlaced ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 bg-slate-50'}`}>
+              <div className={`rounded-lg border ${hasPlaced ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 bg-slate-50'}`}>
                 <div className={`border-b px-3 py-1.5 text-xs font-semibold ${hasPlaced ? 'border-amber-100 text-amber-700' : 'border-slate-100 text-slate-600'}`}>
                   {hasPlaced
                     ? `${unallocated.length} couldn't be placed — slots are full (${total_capacity} places for ${total_entries}). Add a slot or capacity, then re-draw.`
