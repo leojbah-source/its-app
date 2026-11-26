@@ -91,7 +91,7 @@ router.get('/my-results', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT e.event_name, c.name AS category, ag.label AS age_group,
-              er.prize_place, er.grade, er.rank_points, er.grade_points,
+              er.prize_place, er.final_rank, er.grade, er.rank_points, er.grade_points,
               er.participation_bonus_pts, er.total_points, er.extra_prize_type
        FROM event_results er
        JOIN registrations r ON r.id = er.registration_id

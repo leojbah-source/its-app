@@ -17,6 +17,7 @@ export default function MyPortal() {
   const [results, setResults] = useState(null);
   const [schedule, setSchedule] = useState([]);
   const [err, setErr] = useState('');
+  const [showRank, setShowRank] = useState(false);
 
   useEffect(() => {
     pwaApi.myResults(token).then(setResults).catch((e) => setErr(e.message));
@@ -55,7 +56,14 @@ export default function MyPortal() {
           </div>
         )}
 
-        <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-navy-800"><Trophy size={15} /> My results</h2>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold text-navy-800"><Trophy size={15} /> My results</h2>
+          {results && results.results.length > 0 && (
+            <button onClick={() => setShowRank((v) => !v)} className="text-xs font-medium text-navy-600 hover:underline">
+              {showRank ? 'Hide rank' : 'Show rank'}
+            </button>
+          )}
+        </div>
         {results && results.results.length === 0 && <p className="mb-4 rounded-xl border border-dashed border-slate-300 bg-white py-8 text-center text-sm text-slate-400">No published results yet.</p>}
         {results && results.results.length > 0 && (
           <div className="mb-5 overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -67,6 +75,7 @@ export default function MyPortal() {
                     <span className="text-sm font-medium text-slate-800">{r.event_name}</span>
                     <span className="block text-[11px] text-slate-400">{[r.category, r.age_group].filter(Boolean).join(' · ')}{r.extra_prize_type ? ` · ${EXTRA[r.extra_prize_type]}` : ''}</span>
                   </span>
+                  {showRank && r.final_rank != null && <span className="rounded bg-navy-50 px-1.5 py-0.5 text-[11px] font-medium text-navy-600">Rank {r.final_rank}</span>}
                   {r.grade && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-navy-700">{r.grade}</span>}
                   <span className="w-10 text-right text-sm font-semibold text-navy-800">{Number(r.total_points || 0).toFixed(1)}</span>
                 </li>

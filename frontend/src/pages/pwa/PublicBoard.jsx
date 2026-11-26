@@ -44,7 +44,7 @@ export default function PublicBoard() {
       if (!map.has(key)) map.set(key, { key, event_code: r.event_code, event_name: r.event_name, age_group: r.age_group, category: r.category, event_date: r.event_date, rows: [] });
       map.get(key).rows.push(r);
     }
-    for (const g of map.values()) g.rows.sort((a, b) => (a.rank || 99) - (b.rank || 99) || (a.child_name || '').localeCompare(b.child_name || ''));
+    for (const g of map.values()) g.rows.sort((a, b) => (a.child_name || '').localeCompare(b.child_name || ''));
     const arr = [...map.values()];
     // Newest events on top: sort by schedule date descending.
     // Stable within a date (keeps the server's event / age-group order) via index tiebreaker.
@@ -201,9 +201,7 @@ export default function PublicBoard() {
                         {g.rows.map((r, i) => (
                           <li key={i} className="flex items-center gap-3 px-4 py-2">
                             <span className="w-7 shrink-0 text-center">
-                              {MEDAL[r.place]
-                                ? <span className="text-lg">{MEDAL[r.place]}</span>
-                                : <span className="text-sm font-semibold text-slate-500">{r.rank ?? '—'}</span>}
+                              {MEDAL[r.place] && <span className="text-lg">{MEDAL[r.place]}</span>}
                             </span>
                             <span className="flex-1 text-sm font-medium text-slate-800">
                               {r.child_name}
