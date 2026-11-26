@@ -475,6 +475,40 @@ router.post('/:event_id/clear-slots', requireRole(...markRoles), async (req, res
   } catch (err) { next(err); }
 });
 
+// ── POST /api/admin/chest/:event_id/move-slot — move ONE participant's slot ──
+// Manual override for special cases: move a single participant into a different
+// time-slot. Allowed only while that participant has no chest yet and the target
+// slot has not been drawn, so the continuous numbering stays intact.
+router.post('/:event_id/move-slot', requireRole(...markRoles), async (req, res, next) => {
+  try {
+    const regId = grp(req.body.registration_id);
+    const slotId = grp(req.body.time_slot_id);
+    if (!regId || !slotId) return res.status(400).json({ error: 'registration_id and time_slot_id are required' });
+    const { rows: slk } = await pool.query(
+      `SELECT id FROM event_time_slots WHERE id = $1 AND event_id = $2`, [slotId, req.params.event_id]);
+    if (!slk[0]) return res.status(404).json({ error: 'Time slot not found for this event' });
+    const { rows: reg } = await pool.query(
+      `SELECT r.id, r.age_group_id, ca.chest_number
+         FROM registrations r LEFT JOIN chest_assignments ca ON ca.registration_id = r.id
+        WHERE r.id = $1 AND r.event_id = $2`, [regId, req.params.event_id]);
+    if (!reg[0]) return res.status(404).json({ error: 'Registration not found for this event' });
+    if (await groupLocked(req.params.event_id, reg[0].age_group_id))
+      return res.status(409).json({ error: 'Chest numbers are locked — judging has started for this group.' });
+    if (reg[0].chest_number != null)
+      return res.status(409).json({ error: 'This participant already has a chest number — clear it before moving slots.' });
+    const { rows: tgt } = await pool.query(
+      `SELECT EXISTS(SELECT 1 FROM chest_assignments WHERE event_id = $1 AND age_group_id = $2 AND time_slot_id = $3) AS x`,
+      [req.params.event_id, reg[0].age_group_id, slotId]);
+    if (tgt[0].x)
+      return res.status(409).json({ error: 'That slot has already been drawn — move into a slot whose chests are not yet drawn.' });
+    await pool.query(`UPDATE registrations SET time_slot_id = $1 WHERE id = $2`, [slotId, regId]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'MOVE_SLOT', entity: 'registrations', entityId: regId,
+      details: { event_id: Number(req.params.event_id), age_group_id: reg[0].age_group_id, time_slot_id: slotId } });
+    res.json({ ok: true, registration_id: regId, time_slot_id: slotId });
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/admin/chest/:event_id/slot-plan-xlsx?age_group_id= — parent list ─
 router.get('/:event_id/slot-plan-xlsx', requireRole(...staffRoles), async (req, res, next) => {
   try {

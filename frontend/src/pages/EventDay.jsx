@@ -204,6 +204,11 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
     try { await chestApi.markAttendance(token, eventId, regId, present); onChanged && onChanged(); }
     catch (e) { setErr(e.message); }
   }
+  async function moveTo(regId, targetSlotId) {
+    setErr('');
+    try { await chestApi.moveSlot(token, eventId, regId, targetSlotId); onChanged && onChanged(); }
+    catch (e) { setErr(e.message); }
+  }
   async function assignSlot(sl) {
     setSlotBusy(sl.id); setErr('');
     try {
@@ -284,13 +289,13 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
           <div className="space-y-3 p-4">
             {slotRows.map(({ sl, ppl, unmarked, presentUnassigned, assignedCount, unlocked }, i) => {
               const prevLabel = i > 0 ? slots[i - 1].slot_label : null;
-              const interactive = canMark && !locked && unlocked;
+              const canEdit = canMark && !locked;
               return (
-                <div key={sl.id} className={`rounded-lg border ${unlocked ? 'border-slate-200' : 'border-slate-200 bg-slate-50/40 opacity-60'}`}>
+                <div key={sl.id} className="rounded-lg border border-slate-200">
                   <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/60 px-3 py-1.5">
                     <span className="flex items-center gap-1.5 text-xs font-semibold text-navy-700">
                       {sl.slot_label}{sl.reporting_time ? ` · ${sl.reporting_time}` : ''}
-                      {!unlocked && <span className="inline-flex items-center gap-1 text-[10px] font-normal text-slate-400"><Lock size={10} /> opens after {prevLabel}</span>}
+                      {!unlocked && <span className="inline-flex items-center gap-1 text-[10px] font-normal text-slate-400"><Lock size={10} /> assign opens after {prevLabel}</span>}
                     </span>
                     {canMark && !locked ? (
                       <Button size="sm" variant={unlocked && unmarked === 0 && presentUnassigned > 0 ? 'primary' : 'outline'} icon={Hash}
@@ -312,8 +317,16 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
                             <span className={`truncate ${absent ? 'text-red-400 line-through' : 'text-slate-700'}`}>{p.name}</span>
                             {p.chest_number != null ? (
                               <span className="shrink-0 font-mono font-semibold text-navy-700">#{p.chest_number}</span>
-                            ) : interactive ? (
-                              <span className="flex shrink-0 gap-1">
+                            ) : canEdit ? (
+                              <span className="flex shrink-0 items-center gap-1">
+                                {slots.length > 1 && (
+                                  <select value="" onChange={(e) => { if (e.target.value) moveTo(p.registration_id, Number(e.target.value)); }}
+                                    title="Move this participant to another slot"
+                                    className="mr-0.5 rounded border border-slate-300 bg-white px-1 py-0.5 text-[10px] text-slate-500">
+                                    <option value="">move…</option>
+                                    {slots.filter((o) => o.id !== sl.id).map((o) => <option key={o.id} value={o.id}>→ {o.slot_label}</option>)}
+                                  </select>
+                                )}
                                 <button onClick={() => markOne(p.registration_id, true)} title="Present"
                                   className={`rounded px-2 py-0.5 text-[11px] font-semibold ${p.status === 'attended' ? 'bg-navy-600 text-white' : 'border border-slate-300 text-slate-500 hover:bg-slate-100'}`}>P</button>
                                 <button onClick={() => markOne(p.registration_id, false)} title="Absent"

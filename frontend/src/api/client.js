@@ -654,6 +654,8 @@ export const chestApi = {
     request(`/api/admin/chest/${eventId}/allocate-slots`, { method: 'POST', token, body: { age_group_id } }),
   clearSlots: (token, eventId, age_group_id) =>
     request(`/api/admin/chest/${eventId}/clear-slots`, { method: 'POST', token, body: { age_group_id } }),
+  moveSlot: (token, eventId, registration_id, time_slot_id) =>
+    request(`/api/admin/chest/${eventId}/move-slot`, { method: 'POST', token, body: { registration_id, time_slot_id } }),
   /** Per-slot participant list as Excel (to share with parents). Returns a Blob. */
   slotPlanXlsx: async (token, eventId, age_group_id) => {
     const res = await fetch(`${API_BASE}/api/admin/chest/${eventId}/slot-plan-xlsx${qs({ age_group_id })}`, { headers: { Authorization: `Bearer ${token}` } });
