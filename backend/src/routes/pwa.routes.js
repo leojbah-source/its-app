@@ -33,6 +33,7 @@ router.get('/my-schedule', async (req, res, next) => {
               e.is_stage_event, e.allotted_time_seconds, r.status,
               s.venue, to_char(s.event_date,'YYYY-MM-DD') AS event_date,
               to_char(s.start_time,'HH24:MI') AS start_time,
+              to_char(ts.reporting_time,'HH24:MI') AS slot_report, ts.slot_label AS slot_label,
               s.age_groups,
               (SELECT json_agg(json_build_object('code', ag2.code, 'cnt',
                         (SELECT COUNT(*) FROM registrations r2
@@ -46,6 +47,7 @@ router.get('/my-schedule', async (req, res, next) => {
        FROM registrations r
        JOIN events e ON e.id = r.event_id
        LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+       LEFT JOIN event_time_slots ts ON ts.id = r.time_slot_id
        LEFT JOIN LATERAL (
          SELECT venue, event_date, start_time, age_groups
          FROM ${schedTbl} sd
@@ -79,7 +81,9 @@ router.get('/my-schedule', async (req, res, next) => {
       }
       return {
         event_name: r.event_name, is_team_event: r.is_team_event, age_group: r.age_group,
-        venue: r.venue, event_date: r.event_date, scheduled: !!r.start_time, report,
+        venue: r.venue, event_date: r.event_date, scheduled: !!(r.start_time || r.slot_report),
+        report: r.slot_report || report,
+        slot_label: r.slot_label || null,
         status: r.status,
       };
     });

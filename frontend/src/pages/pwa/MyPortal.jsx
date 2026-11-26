@@ -103,7 +103,10 @@ export default function MyPortal() {
                         ) : s.status === 'absent' ? (
                           <span className="shrink-0 rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-600">Absent</span>
                         ) : (
-                          <span className="text-xs text-slate-700">report by <b className="font-mono text-navy-800">{s.report || '—'}</b></span>
+                          <span className="text-xs text-slate-700">
+                            {s.slot_label && <span className="mr-1 rounded bg-navy-50 px-1.5 py-0.5 text-[10px] font-medium text-navy-600">{s.slot_label}</span>}
+                            report by <b className="font-mono text-navy-800">{s.report || '—'}</b>
+                          </span>
                         )}
                       </div>
                     ) : (
