@@ -30,7 +30,7 @@ router.get('/my-schedule', async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT e.event_name, (e.event_kind = 'team') AS is_team_event,
               ag.code AS my_code, ag.label AS age_group,
-              e.is_stage_event, e.allotted_time_seconds,
+              e.is_stage_event, e.allotted_time_seconds, r.status,
               s.venue, to_char(s.event_date,'YYYY-MM-DD') AS event_date,
               to_char(s.start_time,'HH24:MI') AS start_time,
               s.age_groups,
@@ -80,6 +80,7 @@ router.get('/my-schedule', async (req, res, next) => {
       return {
         event_name: r.event_name, is_team_event: r.is_team_event, age_group: r.age_group,
         venue: r.venue, event_date: r.event_date, scheduled: !!r.start_time, report,
+        status: r.status,
       };
     });
     res.json(out);

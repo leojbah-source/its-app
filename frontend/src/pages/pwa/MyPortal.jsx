@@ -98,7 +98,13 @@ export default function MyPortal() {
                     {s.scheduled ? (
                       <div className="mt-1 flex items-center justify-between gap-2">
                         <span className="text-xs text-slate-500">{s.venue || ''}</span>
-                        <span className="text-xs text-slate-700">report by <b className="font-mono text-navy-800">{s.report || '—'}</b></span>
+                        {s.status === 'attended' ? (
+                          <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-700">Attended</span>
+                        ) : s.status === 'absent' ? (
+                          <span className="shrink-0 rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-600">Absent</span>
+                        ) : (
+                          <span className="text-xs text-slate-700">report by <b className="font-mono text-navy-800">{s.report || '—'}</b></span>
+                        )}
                       </div>
                     ) : (
                       <div className="mt-1 text-xs text-slate-400">Schedule to be announced</div>
