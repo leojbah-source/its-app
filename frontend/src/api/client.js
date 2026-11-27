@@ -698,6 +698,8 @@ export const schoolsApi = {
 
 export const judgesApi = {
   list: (token) => request('/api/admin/judges', { token }),
+  performance: (token) => request('/api/admin/judges/performance', { token }),
+  rate: (token, judgeId, body) => request(`/api/admin/judges/performance/${judgeId}`, { method: 'POST', token, body }),
   full: (token, id) => request(`/api/admin/judges/${id}/full`, { token }),
   create: (token, body) => request('/api/admin/judges', { method: 'POST', token, body }),
   update: (token, id, body) => request(`/api/admin/judges/${id}`, { method: 'PUT', token, body }),

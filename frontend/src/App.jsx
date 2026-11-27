@@ -39,6 +39,7 @@ import Payments from './pages/Payments';
 import Users from './pages/Users';
 import CertificatesPrint from './pages/CertificatesPrint';
 import JudgeReview from './pages/JudgeReview';
+import JudgePerformance from './pages/JudgePerformance';
 import Welcome from './pages/Welcome';
 
 // Parent registration portal pages
@@ -204,6 +205,10 @@ export default function App() {
               <Route
                 path="/admin/judging/judge-review"
                 element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><JudgeReview /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin/judging/judge-performance"
+                element={<ProtectedRoute allowedRoles={['SuperAdmin', 'Chairman']}><JudgePerformance /></ProtectedRoute>}
               />
               <Route
                 path="/admin/notices"

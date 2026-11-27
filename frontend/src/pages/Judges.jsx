@@ -4,7 +4,7 @@
 // on the Schedule page (event level), where 3 judges are picked per event from
 // those whose expertise matches the event's category.
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, Plus, Gavel, Ban, ShieldCheck, Trash2, Save, ClipboardCheck, MailPlus } from 'lucide-react';
+import { RefreshCw, Plus, Gavel, Ban, ShieldCheck, Trash2, Save, ClipboardCheck, MailPlus, Gauge } from 'lucide-react';
 import AdminLayout from '../components/layout/AdminLayout';
 import { Card, Badge } from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -138,6 +138,9 @@ export default function Judges() {
           </Button>
           <Button variant="outline" icon={ClipboardCheck} onClick={() => navigate('/admin/judging/judge-review')}>
             Judge review
+          </Button>
+          <Button variant="outline" icon={Gauge} onClick={() => navigate('/admin/judging/judge-performance')}>
+            Performance
           </Button>
         </div>
       )}

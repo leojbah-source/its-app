@@ -51,6 +51,125 @@ router.get('/', requireRole(...staffRoles), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── GET /api/admin/judges/performance — per-judge marking metrics + rating ──
+// Chairman view (confidential). Computes, from the judges' own marks, how each judge
+// marked contestants: panel alignment (gap from the other judges), harsh/lenient
+// tendency, and discrimination (score spread). Suggests a /10 and returns the
+// Chairman's stored rating + notes.
+router.get('/performance', requireRole(...manageRoles), async (req, res, next) => {
+  try {
+    const { rows: yc } = await pool.query(`SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    const yearId = yc[0]?.id || null;
+    if (!yearId) return res.status(400).json({ error: 'No active year' });
+
+    const { rows: marks } = await pool.query(
+      `SELECT ja.judge_id, ja.event_id, r.age_group_id, s.registration_id,
+              s.score_value, ec.max_score
+         FROM scores s
+         JOIN judge_assignments ja ON ja.id = s.judge_assignment_id
+         JOIN registrations r ON r.id = s.registration_id
+         JOIN event_criteria ec ON ec.id = s.criterion_id
+         JOIN events e ON e.id = ja.event_id
+        WHERE e.year_id = $1`, [yearId]);
+
+    const { rows: judges } = await pool.query(
+      `SELECT j.id, j.full_name, j.is_blacklisted,
+              pr.rating, pr.notes, pr.reviewed_at, u.full_name AS reviewed_by_name
+         FROM judges j
+         LEFT JOIN judge_performance_reviews pr ON pr.judge_id = j.id AND pr.year_id = $1
+         LEFT JOIN users u ON u.id = pr.reviewed_by
+        ORDER BY j.full_name`, [yearId]);
+
+    // Sum each judge's score & max per contestant -> their percentage for that contestant.
+    const jc = new Map();
+    for (const m of marks) {
+      const cKey = `${m.event_id}|${m.age_group_id}|${m.registration_id}`;
+      const jcKey = `${m.judge_id}|${cKey}`;
+      let a = jc.get(jcKey);
+      if (!a) { a = { sum: 0, max: 0, judge_id: m.judge_id, cKey }; jc.set(jcKey, a); }
+      a.sum += Number(m.score_value); a.max += Number(m.max_score);
+    }
+    // contestant -> Map(judge_id -> pct)
+    const contestantJudges = new Map();
+    for (const a of jc.values()) {
+      if (!(a.max > 0)) continue;
+      const pct = (a.sum / a.max) * 100;
+      let cm = contestantJudges.get(a.cKey);
+      if (!cm) { cm = new Map(); contestantJudges.set(a.cKey, cm); }
+      cm.set(a.judge_id, pct);
+    }
+    const perJudge = new Map();
+    for (const cm of contestantJudges.values()) {
+      const entries = [...cm.entries()];
+      for (const [jid, pct] of entries) {
+        let pj = perJudge.get(jid);
+        if (!pj) { pj = { pcts: [], devs: [], absDevs: [], peerAvgs: [] }; perJudge.set(jid, pj); }
+        pj.pcts.push(pct);
+        const others = entries.filter(([k]) => k !== jid).map(([, p]) => p);
+        if (others.length) {
+          const peerAvg = others.reduce((x, y) => x + y, 0) / others.length;
+          pj.devs.push(pct - peerAvg);
+          pj.absDevs.push(Math.abs(pct - peerAvg));
+          pj.peerAvgs.push(peerAvg);
+        }
+      }
+    }
+    const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+    const std = (a) => { if (a.length < 2) return 0; const mu = mean(a); return Math.sqrt(a.reduce((x, y) => x + (y - mu) ** 2, 0) / a.length); };
+    const r1 = (x) => (x == null ? null : Math.round(x * 10) / 10);
+
+    const out = judges.map((j) => {
+      const pj = perJudge.get(j.id);
+      const contestants = pj ? pj.pcts.length : 0;
+      const compared = pj ? pj.absDevs.length : 0;
+      const meanAbsDev = pj ? mean(pj.absDevs) : null;
+      const tendency = pj ? mean(pj.devs) : null;
+      const spread = pj ? std(pj.pcts) : null;
+      const peerSpread = pj ? std(pj.peerAvgs) : null;
+      let suggested = null;
+      if (compared >= 3 && meanAbsDev != null) {
+        const alignPts = 6 * Math.max(0, Math.min(1, 1 - meanAbsDev / 20));
+        const ref = Math.max(peerSpread || 0, 6);
+        const discPts = 4 * Math.max(0, Math.min(1, (spread || 0) / ref));
+        suggested = r1(alignPts + discPts);
+      }
+      return {
+        judge_id: j.id, full_name: j.full_name, is_blacklisted: j.is_blacklisted,
+        contestants, compared,
+        align_gap: r1(meanAbsDev), tendency: r1(tendency), spread: r1(spread),
+        suggested,
+        rating: j.rating != null ? Number(j.rating) : null,
+        notes: j.notes || '', reviewed_at: j.reviewed_at, reviewed_by_name: j.reviewed_by_name || null,
+      };
+    });
+    res.json({ judges: out });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/judges/performance/:judge_id — save the Chairman's rating ─
+router.post('/performance/:judge_id', requireRole(...manageRoles), async (req, res, next) => {
+  try {
+    const { rows: yc } = await pool.query(`SELECT id FROM year_config WHERE is_active = TRUE LIMIT 1`);
+    const yearId = yc[0]?.id || null;
+    if (!yearId) return res.status(400).json({ error: 'No active year' });
+    let { rating, notes } = req.body;
+    rating = (rating === '' || rating === undefined || rating === null) ? null : Number(rating);
+    if (rating != null && (!Number.isFinite(rating) || rating < 0 || rating > 10)) {
+      return res.status(400).json({ error: 'Rating must be between 0 and 10.' });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO judge_performance_reviews (judge_id, year_id, rating, notes, reviewed_by, reviewed_at)
+       VALUES ($1,$2,$3,$4,$5, now())
+       ON CONFLICT (judge_id, year_id) DO UPDATE SET
+         rating = EXCLUDED.rating, notes = EXCLUDED.notes, reviewed_by = EXCLUDED.reviewed_by, reviewed_at = now()
+       RETURNING rating, notes`,
+      [req.params.judge_id, yearId, rating, (notes || '').trim() || null, req.user.id]);
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'RATE_JUDGE', entity: 'judge_performance_reviews', entityId: req.params.judge_id, details: { rating, year_id: yearId } });
+    res.json({ ok: true, rating: rows[0].rating != null ? Number(rows[0].rating) : null, notes: rows[0].notes || '' });
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/admin/judges/blacklist-report — blacklisted judges (rule #10) ───
 router.get('/blacklist-report', requireRole(...manageRoles), async (req, res, next) => {
   try {
