@@ -72,13 +72,30 @@ export default function Videography() {
     return () => clearInterval(pollRef.current);
   }, [eventId, load]);
 
+  // Only the age groups scheduled for THIS event on THIS date (from the schedule's
+  // per-session age_groups) — not every group that has video requests on other days.
+  const scheduledCodes = useMemo(() => {
+    const set = new Set();
+    if (!date || !eventId) return set;
+    for (const r of schedule) {
+      if (String(r.event_date).slice(0, 10) !== date) continue;
+      if (String(r.event_id) !== String(eventId)) continue;
+      for (const c of String(r.age_groups || '').split(',').map((x) => x.trim()).filter(Boolean)) set.add(c);
+    }
+    return set;
+  }, [schedule, date, eventId]);
+
+  const scheduledRows = useMemo(
+    () => (scheduledCodes.size ? rows.filter((r) => scheduledCodes.has(r.age_group)) : rows),
+    [rows, scheduledCodes]);
+
   const groups = useMemo(() => {
     const m = new Map();
-    for (const r of rows) if (r.age_group && !m.has(r.age_group)) m.set(r.age_group, r.age_group_label || r.age_group);
+    for (const r of scheduledRows) if (r.age_group && !m.has(r.age_group)) m.set(r.age_group, r.age_group_label || r.age_group);
     return [...m.entries()].map(([code, label]) => ({ code, label }));
-  }, [rows]);
+  }, [scheduledRows]);
 
-  const visible = useMemo(() => (groupFilter ? rows.filter((r) => r.age_group === groupFilter) : rows), [rows, groupFilter]);
+  const visible = useMemo(() => (groupFilter ? scheduledRows.filter((r) => r.age_group === groupFilter) : scheduledRows), [scheduledRows, groupFilter]);
   const counts = useMemo(() => ({
     total: visible.length,
     recorded: visible.filter((r) => r.recorded).length,
