@@ -184,6 +184,7 @@ async function computeGroup(eventId, ageGroupId, cfg) {
       judge: j.full_name,
       total: judgeTotal(j.assignment_id, reg),
       rank: judgeRank[`${j.assignment_id}:${reg}`],
+      crit: criteria.map((c) => critScore[`${j.assignment_id}:${reg}:${c.id}`] ?? null),
     }));
     const rankSum = perJudge.reduce((t, x) => t + (x.rank || 0), 0);
     const avgPct = judges.length ? perJudge.reduce((t, x) => t + x.total, 0) / judges.length : 0;

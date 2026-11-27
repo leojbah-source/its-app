@@ -4,9 +4,9 @@
 // Chairman publish (Stage 2). Chairman/SuperAdmin only. When a placement tie
 // cannot be broken by criteria order, a Chairman opens a tiebreaker (rule #8)
 // and the judges' 1–10 marks are keyed in to separate the tied chests.
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Calculator, CheckCircle2, Send, AlertTriangle, Scale, X, Printer, Trophy, Download } from 'lucide-react';
+import { RefreshCw, Calculator, CheckCircle2, Send, AlertTriangle, Scale, X, Printer, Trophy, Download, Eye } from 'lucide-react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { Card, Badge } from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -28,6 +28,7 @@ export default function Results() {
   const { token, user } = useAuth();
   const navigate = useNavigate();
   const isChairman = user?.role === 'Chairman' || user?.role === 'SuperAdmin';
+  const [openMarks, setOpenMarks] = useState(null);
   const [schedule, setSchedule] = useState([]);
   const [date, setDate] = useState('');
   const [eventId, setEventId] = useState('');
@@ -299,10 +300,17 @@ export default function Results() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {data.results.map((r) => (
-                      <tr key={r.registration_id} className={r.is_disqualified ? 'bg-red-50/60 text-slate-400' : showTiebreak && r.needs_tiebreak ? 'bg-red-50/40' : r.place ? 'bg-gold-50/30' : ''}>
+                      <Fragment key={r.registration_id}>
+                      <tr className={r.is_disqualified ? 'bg-red-50/60 text-slate-400' : showTiebreak && r.needs_tiebreak ? 'bg-red-50/40' : r.place ? 'bg-gold-50/30' : ''}>
                         <td className="px-3 py-2">{r.is_disqualified ? <span className="rounded bg-red-200 px-1.5 py-0.5 text-[10px] font-bold text-red-800">DQ</span> : r.place ? <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-gold-500 text-xs font-bold text-white">{r.place}</span> : <span className="text-slate-300">—</span>}</td>
                         <td className="px-2 py-2 text-center font-semibold text-navy-800">{r.final_rank ?? '—'}</td>
-                        <td className="px-3 py-2"><span className="font-mono font-semibold text-navy-800">{r.chest_number}</span></td>
+                        <td className="px-3 py-2">
+                          <button onClick={() => setOpenMarks(openMarks === r.registration_id ? null : r.registration_id)}
+                            title="Click to see each judge's marks by criterion"
+                            className="inline-flex items-center gap-1 font-mono font-semibold text-navy-800 hover:text-navy-600">
+                            {r.chest_number}<Eye size={11} className="text-slate-400" />
+                          </button>
+                        </td>
                         {r.per_judge.map((pj, i) => <td key={i} className="px-2 py-2 text-center text-slate-600" title={`total ${pj.total}`}>{pj.rank}</td>)}
                         <td className="px-2 py-2 text-center font-semibold text-navy-800">{r.rank_sum}</td>
                         <td className="px-2 py-2 text-center text-slate-600">{r.avg_pct}</td>
@@ -351,6 +359,42 @@ export default function Results() {
                             : <span className="text-slate-300">&mdash;</span>)}
                         </td>
                       </tr>
+                      {openMarks === r.registration_id && (
+                        <tr>
+                          <td colSpan={20} className="bg-slate-50 px-4 py-3">
+                            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                              <table className="min-w-full text-xs">
+                                <thead>
+                                  <tr className="text-[10px] uppercase tracking-wide text-slate-400">
+                                    <th className="px-2 py-1.5 text-left">Criterion</th>
+                                    {data.judges.map((jn, ji) => <th key={ji} className="px-2 py-1.5 text-center">{String(jn).split(' ')[0]}</th>)}
+                                    <th className="px-2 py-1.5 text-center">Max</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {(data.criteria || []).map((c, ci) => (
+                                    <tr key={c.id}>
+                                      <td className="px-2 py-1.5 text-slate-600">{c.label}</td>
+                                      {r.per_judge.map((pj, ji) => {
+                                        const v = pj.crit ? pj.crit[ci] : null;
+                                        return <td key={ji} className="px-2 py-1.5 text-center font-mono text-slate-700">{v == null ? '—' : v}</td>;
+                                      })}
+                                      <td className="px-2 py-1.5 text-center text-slate-400">{c.max_score}</td>
+                                    </tr>
+                                  ))}
+                                  <tr className="bg-slate-50 font-semibold">
+                                    <td className="px-2 py-1.5 text-slate-700">Total</td>
+                                    {r.per_judge.map((pj, ji) => <td key={ji} className="px-2 py-1.5 text-center font-mono text-navy-800">{pj.total}</td>)}
+                                    <td className="px-2 py-1.5 text-center text-slate-400">{(data.criteria || []).reduce((s2, c) => s2 + Number(c.max_score || 0), 0)}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                            <p className="mt-1.5 text-[11px] text-slate-500">Average {r.avg_pct}% → grade {r.grade || '—'}. One judge marking far below the others pulls the average down even when the final rank stays high.</p>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
