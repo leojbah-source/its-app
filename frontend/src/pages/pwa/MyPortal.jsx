@@ -3,7 +3,7 @@
 // running totals, plus their personal schedule. NO chest numbers (rule #22).
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LogOut, Trophy, CalendarDays, Radio } from 'lucide-react';
+import { LogOut, Trophy, CalendarDays, Radio, Video, Download } from 'lucide-react';
 import { usePwaAuth } from '../../context/PwaAuthContext';
 import { pwaApi } from '../../api/client';
 import BrandMark from '../../components/ui/BrandMark';
@@ -16,12 +16,14 @@ export default function MyPortal() {
   const { token, participant, logout } = usePwaAuth();
   const [results, setResults] = useState(null);
   const [schedule, setSchedule] = useState([]);
+  const [videos, setVideos] = useState([]);
   const [err, setErr] = useState('');
   const [showRank, setShowRank] = useState(false);
 
   useEffect(() => {
     pwaApi.myResults(token).then(setResults).catch((e) => setErr(e.message));
     pwaApi.mySchedule(token).then(setSchedule).catch(() => {});
+    pwaApi.myVideos(token).then(setVideos).catch(() => {});
   }, [token]);
 
   const t = results?.totals;
@@ -82,6 +84,22 @@ export default function MyPortal() {
               ))}
             </ul>
           </div>
+        )}
+
+        {videos.length > 0 && (
+          <>
+            <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-navy-800"><Video size={15} /> My videos</h2>
+            <div className="mb-5 overflow-hidden rounded-xl border border-slate-200 bg-white">
+              <ul className="divide-y divide-slate-100">
+                {videos.map((v, i) => (
+                  <li key={i} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                    <span className="text-sm font-medium text-slate-800">{v.event_name}{v.age_group ? <span className="block text-[11px] text-slate-400">{v.age_group}</span> : null}</span>
+                    <a href={v.video_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-lg bg-navy-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-navy-700"><Download size={13} /> Download</a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </>
         )}
 
         <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-navy-800"><CalendarDays size={15} /> My schedule</h2>

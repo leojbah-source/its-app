@@ -106,6 +106,7 @@ export const publicApi = {
 export const pwaApi = {
   mySchedule: (token) => request('/api/pwa/my-schedule', { token }),
   myResults: (token) => request('/api/pwa/my-results', { token }),
+  myVideos: (token) => request('/api/pwa/my-videos', { token }),
 };
 
 // Awards (Chairman/SuperAdmin). yearId may be 'active'.
@@ -686,6 +687,8 @@ export const videoApi = {
   // Opted-in lists.
   requests: (token, params = {}) => request(`/api/admin/video/requests${qs(params)}`, { token }),
   requestsCsv: (token, params = {}) => request(`/api/admin/video/requests${qs({ ...params, format: 'csv' })}`, { token }),
+  setLink: (token, registration_id, url) =>
+    request(`/api/admin/video/request/${registration_id}/link`, { method: 'PUT', token, body: { url } }),
   financeSummary: (token, yearId) => request(`/api/admin/video/finance-summary${qs({ year_id: yearId })}`, { token }),
   collectionsXlsx: async (token, yearId) => {
     const res = await fetch(`${API_BASE}/api/admin/video/collections-xlsx${qs({ year_id: yearId })}`, { headers: { Authorization: `Bearer ${token}` } });

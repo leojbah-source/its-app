@@ -155,6 +155,29 @@ router.put('/request/:registration_id/recorded', requireRole(...recordRoles), as
   } catch (err) { next(err); }
 });
 
+// ── PUT /api/admin/video/request/:registration_id/link — attach a share link ──
+// The videographer (Media) pastes a link (Google Drive etc.); parents then see a
+// Download button in their portal. An empty url clears it.
+router.put('/request/:registration_id/link', requireRole(...recordRoles), async (req, res, next) => {
+  try {
+    const raw = (req.body.url || '').trim();
+    if (raw && !/^https?:\/\//i.test(raw)) return res.status(400).json({ error: 'Enter a full link starting with http:// or https://' });
+    const url = raw || null;
+    const { rows } = await pool.query(
+      `UPDATE video_requests
+          SET video_url = $1,
+              video_added_at = CASE WHEN $1 IS NULL THEN NULL ELSE now() END,
+              video_added_by = CASE WHEN $1 IS NULL THEN NULL ELSE $2::int END,
+              updated_at = now()
+        WHERE registration_id = $3 RETURNING id, video_url`,
+      [url, req.user.id, req.params.registration_id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Video request not found' });
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: url ? 'VIDEO_LINK_SET' : 'VIDEO_LINK_CLEARED', entity: 'video_requests', entityId: rows[0].id, details: {} });
+    res.json({ ok: true, video_url: rows[0].video_url });
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/admin/video/requests — opted-in list (videographer + prep) ──────
 // filters: ?event_id=&age_group_id=&recorded=true|false&year_id=  ?format=csv
 router.get('/requests', requireRole(...viewRoles), async (req, res, next) => {
@@ -166,7 +189,7 @@ router.get('/requests', requireRole(...viewRoles), async (req, res, next) => {
 
     const { rows } = await pool.query(
       `SELECT vr.id, vr.registration_id, vr.event_id, vr.age_group_id,
-              vr.amount, vr.payment_method, vr.recorded,
+              vr.amount, vr.payment_method, vr.recorded, vr.video_url,
               vr.collected_at, vr.recorded_at,
               COALESCE(p.full_name, t.team_name) AS name,
               e.event_code AS event_code, e.event_name AS event_name,

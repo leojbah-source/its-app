@@ -25,6 +25,8 @@ export default function Videography() {
   const [eventId, setEventId] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
   const [rows, setRows] = useState([]);
+  const [linkEdit, setLinkEdit] = useState({});
+  const [linkBusy, setLinkBusy] = useState(null);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [flash, setFlash] = useState('');
@@ -103,6 +105,17 @@ export default function Videography() {
   }), [visible]);
 
   const evName = events.find((e) => String(e.event_id) === String(eventId));
+
+  async function saveLink(row) {
+    const url = (linkEdit[row.registration_id] ?? row.video_url ?? '').trim();
+    setLinkBusy(row.registration_id);
+    try {
+      const r = await videoApi.setLink(token, row.registration_id, url);
+      setRows((prev) => prev.map((x) => (x.registration_id === row.registration_id ? { ...x, video_url: r.video_url } : x)));
+      setLinkEdit((m) => { const n = { ...m }; delete n[row.registration_id]; return n; });
+    } catch (e) { setFlash(e.message); }
+    finally { setLinkBusy(null); }
+  }
 
   async function toggleRecorded(row) {
     setBusyId(row.registration_id);
@@ -192,6 +205,7 @@ export default function Videography() {
                         <th className="px-3 py-2">Name</th>
                         <th className="px-3 py-2">Group</th>
                         <th className="px-3 py-2">Payment</th>
+                        <th className="px-3 py-2">Video link</th>
                         <th className="px-3 py-2 text-right">Recorded</th>
                       </tr>
                     </thead>
@@ -204,7 +218,7 @@ export default function Videography() {
                             lastG = g;
                             out.push(
                               <tr key={`grp-${g}`} className="bg-slate-100">
-                                <td colSpan={5} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-navy-700">{g}</td>
+                                <td colSpan={6} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-navy-700">{g}</td>
                               </tr>
                             );
                           }
@@ -215,6 +229,16 @@ export default function Videography() {
                           <td className="px-3 py-2 text-slate-500">{r.age_group_label || r.age_group || '—'}</td>
                           <td className="px-3 py-2">
                             <Badge tone={r.payment_method === 'benefitpay' ? 'navy' : 'slate'}>{r.payment_method === 'benefitpay' ? 'BenefitPay' : 'Cash'}</Badge>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-1">
+                              <input value={linkEdit[r.registration_id] ?? r.video_url ?? ''}
+                                onChange={(e) => setLinkEdit((m) => ({ ...m, [r.registration_id]: e.target.value }))}
+                                placeholder="paste share link"
+                                className="w-40 rounded border border-slate-300 px-2 py-1 text-xs" />
+                              <Button size="sm" variant="outline" loading={linkBusy === r.registration_id} onClick={() => saveLink(r)}>Save</Button>
+                              {r.video_url && <a href={r.video_url} target="_blank" rel="noreferrer" className="text-[10px] text-navy-600 underline">open</a>}
+                            </div>
                           </td>
                           <td className="px-3 py-2 text-right">
                             <Button size="sm" variant={r.recorded ? 'primary' : 'outline'} icon={r.recorded ? Check : Circle}

@@ -122,4 +122,20 @@ router.get('/my-results', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /api/pwa/my-videos — events where this participant's video link is ready.
+router.get('/my-videos', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT e.event_name, ag.label AS age_group, vr.video_url
+         FROM video_requests vr
+         JOIN registrations r ON r.id = vr.registration_id
+         JOIN events e ON e.id = vr.event_id
+         LEFT JOIN age_groups ag ON ag.id = r.age_group_id
+        WHERE r.participant_id = $1 AND vr.video_url IS NOT NULL
+        ORDER BY e.event_name`,
+      [req.user.participantId]);
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
