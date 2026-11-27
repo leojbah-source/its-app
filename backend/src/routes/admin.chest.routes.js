@@ -60,10 +60,17 @@ async function buildSlotPlan(eventId, ag) {
     if (r.time_slot_id && bySlot.has(r.time_slot_id)) bySlot.get(r.time_slot_id).push(row);
     else unallocated.push(row);
   }
+  // Which slots are already being judged (any score for a participant in that slot).
+  const { rows: judgedRows } = await pool.query(
+    `SELECT DISTINCT r.time_slot_id FROM scores sc
+       JOIN registrations r ON r.id = sc.registration_id
+      WHERE r.event_id = $1 AND r.age_group_id = $2 AND r.time_slot_id IS NOT NULL`, [eventId, ag]);
+  const judgedSet = new Set(judgedRows.map((x) => x.time_slot_id));
   const outSlots = slots.map((sl) => ({
     id: sl.id, slot_label: sl.slot_label,
     reporting_time: sl.reporting_time ? String(sl.reporting_time).slice(0, 5) : null,
     capacity: sl.capacity, chest_no_start: sl.chest_no_start,
+    judged: judgedSet.has(sl.id),
     participants: bySlot.get(sl.id) || [],
   }));
   return {

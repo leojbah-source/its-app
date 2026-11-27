@@ -163,7 +163,7 @@ function GroupTimerPanel({ token, eventId, groupId }) {
   );
 }
 
-function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChanged, onAssigned }) {
+function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, isChairSuper, onChanged, onAssigned }) {
   const [busy, setBusy] = useState(false);
   const [slotBusy, setSlotBusy] = useState(null);
   const [err, setErr] = useState('');
@@ -289,19 +289,19 @@ function SlotPlanPanel({ plan, token, eventId, groupId, locked, canMark, onChang
           <div className="space-y-3 p-4">
             {slotRows.map(({ sl, ppl, unmarked, presentUnassigned, assignedCount, unlocked }, i) => {
               const prevLabel = i > 0 ? slots[i - 1].slot_label : null;
-              const canEdit = canMark && !locked;
+              const canEdit = canMark && !sl.judged;
               return (
                 <div key={sl.id} className="rounded-lg border border-slate-200">
                   <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/60 px-3 py-1.5">
                     <span className="flex items-center gap-1.5 text-xs font-semibold text-navy-700">
                       {sl.slot_label}{sl.reporting_time ? ` · ${sl.reporting_time}` : ''}
-                      {!unlocked && <span className="inline-flex items-center gap-1 text-[10px] font-normal text-slate-400"><Lock size={10} /> assign opens after {prevLabel}</span>}
+                      {!unlocked && !isChairSuper && <span className="inline-flex items-center gap-1 text-[10px] font-normal text-slate-400"><Lock size={10} /> assign opens after {prevLabel}</span>}
                     </span>
-                    {canMark && !locked ? (
-                      <Button size="sm" variant={unlocked && unmarked === 0 && presentUnassigned > 0 ? 'primary' : 'outline'} icon={Hash}
-                        loading={slotBusy === sl.id} disabled={!unlocked || unmarked > 0 || presentUnassigned === 0}
+                    {canMark && !sl.judged ? (
+                      <Button size="sm" variant={(unlocked || isChairSuper) && unmarked === 0 && presentUnassigned > 0 ? 'primary' : 'outline'} icon={Hash}
+                        loading={slotBusy === sl.id} disabled={(!unlocked && !isChairSuper) || unmarked > 0 || presentUnassigned === 0}
                         onClick={() => assignSlot(sl)}
-                        title={!unlocked ? `Draw ${prevLabel} first`
+                        title={(!unlocked && !isChairSuper) ? `Draw ${prevLabel} first`
                           : unmarked > 0 ? `Mark present/absent for all ${unmarked} remaining in this slot first`
                           : presentUnassigned === 0 ? 'Everyone present in this slot already has a chest' : 'Draw chest numbers for the present children in this slot'}>
                         Assign chests
@@ -618,7 +618,7 @@ export default function EventDay() {
           <GroupTimerPanel token={token} eventId={eventId} groupId={groupId} />
           {timeSlotMode && (
             <SlotPlanPanel plan={slotPlan} token={token} eventId={eventId} groupId={groupId}
-              locked={locked} canMark={canMark}
+              locked={locked} canMark={canMark} isChairSuper={isChairSuper}
               onAssigned={(items) => { if (items && items.length) setDraw(items); }}
               onChanged={() => { loadSlotPlan(); loadRoster(); reloadGroups(); }} />
           )}
