@@ -329,14 +329,24 @@ router.post('/:event_id/attendance', requireRole(...markRoles), async (req, res,
     // who turns up must be reinstated by a senior role).
     if (!['Chairman', 'SuperAdmin'].includes(req.user.role)) {
       const { rows: g } = await pool.query(
-        `SELECT age_group_id FROM registrations WHERE id = $1 AND event_id = $2`,
+        `SELECT r.age_group_id, e.time_slot_mode,
+                EXISTS(SELECT 1 FROM chest_assignments ca WHERE ca.registration_id = r.id) AS has_own_chest
+           FROM registrations r JOIN events e ON e.id = r.event_id
+          WHERE r.id = $1 AND r.event_id = $2`,
         [registration_id, req.params.event_id]);
       if (g[0]) {
-        const { rows: hasChest } = await pool.query(
-          `SELECT 1 FROM chest_assignments WHERE event_id = $1 AND age_group_id = $2 LIMIT 1`,
-          [req.params.event_id, g[0].age_group_id]);
-        if (hasChest[0])
-          return res.status(403).json({ error: 'Chest numbers are assigned for this group — only a Chairman or SuperAdmin can change attendance now.' });
+        if (g[0].time_slot_mode) {
+          // Time-slot events run slot by slot: later slots are marked after earlier
+          // slots are numbered, so lock only a participant who already has a chest.
+          if (g[0].has_own_chest)
+            return res.status(403).json({ error: 'This participant already has a chest number — only a Chairman or SuperAdmin can change their attendance now.' });
+        } else {
+          const { rows: hasChest } = await pool.query(
+            `SELECT 1 FROM chest_assignments WHERE event_id = $1 AND age_group_id = $2 LIMIT 1`,
+            [req.params.event_id, g[0].age_group_id]);
+          if (hasChest[0])
+            return res.status(403).json({ error: 'Chest numbers are assigned for this group — only a Chairman or SuperAdmin can change attendance now.' });
+        }
       }
     }
 
@@ -629,8 +639,14 @@ router.post('/:event_id/assign-slot', requireRole(...markRoles), async (req, res
     const { rows: slk } = await pool.query(
       `SELECT id FROM event_time_slots WHERE id = $1 AND event_id = $2`, [slotId, req.params.event_id]);
     if (!slk[0]) return res.status(404).json({ error: 'Time slot not found for this event' });
-    if (await groupLocked(req.params.event_id, ag))
-      return res.status(409).json({ error: 'Chest numbers are locked — judging has started for this group.' });
+    // Lock only THIS slot if it is already being judged, so later slots can still be
+    // numbered after earlier slots have been judged (per-slot, not the whole group).
+    const { rows: slock } = await pool.query(
+      `SELECT EXISTS(SELECT 1 FROM scores sc JOIN registrations r ON r.id = sc.registration_id
+         WHERE r.event_id = $1 AND r.age_group_id = $2 AND r.time_slot_id = $3) AS locked`,
+      [req.params.event_id, ag, slotId]);
+    if (slock[0].locked)
+      return res.status(409).json({ error: 'This slot is already being judged — its chest numbers are locked.' });
     // Everyone IN THIS SLOT must be marked present/absent first.
     const { rows: un } = await pool.query(
       `SELECT COUNT(*)::int AS c FROM registrations

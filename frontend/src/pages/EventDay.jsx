@@ -646,7 +646,7 @@ export default function EventDay() {
               {counts.unmarked} participant(s) not yet marked — mark everyone present or absent to enable chest assignment.
             </div>
           )}
-          {!locked && canMark && !isChairSuper && counts.withChest > 0 && (
+          {!locked && canMark && !isChairSuper && !groupUsesSlots && counts.withChest > 0 && (
             <div className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
               Chest numbers are assigned for this group — attendance can now be changed only by a Chairman or SuperAdmin.
             </div>
