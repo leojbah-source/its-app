@@ -89,6 +89,26 @@ export default function Results() {
     try { setData(await resultsApi.get(token, eventId, groupId)); } catch { /* ignore transient poll errors */ }
   }, [token, eventId, groupId]);
 
+  async function overrideGrade(r) {
+    const g = window.prompt(`Override grade for chest ${r.chest_number} (now ${r.grade || '—'}${r.grade_override ? ', overridden' : ''}).\nType A, B or C — or leave blank to revert to the computed grade:`, r.grade_override || '');
+    if (g === null) return;
+    const grade = g.trim().toUpperCase();
+    if (grade && !['A', 'B', 'C'].includes(grade)) { setFlash('Grade must be A, B or C.'); return; }
+    let reason = '';
+    if (grade) {
+      const rsn = window.prompt('Reason for overriding this grade (required — kept in the audit log):', '');
+      if (rsn === null) return;
+      if (!rsn.trim()) { setFlash('A reason is required to override a grade.'); return; }
+      reason = rsn.trim();
+    }
+    setFlash('');
+    try {
+      await resultsApi.overrideGrade(token, eventId, r.registration_id, { grade: grade || '', reason });
+      setFlash(grade ? `Chest ${r.chest_number} grade set to ${grade}.` : `Chest ${r.chest_number} grade reverted to the computed grade.`);
+      loadResults();
+    } catch (e) { setFlash(e.message); }
+  }
+
   async function act(kind) {
     if (kind === 'publish') {
       const st = data?.state || {};
@@ -320,7 +340,14 @@ export default function Results() {
                             {fmtTime(r.time_taken_seconds)}
                           </td>
                         )}
-                        <td className="px-2 py-2 text-center">{r.grade ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-navy-700">{r.grade}</span> : <span className="text-slate-300">—</span>}</td>
+                        <td className="px-2 py-2 text-center">
+                          <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${r.grade_override ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-navy-700'}`}
+                            title={r.grade_override ? 'Grade overridden by Chairman' : ''}>{r.grade || '—'}</span>
+                          {isChairman && !r.is_disqualified && (
+                            <button onClick={() => overrideGrade(r)} className="ml-1 text-[10px] text-navy-500 underline"
+                              title={r.grade_override ? 'Change or clear the override' : 'Override this grade'}>{r.grade_override ? 'edit' : 'override'}</button>
+                          )}
+                        </td>
                         <td className="px-2 py-2 text-center text-slate-600">{r.total_points}</td>
                         <td className="px-2 py-2 text-center">
                           {isChairman && !state.published && !r.place ? (

@@ -141,6 +141,14 @@ async function computeGroup(eventId, ageGroupId, cfg) {
         WHERE event_id = $1 AND registration_id = ANY($2) AND extra_prize_type IS NOT NULL`, [eventId, regIds]);
     for (const x of ex.rows) extraMap[x.registration_id] = x.extra_prize_type;
   }
+  // Chairman grade overrides (manual grade that replaces the computed one).
+  const gradeOverrideMap = {};
+  if (regIds.length) {
+    const go = await pool.query(
+      `SELECT registration_id, grade_override FROM event_results
+        WHERE event_id = $1 AND registration_id = ANY($2) AND grade_override IS NOT NULL`, [eventId, regIds]);
+    for (const x of go.rows) gradeOverrideMap[x.registration_id] = x.grade_override;
+  }
   const activeParticipants = participants.filter((p) => !(p.registration_id in dqMap));
 
   let scores = [];
@@ -196,8 +204,10 @@ async function computeGroup(eventId, ageGroupId, cfg) {
     if (avgPct >= Number(cfg.grade_a_pct)) grade = 'A';
     else if (avgPct >= Number(cfg.grade_b_pct)) grade = 'B';
     else if (avgPct >= Number(cfg.grade_c_pct)) grade = 'C';
+    if (gradeOverrideMap[reg]) grade = gradeOverrideMap[reg];
     return { registration_id: reg, chest_number: p.chest_number, perJudge, rankSum,
-      avgPct: Math.round(avgPct * 100) / 100, divergence, critTotals, grade, tbMark: tbMark[reg] || 0 };
+      avgPct: Math.round(avgPct * 100) / 100, divergence, critTotals, grade,
+      grade_override: gradeOverrideMap[reg] || null, tbMark: tbMark[reg] || 0 };
   });
 
   // placement: rankSum asc, tiebreak by critTotals (C1..) desc, then rule #8 marks desc
@@ -368,12 +378,14 @@ router.get('/results/:event_id/:age_group_id', requireRole(...viewRoles), async 
     const regIds = data.results.map((r) => r.registration_id);
     if (regIds.length) {
       const { rows: stored } = await pool.query(
-        `SELECT registration_id, divergence_notes, extra_prize_type FROM event_results WHERE registration_id = ANY($1)`, [regIds]);
+        `SELECT registration_id, divergence_notes, extra_prize_type, grade_override FROM event_results WHERE registration_id = ANY($1)`, [regIds]);
       const noteMap = new Map(stored.map((x) => [x.registration_id, x.divergence_notes]));
       const extraMap = new Map(stored.map((x) => [x.registration_id, x.extra_prize_type]));
+      const gradeOvMap = new Map(stored.map((x) => [x.registration_id, x.grade_override]));
       data.results.forEach((r) => {
         r.divergence_notes = noteMap.get(r.registration_id) || null;
         r.extra_prize_type = extraMap.get(r.registration_id) || null;
+        r.grade_override = gradeOvMap.get(r.registration_id) || null;
       });
     }
     res.json({ ...data, event: ev[0] || null, state: await groupState(req.params.event_id, req.params.age_group_id) });
@@ -453,6 +465,41 @@ router.post('/results/:event_id/:age_group_id/extra-prize', requireRole(...viewR
       action: extra_prize_type ? 'AWARD_EXTRA_PRIZE' : 'REMOVE_EXTRA_PRIZE',
       entity: 'event_results', entityId: registration_id, details: { extra_prize_type, age_group_id: ag } });
     res.json({ ok: true, extra_prize_type });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/results/:event_id/:registration_id/grade-override ─────────
+// Chairman override of one participant's grade (e.g. a divergent judge pulled the
+// average just under a band). Reflected in grade + grade_points immediately, even on
+// a published result, and preserved across recompute. Reason required; audited.
+router.post('/results/:event_id/:registration_id/grade-override', requireRole('Chairman', 'SuperAdmin'), async (req, res, next) => {
+  try {
+    const cfg = await activeCfg();
+    if (!cfg) return res.status(400).json({ error: 'No active year' });
+    const { grade, reason } = req.body;
+    const g = (grade === '' || grade == null) ? null : String(grade).trim().toUpperCase();
+    if (g !== null && !['A', 'B', 'C'].includes(g)) return res.status(400).json({ error: 'Grade must be A, B, C, or empty to revert.' });
+    if (g !== null && !(reason && String(reason).trim())) return res.status(400).json({ error: 'A reason is required to override a grade.' });
+    const { rows: reg } = await pool.query(
+      `SELECT age_group_id FROM registrations WHERE id = $1 AND event_id = $2`, [req.params.registration_id, req.params.event_id]);
+    if (!reg[0]) return res.status(404).json({ error: 'Registration not found for this event' });
+    const gpFor = (x) => (x === 'A' ? Number(cfg.grade_a_pts) : x === 'B' ? Number(cfg.grade_b_pts) : x === 'C' ? Number(cfg.grade_c_pts) : 0);
+    if (g !== null) {
+      await pool.query(
+        `UPDATE event_results SET grade = $2, grade_points = $3, grade_override = $2, updated_at = NOW() WHERE registration_id = $1`,
+        [req.params.registration_id, g, gpFor(g)]);
+    } else {
+      // Revert: clear the override, then restore the naturally computed grade for this one.
+      await pool.query(`UPDATE event_results SET grade_override = NULL, updated_at = NOW() WHERE registration_id = $1`, [req.params.registration_id]);
+      const data = await computeGroup(Number(req.params.event_id), Number(reg[0].age_group_id), cfg);
+      const nat = data.results.find((x) => String(x.registration_id) === String(req.params.registration_id));
+      const ng = nat?.grade || null;
+      await pool.query(`UPDATE event_results SET grade = $2, grade_points = $3, updated_at = NOW() WHERE registration_id = $1`,
+        [req.params.registration_id, ng, gpFor(ng)]);
+    }
+    await logAudit({ actorId: req.user.id, actorRole: req.user.role,
+      action: 'OVERRIDE_GRADE', entity: 'event_results', entityId: req.params.registration_id, details: { grade: g, reason: (reason || '').trim() || null } });
+    res.json({ ok: true, grade: g });
   } catch (err) { next(err); }
 });
 

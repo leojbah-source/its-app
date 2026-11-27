@@ -609,6 +609,8 @@ export const resultsApi = {
   finalise: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/finalise`, { method: 'POST', token, body: {} }),
   publish: (token, eventId, ag) => request(`/api/admin/results/${eventId}/${ag}/publish`, { method: 'POST', token, body: {} }),
   backfillRanks: (token) => request('/api/admin/results/backfill-ranks', { method: 'POST', token, body: {} }),
+  overrideGrade: (token, eventId, registrationId, body) =>
+    request(`/api/admin/results/${eventId}/${registrationId}/grade-override`, { method: 'POST', token, body }),
   /** Full results extract (all completed groups) as Excel. Returns a Blob. */
   exportXlsx: async (token) => {
     const res = await fetch(`${API_BASE}/api/admin/results/export.xlsx`, { headers: { Authorization: `Bearer ${token}` } });
