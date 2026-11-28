@@ -486,7 +486,7 @@ router.post('/results/:event_id/:registration_id/grade-override', requireRole('C
     const gpFor = (x) => (x === 'A' ? Number(cfg.grade_a_pts) : x === 'B' ? Number(cfg.grade_b_pts) : x === 'C' ? Number(cfg.grade_c_pts) : 0);
     if (g !== null) {
       await pool.query(
-        `UPDATE event_results SET grade = $2, grade_points = $3, grade_override = $2, updated_at = NOW() WHERE registration_id = $1`,
+        `UPDATE event_results SET grade = $2::text, grade_points = $3, grade_override = $2::text, updated_at = NOW() WHERE registration_id = $1`,
         [req.params.registration_id, g, gpFor(g)]);
     } else {
       // Revert: clear the override, then restore the naturally computed grade for this one.
