@@ -104,9 +104,10 @@ export default function Results() {
     setFlash('');
     try {
       await resultsApi.overrideGrade(token, eventId, r.registration_id, { grade: grade || '', reason });
-      setFlash(grade ? `Chest ${r.chest_number} grade set to ${grade}.` : `Chest ${r.chest_number} grade reverted to the computed grade.`);
+      const msg = grade ? `Chest ${r.chest_number} grade set to ${grade}.` : `Chest ${r.chest_number} grade reverted to the computed grade.`;
+      setFlash(msg); window.alert(msg);
       loadResults();
-    } catch (e) { setFlash(e.message); }
+    } catch (e) { setFlash(e.message); window.alert('Could not update the grade: ' + e.message); }
   }
 
   async function act(kind) {
